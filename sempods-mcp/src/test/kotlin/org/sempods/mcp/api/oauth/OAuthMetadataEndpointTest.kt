@@ -8,6 +8,7 @@ import io.ktor.server.testing.testApplication
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class OAuthMetadataEndpointTest {
 
@@ -28,7 +29,7 @@ class OAuthMetadataEndpointTest {
   }
 
   @Test
-  fun `authorization-server metadata advertises the AS endpoints and S256`() = testApplication {
+  fun `authorization-server metadata advertises the AS endpoints, S256 and the response issuer`() = testApplication {
     application { oauthMetadataEndpoint(config, mapper) }
     val body = mapper.readTree(client.get("/.well-known/oauth-authorization-server").bodyAsText())
     assertEquals("https://mcp.test", body["issuer"].asString())
@@ -36,6 +37,7 @@ class OAuthMetadataEndpointTest {
     assertEquals("https://mcp.test/token", body["token_endpoint"].asString())
     assertEquals("https://mcp.test/register", body["registration_endpoint"].asString())
     assertEquals("S256", body["code_challenge_methods_supported"][0].asString())
+    assertTrue(body["authorization_response_iss_parameter_supported"].asBoolean())
   }
 
   @Test

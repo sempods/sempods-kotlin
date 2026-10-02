@@ -170,6 +170,9 @@ internal fun buildAuthorizationServerMetadata(
     "scopes_supported" to SCOPES_SUPPORTED,
     "code_challenge_methods_supported" to listOf("S256"),
     "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic"),
+    // RFC 9207: every authorization response names this issuer (`PodOAuthErrorResponses.issuerOf`),
+    // so a client may refuse one that names none.
+    "authorization_response_iss_parameter_supported" to true,
     // A sempods extension member (RFC 8414 §2 allows them): where a registered service sends the
     // owner to decide its access. `sempods-server/docs/auth/service-clients.md` §"Consent".
     "sempods_service_consent_endpoint" to "$endpoints/service-consent",

@@ -22,6 +22,7 @@ import com.nimbusds.oauth2.sdk.token.BearerAccessToken
 import com.nimbusds.oauth2.sdk.token.RefreshToken
 import com.nimbusds.oauth2.sdk.token.Tokens
 import com.nimbusds.oauth2.sdk.client.RegistrationError
+import com.nimbusds.oauth2.sdk.id.Issuer
 import com.nimbusds.oauth2.sdk.id.State
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.OAuthErrorCode
@@ -185,15 +186,16 @@ fun Application.authEndpoint(
     val promptValues = OAuthSyntax.parsePrompt(q["prompt"])
 
     val policy = redirectPolicyFor(dcrClientDao, profile)
+    val issuer = ProfilePath.baseUrlFor(base, profile)
     if (clientId == null || redirectUri == null) {
-      return call.respondOAuthError(OAuthErrorDelivery.Direct(OAuthErrorCode.INVALID_REQUEST, "client_id and redirect_uri required"))
+      return call.respondOAuthError(OAuthErrorDelivery.Direct(OAuthErrorCode.INVALID_REQUEST, "client_id and redirect_uri required"), issuer)
     }
     // The one check that decides whether anything at all may be sent to this address — an error
     // included. `redirectTargetFor` answers null both for a client this server does not know and
     // for an address that client may not use, and the two must stay indistinguishable to the
     // caller: telling them apart is a client-enumeration oracle. The server log keeps them apart.
     val target = OAuthErrors.redirectTargetFor(policy, clientId, redirectUri)
-      ?: return call.respondOAuthError(OAuthErrorDelivery.Direct(OAuthErrorCode.INVALID_CLIENT, "unknown client_id or unregistered redirect_uri"))
+      ?: return call.respondOAuthError(OAuthErrorDelivery.Direct(OAuthErrorCode.INVALID_CLIENT, "unknown client_id or unregistered redirect_uri"), issuer)
         .also {
           val known = dcrClientDao.findByClientId(profile, clientId) != null
           logger.info {
@@ -208,12 +210,14 @@ fun Application.authEndpoint(
     if (responseType != "code") {
       return call.respondOAuthError(
         OAuthErrorDelivery.Redirect(target, OAuthErrorCode.UNSUPPORTED_RESPONSE_TYPE, "only 'code' is supported", clientState),
+        issuer,
       )
     }
     // PKCE mandatory for public (dynamic) clients.
     if (codeChallenge.isNullOrBlank() || codeChallengeMethod != Pkce.METHOD_S256) {
       return call.respondOAuthError(
         OAuthErrorDelivery.Redirect(target, OAuthErrorCode.INVALID_REQUEST, "PKCE S256 required", clientState),
+        issuer,
       )
     }
     // No service session yet → cannot satisfy prompt=none silently (refresh tokens cover
@@ -225,6 +229,7 @@ fun Application.authEndpoint(
     if ("none" in promptValues) {
       return call.respondOAuthError(
         OAuthErrorDelivery.Redirect(target, OAuthErrorCode.LOGIN_REQUIRED, "interactive login required", clientState),
+        issuer,
       )
     }
     if (loginBaseUrl == null) {
@@ -329,6 +334,7 @@ fun Application.authEndpoint(
       val policy = redirectPolicyFor(dcrClientDao, pending.profile)
       suspend fun refuseLogin(description: String) = call.respondOAuthError(
         policy, pending.clientId, pending.redirectUri, OAuthErrorCode.ACCESS_DENIED, description, pending.clientState,
+        ProfilePath.baseUrlFor(base, pending.profile),
       )
       if (error != null) {
         // The id-server's own `error` value is a stranger's string reaching an AI client's URL
@@ -493,12 +499,14 @@ fun Application.authEndpoint(
       // nimbus's problem rather than a rule repeated per call site.
       call.respondRedirect(
         AuthorizationSuccessResponse(
-          URI(txn.redirectUri),
+          withoutIssuer(txn.redirectUri),
           AuthorizationCode(code),
           null,
           // Blank means absent, for the reason `respondOAuthError` spells out: nimbus refuses a
           // blank `State`, and a success response is the worst place to discover that.
           txn.clientState?.takeIf { it.isNotBlank() }?.let { State(it) },
+          // RFC 9207: the profile's authorization server, as its metadata names it.
+          Issuer(ProfilePath.baseUrlFor(base, txn.profile)),
           ResponseMode.QUERY,
         ).toURI().toString(),
       )

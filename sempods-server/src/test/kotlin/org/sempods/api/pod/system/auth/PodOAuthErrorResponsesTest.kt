@@ -7,6 +7,8 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.Redirectable
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -36,6 +38,7 @@ class PodOAuthErrorResponsesTest {
     docBase: String? = "https://docs.example/oauth-errors",
   ): String = PodOAuthErrorResponses.render(
     OAuthErrorDelivery.Redirect(target(redirectUri), OAuthErrorCode.ACCESS_DENIED, "no", state),
+    "alice",
     config(docBase),
   ).location.toString()
 
@@ -43,6 +46,7 @@ class PodOAuthErrorResponsesTest {
   fun `an error sends the browser without re-sending the consent form`() {
     val response = PodOAuthErrorResponses.render(
       OAuthErrorDelivery.Redirect(target("https://app.example/cb"), OAuthErrorCode.ACCESS_DENIED, "no", null),
+      "alice",
       config(null),
     )
 
@@ -71,6 +75,17 @@ class PodOAuthErrorResponsesTest {
   }
 
   @Test
+  fun `an error names the pod as its issuer, once`() {
+    // RFC 9207. An address registered with an `iss` of its own gets this server's instead, as with
+    // every other parameter this server writes.
+    val location = locationOf("https://app.example/cb?iss=https%3A%2F%2Fother.example")
+    val pod = URLEncoder.encode("${SempodsModule.config.apiBaseUrl}alice", StandardCharsets.UTF_8)
+
+    assertEquals(1, Regex("[?&]iss=").findAll(location).count(), location)
+    assertTrue("iss=$pod" in location, location)
+  }
+
+  @Test
   fun `an error_uri this server has none to give is removed rather than left standing`() {
     // Deployment-specific: without SEMPODS_OAUTH_ERROR_DOC_BASE there is no page to point at, and
     // a client registered as `...cb?error_uri=...` would otherwise get its own value back looking
@@ -93,6 +108,7 @@ class PodOAuthErrorResponsesTest {
   fun `an error with no proven address is rendered here instead of sent anywhere`() {
     val response = PodOAuthErrorResponses.render(
       OAuthErrorDelivery.Direct(OAuthErrorCode.INVALID_CLIENT, "unknown client"),
+      "alice",
       config(null),
     )
 

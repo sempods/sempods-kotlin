@@ -7,8 +7,8 @@ the cross-module credential boundaries.
 ## Service identity and MCP access
 
 The service is its own MCP-OAuth resource server / authorization server (RFC 9728 + 8414 discovery, DCR with
-fingerprint dedup, `/authorize` + consent + `/token` with PKCE-S256 and refresh-token
-rotation, RS256 token issuer + JWKS), federates user login to id.sempods.org as an OIDC
+fingerprint dedup, `/authorize` + consent + `/token` with PKCE-S256, `iss` (RFC 9207) on every
+authorization response, and refresh-token rotation, RS256 token issuer + JWKS), federates user login to id.sempods.org as an OIDC
 relying party (`user` = stable WebID), and ships the MCP JSON-RPC front-door. An AI client's
 refresh-token family ends after 90 days unused, and 365 days after its code exchange however often
 it rotates (`McpRefreshTokenStore`). The hosted

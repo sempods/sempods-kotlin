@@ -153,7 +153,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
     connect(owned, app, setOf("$notes#read"))
 
     val cancelled = flow.submit(ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "c")), owned.cookie, action = "cancel")
-    assertEquals(mapOf("error" to "access_denied", "error_description" to "cancelled", "state" to "c"), flow.query(cancelled))
+    assertEquals(mapOf("error" to "access_denied", "error_description" to "cancelled", "state" to "c", "iss" to flow.podBase(owned.pod)), flow.query(cancelled))
     assertEquals(setOf("$notes#read"), grants(owned, app), "cancelling changes nothing")
 
     val refused = flow.submit(
@@ -164,7 +164,7 @@ class DelegatedConsentBindingHttpTest : SempodsIntegrationTest() {
     assertEquals(setOf("$notes#read"), grants(owned, app), "a refused submission changes nothing")
 
     val empty = flow.submit(ConsentPage.of(flow.authorize(owned.pod, app, owned.cookie, state = "e")), owned.cookie, scopes = emptySet())
-    assertEquals(mapOf("error" to "access_denied", "error_description" to "app disconnected", "state" to "e"), flow.query(empty))
+    assertEquals(mapOf("error" to "access_denied", "error_description" to "app disconnected", "state" to "e", "iss" to flow.podBase(owned.pod)), flow.query(empty))
     assertEquals(emptySet(), grants(owned, app), "confirming nothing ends the access")
   }
 

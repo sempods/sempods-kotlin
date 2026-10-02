@@ -43,13 +43,13 @@ contexts, she can create `apps/notes-sync` and grant
 The consent URL proposes no contexts. A service name is self-declared: Alice should compare the
 client ID on the consent screen with the one her program shows.
 
-An optional `redirect_uri` must have been registered by the service. The callback carries no code,
-secret or approved grants. Check `state`.
+An optional `redirect_uri` must have been registered by the service. The callback carries `state`
+and `iss`, the pod URL, but no code, secret or approved grants. Check both.
 
 | Case | Answer |
 |---|---|
-| Confirmed | Redirect with `state`, or a page telling Alice to return to the program |
-| Cancelled | Redirect with `error=access_denied` and `state`, or that page |
+| Confirmed | Redirect with `state` and `iss`, or a page telling Alice to return to the program |
+| Cancelled | Redirect with `error=access_denied`, `state` and `iss`, or that page |
 | Unknown client ID, including a `dyn:` ID or an expired registration | `400` page |
 | `redirect_uri` the service did not register | `400` page |
 | Signed-in person is not the owner | `403` page |
