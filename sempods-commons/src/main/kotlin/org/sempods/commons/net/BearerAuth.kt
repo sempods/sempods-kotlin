@@ -1,7 +1,7 @@
 package org.sempods.commons.net
 
 /**
- * HTTP Bearer authentication helper (RFC 6750), the counterpart to [BasicAuth].
+ * HTTP Bearer authentication helper (RFC 6750).
  *
  * Exists because the scheme name is **case-insensitive** (RFC 7235 §2.1) and hand-rolled
  * `startsWith("Bearer ")` checks are not: a gateway or client that normalises the scheme to

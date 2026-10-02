@@ -24,6 +24,9 @@ The request could not be processed as written. These cases produce it:
   the same value (RFC 6749 §3.1). A parameter it does not read is ignored, however often it comes. A repeated `client_id` or `redirect_uri` gets a 400 in
   the browser, and nothing reaches the app. `/token` answers a repeated form
   parameter with this error as JSON.
+- At `/token`: no `grant_type`, a `code_verifier` outside RFC 7636 §4.1 (43–128 characters from
+  `A-Z a-z 0-9 - . _ ~`, sent without whitespace), or a `redirect_uri` that is not a URI. The
+  code is not spent, so the corrected request still redeems it.
 - `prompt=none` combined with another `prompt` value. `none` is exclusive per OIDC
   Core 1.0 §3.1.2.1.
 - `a privileged screen does not end an app's access`: a consent form for a privileged scope
