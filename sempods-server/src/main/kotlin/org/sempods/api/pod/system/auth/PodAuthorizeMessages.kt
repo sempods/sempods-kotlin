@@ -1,6 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import com.nimbusds.oauth2.sdk.AuthorizationRequest
+import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.ParseException
 import jakarta.ws.rs.core.MultivaluedMap
 import org.sempods.pods.oauth.flows.PodAuthorizeRequest
@@ -40,7 +41,10 @@ internal object PodAuthorizeMessages {
     val request = try {
       AuthorizationRequest.parse(project(query))
     } catch (e: ParseException) {
-      return PodAuthorizeTerms.Malformed(e.errorObject?.description ?: e.message ?: "malformed authorization request")
+      // Held to RFC 6749 §4.1.2.1's character set, as a provider's description is, before it reaches
+      // a redirect or a log line: the sentence is the SDK's, and whether it quotes the request is too.
+      val description = e.errorObject?.description ?: e.message ?: "malformed authorization request"
+      return PodAuthorizeTerms.Malformed(ErrorObject.removeIllegalChars(description))
     }
     return PodAuthorizeTerms.Read(
       responseType = request.responseType?.map { it.value }?.toSet().orEmpty(),

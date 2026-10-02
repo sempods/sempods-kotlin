@@ -126,6 +126,8 @@ class UrlUtilTest {
     assertEquals("a=1&a=2&b=x%20y&key=new+value", result.rawQuery)
     // Empty components are the writer's too.
     assertEquals("a=1&&b=2&&key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?a=1&&b=2&"), "key", "v").rawQuery)
+    assertEquals("&key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?"), "key", "v").rawQuery)
+    assertEquals("key=v", UrlUtil.addOrUpdateQueryParameter(URI("https://app.example/cb?key=old"), "key", "v").rawQuery)
   }
 
   @Test

@@ -35,8 +35,9 @@ object UrlUtil {
    */
   fun addOrUpdateQueryParameter(uri: URI, param: String, value: String): URI {
     val pair = "${urlEncode(param)}=${urlEncode(value)}"
-    val kept = uri.rawQuery?.split('&')?.filterNot { isNamed(it, param) }?.joinToString("&")
-    return withRawQuery(uri, if (kept.isNullOrEmpty()) pair else "$kept&$pair")
+    // A bare `?` is a query of one empty component, and is kept like any other: `…/cb?` → `…/cb?&k=v`.
+    val kept = uri.rawQuery?.split('&')?.filterNot { isNamed(it, param) }.orEmpty()
+    return withRawQuery(uri, if (kept.isEmpty()) pair else kept.joinToString("&") + "&" + pair)
   }
 
   /**
