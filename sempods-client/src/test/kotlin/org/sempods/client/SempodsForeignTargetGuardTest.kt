@@ -32,8 +32,7 @@ class SempodsForeignTargetGuardTest : MockPodTest() {
   private val name = "foreign.example.test"
 
   // `[::1]` is one of the spellings under test, so this server has to answer there as well as at
-  // `127.0.0.1`. That takes the wildcard address, and with it the exposure the loopback default
-  // removes: a process holding this port at `127.0.0.1` would receive the requests.
+  // `127.0.0.1`. What the wildcard address costs: `docs/testing.md` §"Stubbing an external API".
   override fun configuration(): Configuration = super.configuration().localBoundIP("::")
 
   private val card get() = "http://$name:${server.port}/card"

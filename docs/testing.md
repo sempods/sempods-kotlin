@@ -193,6 +193,9 @@ listener never gets a held port, and no later bind on `127.0.0.1` can take its o
 `HttpServer` and `ServerSocket` take the address in their constructor
 (`InetAddress.getLoopbackAddress()`). MockServer reads it from `mockserver.localBoundIP`, which the
 root `build.gradle.kts` sets for every test JVM; `MockServerLoopbackTest` fails on macOS without it.
+One class is the exception: `SempodsForeignTargetGuardTest` has to answer at `[::1]` too, so its
+server binds `::` and stays exposed to the shadowing above. `ClientAndServer`'s own client talks to
+`127.0.0.1` only, which rules out a second server bound to `::1`.
 
 **Watch for a cache in front of the stub.** A per-test stub is worthless behind a memo that
 outlives the test: once any earlier test has looked a value up, the stub is never asked again, and
