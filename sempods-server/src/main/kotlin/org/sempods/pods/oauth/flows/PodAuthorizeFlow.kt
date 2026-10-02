@@ -124,6 +124,21 @@ class PodAuthorizeFlow @Inject internal constructor(
       )
     }
 
+    // RFC 6749 §4.1.2.1: a missing parameter is `invalid_request`, and `response_type` is no exception.
+    if (request.responseType.isNullOrBlank()) {
+      return failed(redirectTarget, OAuthErrorCode.INVALID_REQUEST, "missing response_type", clientState)
+    }
+    // OIDC Core 1.0 §3.1.2.1 names the values `prompt` may take. One outside them asks for something
+    // this pod cannot tell it is not doing.
+    val promptValues = OAuthSyntax.parsePrompt(request.prompt)
+    val unknownPrompts = promptValues - PROMPT_VALUES
+    if (unknownPrompts.isNotEmpty()) {
+      return failed(
+        redirectTarget, OAuthErrorCode.INVALID_REQUEST,
+        "unknown prompt value: ${unknownPrompts.sorted().joinToString(" ")}", clientState,
+      )
+    }
+
     // The AS metadata advertises `response_types_supported: ["code"]`, and this is the flow that
     // has to make that true. The parameter was bound and never read, so anything at all —
     // including `token`, the implicit grant this project does not implement — reached the code
@@ -169,8 +184,7 @@ class PodAuthorizeFlow @Inject internal constructor(
       )
     }
 
-    // ── Parse `prompt` (multi-valued, space-separated per OIDC Core 1.0 §3.1.2.1) ──
-    val promptValues = OAuthSyntax.parsePrompt(request.prompt)
+    // ── `prompt` (multi-valued, space-separated per OIDC Core 1.0 §3.1.2.1) ──
     if (OAuthSyntax.isContradictoryPrompt(promptValues)) {
       // Spec: `none` is exclusive — if combined with anything else it's a request error.
       return failed(
@@ -695,6 +709,9 @@ class PodAuthorizeFlow @Inject internal constructor(
 
   private companion object {
     private val logger = KotlinLogging.logger {}
+
+    /** OIDC Core 1.0 §3.1.2.1's values, and `create` (OIDC Prompt Create 1.0), which is read and has no effect here. */
+    private val PROMPT_VALUES = setOf("none", "login", "consent", "select_account", "create")
   }
 }
 

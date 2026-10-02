@@ -79,36 +79,38 @@ class PodAuthorizeRequestHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a missing response_type is unsupported`() {
+  fun `a missing response_type is a malformed request, answered at the client's address`() {
     val browser = Browser()
+    val refused = browser.authorize(browser.authorization.with("response_type", null))
 
-    assertRedirectsWith(
-      browser.authorize(browser.authorization.with("response_type", null)),
-      "error=unsupported_response_type",
-      "no response_type",
-    )
+    // RFC 6749 §4.1.2.1: a missing parameter is `invalid_request`.
+    assertRedirectsWith(refused, "error=invalid_request", "no response_type")
+    assertRedirectsWith(refused, "&state=first", "no response_type")
   }
 
   @Test
-  fun `a prompt value outside OIDC's set is ignored`() {
+  fun `a prompt value outside OIDC's set is a malformed request`() {
     val browser = Browser()
 
-    for (prompt in listOf("foo", "consent foo", "create")) {
-      assertConsentPage(browser.authorize(browser.authorization.with("prompt", prompt)), "prompt '$prompt'")
+    for (prompt in listOf("foo", "consent foo")) {
+      val refused = browser.authorize(browser.authorization.with("prompt", prompt))
+      assertRedirectsWith(refused, "error=invalid_request", "prompt '$prompt'")
+      assertRedirectsWith(refused, "prompt", "prompt '$prompt'")
     }
+    // `create` is one (OIDC Prompt Create 1.0), and asks for nothing the dialog does not offer.
+    assertConsentPage(browser.authorize(browser.authorization.with("prompt", "create")), "prompt 'create'")
   }
 
   @Test
-  fun `an answer rewrites the query the address was registered with`() {
+  fun `an answer keeps the query the address was registered with, as written`() {
     val registered = "http://localhost:5173/callback?a=1&a=2&b=x%20y"
     val browser = Browser(redirectUri = registered)
 
-    // The code: the two `a` collapse into the last one, and the space is re-encoded.
+    // RFC 6749 §3.1.2: the query is the client's, and the answer is appended to it.
     val code = location(flow.consent(browser.pod, browser.webId, browser.app, browser.cookie, state = "s"), "the code")
-    assertEquals("a=2&b=x+y", URI(code).rawQuery.substringBefore("&code="), code)
+    assertEquals("a=1&a=2&b=x%20y", URI(code).rawQuery.substringBefore("&code="), code)
 
-    // An error the same way.
     val error = location(browser.authorize(browser.authorization.with("response_type", "token")), "an error")
-    assertEquals("a=2&b=x+y", URI(error).rawQuery.substringBefore("&error="), error)
+    assertEquals("a=1&a=2&b=x%20y", URI(error).rawQuery.substringBefore("&error="), error)
   }
 }

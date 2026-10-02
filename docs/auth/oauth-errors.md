@@ -27,6 +27,8 @@ The request could not be processed as written. These cases produce it:
 - At `/token`: no `grant_type`, a `code_verifier` outside RFC 7636 §4.1 (43–128 characters from
   `A-Z a-z 0-9 - . _ ~`, sent without whitespace), or a `redirect_uri` that is not a URI. The
   code is not spent, so the corrected request still redeems it.
+- At `/authorize`: no `response_type`, or a `prompt` value other than `none`, `login`,
+  `consent`, `select_account` and `create`.
 - `prompt=none` combined with another `prompt` value. `none` is exclusive per OIDC
   Core 1.0 §3.1.2.1.
 - `a privileged screen does not end an app's access`: a consent form for a privileged scope
@@ -53,7 +55,7 @@ and only for the pod owner.
 
 ## `unsupported_response_type`
 
-`response_type` was something other than `code`. This server implements the
+`response_type` was sent, and was something other than `code`. This server implements the
 authorization-code flow only; there is no implicit flow to fall back to.
 
 **Recovery:** send `response_type=code`.
