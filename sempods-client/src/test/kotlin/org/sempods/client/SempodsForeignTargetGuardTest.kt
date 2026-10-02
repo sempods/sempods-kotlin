@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.mockserver.configuration.Configuration
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.sempods.client.net.OutboundRateLimiter
@@ -29,6 +30,11 @@ import org.sempods.client.net.SsrfBlockedException
 class SempodsForeignTargetGuardTest : MockPodTest() {
 
   private val name = "foreign.example.test"
+
+  // `[::1]` is one of the spellings under test, so this server has to answer there as well as at
+  // `127.0.0.1`. That takes the wildcard address, and with it the exposure the loopback default
+  // removes: a process holding this port at `127.0.0.1` would receive the requests.
+  override fun configuration(): Configuration = super.configuration().localBoundIP("::")
 
   private val card get() = "http://$name:${server.port}/card"
 
