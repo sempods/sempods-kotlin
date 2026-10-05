@@ -13,4 +13,4 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: sempods/.github/actions/dco@a76c1e46d621e0cffb2114d0534fb86ad5477a8d # v1.0.0
+      - uses: sempods/.github/actions/dco@16a553a065432a0235ff8f4b78d14ce41062e712 # v1.0.1
