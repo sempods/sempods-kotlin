@@ -41,6 +41,11 @@ updates:
       - "/.github/actions/setup-test-environment"
     schedule:
       interval: "weekly"
+    # Our own reviewed releases (the shared DCO check) need no waiting period;
+    # third-party actions keep Dependabot's default three-day cooldown.
+    cooldown:
+      exclude:
+        - "sempods/.github/*"
     groups:
       github-actions:
         patterns:
