@@ -1,148 +1,16 @@
 name: DCO
-
-# `CONTRIBUTING.md` requires a `Signed-off-by` line on every commit and, until this file existed,
-# nothing checked for one. That is the worst shape for a rule: a first contributor reads it, misses
-# it in good faith, and finds out after the fact — when the fix is a rebase over work that is
-# already reviewed. A check that fails on the first push costs one amended commit.
-#
-# A ten-line workflow rather than the GitHub DCO app, because the app is one more thing to install
-# on a repository transfer and one more account with write access. This runs from the tree it
-# guards.
-#
-# Sign-offs are what the project has instead of a CLA. `CONTRIBUTING.md` says why and says it is not
-# revisited: a CLA exists to keep relicensing possible, which is only useful for a commercial
-# parallel licence, and the hurdle costs first contributions.
-
+# Every pull-request commit needs a Signed-off-by matching its author. The
+# check is shared by all sempods repositories and tested there:
+# https://github.com/sempods/.github/tree/main/actions/dco
+# Keep the job id `check`; the ruleset requires that status check.
 on:
   pull_request:
-
 permissions:
   contents: read
-
+  pull-requests: read
 jobs:
-
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-
-      # The full range of the PR has to be present locally, so fetch-depth 0 rather than the
-      # default shallow clone — a shallow checkout has no `base.sha` to walk back to.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Every commit carries a sign-off
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-
-          # Automated commits are exempt, and Dependabot is the one that arrives on day one: it
-          # opened five pull requests within minutes of this repository existing, none of them
-          # signed, because it has no way to sign and nothing to certify. The DCO asserts the
-          # origin of a *contribution*; raising a version string is not authorship, and the
-          # maintainer who merges it is the one taking responsibility for the change.
-          #
-          # Without this the check is red on every dependency bump from the first day — which is
-          # the state in which a check stops being read at all, and then stops being believed on
-          # the one pull request where it matters.
-          #
-          # Matched on both halves of a GitHub bot identity, its `[bot]` name and its noreply
-          # address, rather than on the workflow's actor: a human may rebase a bot's branch, and
-          # the commit is still the bot's. This is a good-faith mechanism and not an access
-          # control — as is the whole DCO — so a person who sets both fields to impersonate a bot
-          # has defeated it, and has also signed nothing, which is what the record will show.
-          #
-          # A function rather than inline, because the alternative is trusting five manually typed
-          # examples in a commit message — which protects nothing the next time this line is
-          # touched. The self-test below runs this against the identities that actually occur.
-          is_bot_commit() {
-            local name="$1" email="$2"
-            case "$name" in
-              *"[bot]")
-                case "$email" in
-                  *"@users.noreply.github.com") return 0 ;;
-                esac
-                ;;
-            esac
-            return 1
-          }
-
-          # Proves the predicate before trusting it with a real pull request, the way `verify.sh`
-          # proves its own patterns against a canary before it gates anything. Five cases, and each
-          # one earns its place: the two bots this repository has actually seen; a human, who must
-          # not be caught by the `[bot]` suffix alone; the same human behind GitHub's noreply
-          # address, which is the case the fixed-string comparison further down exists for and
-          # which an over-eager version of this predicate could plausibly swallow; and a name ending
-          # `[bot]` at a non-GitHub address, which is what the AND of both conditions is for — an
-          # OR would exempt anyone who merely names themselves after a bot.
-          self_test_fail=""
-          assert_bot() {
-            local want="$1" name="$2" email="$3" got="skip"
-            is_bot_commit "$name" "$email" || got="check"
-            if [[ "$got" != "$want" ]]; then
-              echo "  is_bot_commit('$name', '$email') = $got, want $want" >&2
-              self_test_fail=1
-            fi
-          }
-          assert_bot skip  "dependabot[bot]"     "49699333+dependabot[bot]@users.noreply.github.com"
-          assert_bot skip  "github-actions[bot]" "41898282+github-actions[bot]@users.noreply.github.com"
-          assert_bot check "Ada Lovelace"        "ada@example.org"
-          assert_bot check "Ada Lovelace"        "1234+ada@users.noreply.github.com"
-          assert_bot check "notabot[bot]"        "someone@example.org"
-
-          if [[ -n "$self_test_fail" ]]; then
-            echo "error: the bot-commit self-test failed above — refusing to run." >&2
-            exit 3
-          fi
-
-          # `--no-merges`: a merge commit created by GitHub's own UI carries no sign-off and cannot
-          # be given one by the contributor. What DCO 1.1 is about is authorship of changes, and a
-          # merge introduces none.
-          missing=""
-          while IFS= read -r sha; do
-            [[ -z "$sha" ]] && continue
-            author_email="$(git show -s --format='%ae' "$sha")"
-            author_name="$(git show -s --format='%an' "$sha")"
-
-            is_bot_commit "$author_name" "$author_email" && continue
-
-            # Pull the address out of each trailer and compare it as a FIXED string. Interpolating
-            # an address into a regex is wrong in both directions here, and GitHub's own noreply
-            # form is the case that proves it: in `123+user@users.noreply.github.com` the `+` is a
-            # quantifier and every `.` is a wildcard, so a correctly signed commit is rejected while
-            # `1233user@usersXnoreplyXgithubXcom` is accepted. Nearly every contributor arrives with
-            # that address.
-            #
-            # **The AUTHOR's sign-off, and only that.** Accepting the committer's instead lets a
-            # maintainer who cherry-picks an unsigned contribution certify it on the contributor's
-            # behalf, which is precisely what the certificate cannot be delegated for — and what
-            # `CONTRIBUTING.md` rules out when it says the line must match the author. Extra
-            # trailers are fine and normal (a maintainer adds their own beside the author's, as the
-            # kernel workflow does); they are additions, never substitutions.
-            #
-            # `-i` because the comparison is between mail addresses, where case is not identity.
-            if git show -s --format='%B' "$sha" |
-                 sed -n 's/^[Ss]igned-off-by:[[:space:]]*.*<\(.*\)>[[:space:]]*$/\1/p' |
-                 grep -qixF "$author_email"; then
-              continue
-            fi
-            missing+="  ${sha:0:12}  $(git show -s --format='%s' "$sha")"$'\n'
-            missing+="                author: ${author_email}"$'\n'
-          done < <(git rev-list --no-merges "$BASE".."$HEAD")
-
-          if [[ -n "$missing" ]]; then
-            echo "These commits carry no Signed-off-by line matching their author:"
-            echo
-            echo "$missing"
-            echo "Add one to each — CONTRIBUTING.md carries the certificate you are signing:"
-            echo
-            echo "    git rebase --signoff $BASE"
-            echo "    git push --force-with-lease"
-            echo
-            echo "New commits: git commit -s"
-            exit 1
-          fi
-
-          echo "All commits signed off."
+      - uses: sempods/.github/actions/dco@09cf2f9a527677281c9bb65e1fc3535f135fc241 # main
