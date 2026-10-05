@@ -1,8 +1,8 @@
 [versions]
-awsSdk = "2.55.6"
+awsSdk = "2.55.10"
 coroutines = "1.11.0"
 jackson3 = "3.2.3"
-jersey = "4.0.2"
+jersey = "4.0.3"
 junit = "6.1.3"
 ktor = "3.6.0"
 mongodb = "5.13.0"
@@ -82,7 +82,7 @@ oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
 # artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
 kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
-logbackClassic = "ch.qos.logback:logback-classic:1.6.4"
+logbackClassic = "ch.qos.logback:logback-classic:1.6.5"
 mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
 # `ObjectId` and `Document`. Separate from the driver above so a module can export the types
 # without exporting the driver: `:sempods-commons-mongo` and `:sempods-auth-core` carry them in
