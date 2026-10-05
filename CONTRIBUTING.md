@@ -79,6 +79,9 @@ it — raising a version string is not authorship. The maintainer who merges the
 taking responsibility for the change. `.github/workflows/dco.yml` runs the organisation's
 [shared DCO check](https://github.com/sempods/.github/tree/main/actions/dco): it skips commits of a
 bot only in a pull request that bot opened, and checks every other commit, merge commits included.
+The one merge it accepts without a sign-off is the one GitHub itself creates and signs for the
+**Update branch** button, because GitHub adds none there. A merge you make locally needs
+`git merge --signoff`, or rebase instead.
 
 ## AI-assisted contributions
 
