@@ -60,9 +60,10 @@ guice = "com.google.inject:guice:7.0.0"
 jackson3Databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson3" }
 # A registration on a `JsonMapper`.
 jackson3Kotlin = { module = "tools.jackson.module:jackson-module-kotlin", version.ref = "jackson3" }
-# JAX-RS JSON, from FasterXML: Jersey's `jersey-media-json-jackson` is Jackson 2 only, and its
-# Jackson 3 module `jersey-media-json-jackson3` is in no release yet. Jersey's module wraps a copy of
-# this same provider. The base artifact carries the two exception mappers
+# JAX-RS JSON, from FasterXML: Jersey's `jersey-media-json-jackson` is Jackson 2 only. Jersey ships
+# a Jackson 3 module, `jersey-media-json-jackson3`, since 4.0.3; it wraps a copy of this same
+# provider, so the server keeps depending on FasterXML's provider directly. Switching to Jersey's
+# module is a separate decision. The base artifact carries the two exception mappers
 # `JaxRsServerModule` registers beside it.
 jackson3JakartaRsJson = { module = "tools.jackson.jakarta.rs:jackson-jakarta-rs-json-provider", version.ref = "jackson3" }
 jackson3JakartaRsBase = { module = "tools.jackson.jakarta.rs:jackson-jakarta-rs-base", version.ref = "jackson3" }
