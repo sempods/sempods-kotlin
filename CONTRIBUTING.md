@@ -76,8 +76,12 @@ that is what clause (a) is about.
 **Automated commits are the one exception, and the check knows it.** A dependency bump opened by
 Dependabot carries no sign-off, because a bot has no way to add one and nothing to certify with
 it — raising a version string is not authorship. The maintainer who merges the bump is the one
-taking responsibility for the change. `.github/workflows/dco.yml` skips commits whose author is a
-GitHub bot identity and checks every other commit in the pull request.
+taking responsibility for the change. `.github/workflows/dco.yml` runs the organisation's
+[shared DCO check](https://github.com/sempods/.github/tree/main/actions/dco): it skips commits of a
+bot only in a pull request that bot opened, and checks every other commit, merge commits included.
+The one merge it accepts without a sign-off is the one GitHub itself creates and signs for the
+**Update branch** button, because GitHub adds none there. A merge you make locally needs
+`git merge --signoff`, or rebase instead.
 
 ## AI-assisted contributions
 
