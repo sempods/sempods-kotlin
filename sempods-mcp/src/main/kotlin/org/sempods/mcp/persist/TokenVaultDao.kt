@@ -482,12 +482,26 @@ class TokenVaultDao(
     put("subjectVerified", subjectVerified)
   }
 
-  /** Map a row, or null if unreadable — undecryptable, corrupt, or missing a required field. Logged, not thrown. */
-  private fun Document.toTokensOrNull(): PodTokens? = try {
-    toTokens()
-  } catch (e: Exception) {
-    logger.warn(e) { "unreadable pod token row for pod='${getString("pod")}' — treating as disconnected" }
-    null
+  /**
+   * Map a row, or null if unreadable — missing a required field, undecryptable, or corrupt. Logged,
+   * not thrown.
+   *
+   * A missing field gets one line naming it and no stack trace. It is the expected state of a row
+   * written before that field existed, and the preservation sweep reads such a row again on every
+   * tick until somebody reconnects — a trace each time would bury the log in one known cause.
+   */
+  private fun Document.toTokensOrNull(): PodTokens? {
+    val missing = REQUIRED_FIELDS.filter { get(it) == null }
+    if (missing.isNotEmpty()) {
+      logger.warn { "pod token row for pod='${getString("pod")}' lacks $missing — treating as disconnected until reconnected" }
+      return null
+    }
+    return try {
+      toTokens()
+    } catch (e: Exception) {
+      logger.warn(e) { "unreadable pod token row for pod='${getString("pod")}' — treating as disconnected" }
+      null
+    }
   }
 
   private fun Document.toTokens() = PodTokens(
@@ -518,6 +532,11 @@ class TokenVaultDao(
      * away.
      */
     private const val REFRESH_TOKEN_TYPE = "string"
+
+    /** The fields [PodTokens] cannot be built without; absent and BSON null both count as missing. */
+    private val REQUIRED_FIELDS = listOf(
+      "user", "profile", "pod", "accessToken", "podClientId", "podRedirectUri", "issuer", "podSubject",
+    )
 
     private val FACTS = Projections.include("pod", "podClientId", "podRedirectUri", "deadGrantSince", "issuer", "podSubject", "subjectVerified")
   }

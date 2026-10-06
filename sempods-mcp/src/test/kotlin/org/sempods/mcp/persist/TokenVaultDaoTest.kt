@@ -10,6 +10,7 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
+import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.crypto.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
@@ -211,6 +212,23 @@ class TokenVaultDaoTest {
     assertTrue(due.rows.none { it.pod == key.pod })
     // And it is named rather than dropped, so the sweep can mark it and stop it masking the queue.
     assertTrue(due.unreadable.any { it.pod == key.pod }, "an unreadable row must still be identifiable")
+  }
+
+  @Test
+  fun `a row predating its required fields is named in one line, not as an unreadable one`() {
+    val key = PodKey("https://id.test/e/" + UUID.randomUUID(), PodKey.DEFAULT_PROFILE, "https://pod.test/" + UUID.randomUUID())
+    dao.upsert(tokens(key, updatedAt = Date(System.currentTimeMillis() - 40 * 24 * 60 * 60 * 1000L)))
+    raw.updateOne(keyFilter(key), Updates.combine(Updates.unset("podClientId"), Updates.unset("issuer")))
+
+    lateinit var due: PreserveDue
+    val lines = CapturedLog.linesFrom(TokenVaultDao::class.java) {
+      due = dao.findNotRotatedSince(Date(), limit = 100)
+    }.filter { "pod='${key.pod}'" in it }
+
+    assertEquals(listOf(key.pod), due.unreadable.filter { it.pod == key.pod }.map { it.pod })
+    assertEquals(1, lines.size, "one line per read, got $lines")
+    assertTrue("[podClientId, issuer]" in lines.single(), "the line names what is missing: ${lines.single()}")
+    assertFalse(lines.single().startsWith("unreadable"), "a missing field is not a decryption failure")
   }
 
   @Test
