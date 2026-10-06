@@ -3,22 +3,29 @@ package org.sempods.auth.core
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.JOSEObjectType
+import com.nimbusds.jose.JWSSigner
 import com.nimbusds.jose.crypto.ECDSASigner
 import com.nimbusds.jose.crypto.RSASSASigner
+import com.nimbusds.jose.crypto.impl.BaseJWSProvider
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.KeyUse
+import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jose.jwk.source.JWKSetBasedJWKSource
 import com.nimbusds.jose.jwk.source.JWKSetSourceWrapper
 import com.nimbusds.jose.proc.JWSVerificationKeySelector
+import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jwt.proc.DefaultJWTProcessor
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import org.junit.jupiter.api.Test
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.Signature
 import java.util.Date
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -149,10 +156,92 @@ class JwtVerifierTest {
     )
   }
 
+  // ─── Ed25519 ──────────────────────────────────────────────────────────────
+
+  /** A JDK Ed25519 key pair and its public JWK. Nimbus's own generator for it needs Tink. */
+  private class EdKey(val kid: String, curve: String = "Ed25519") {
+    val pair: KeyPair = KeyPairGenerator.getInstance(curve).generateKeyPair()
+    val jwk: OctetKeyPair = OctetKeyPair.Builder(
+      if (curve == "Ed448") Curve.Ed448 else Curve.Ed25519,
+      // The raw key is the tail of its SubjectPublicKeyInfo (RFC 8410 §4).
+      Base64URL.encode(pair.public.encoded.takeLast(if (curve == "Ed448") 57 else 32).toByteArray()),
+    ).keyID(kid).keyUse(KeyUse.SIGNATURE).build()
+
+    fun sign(alg: JWSAlgorithm = JWSAlgorithm.EdDSA, kid: String? = this.kid): String {
+      val jwt = SignedJWT(
+        JWSHeader.Builder(alg).apply { kid?.let { keyID(it) } }.build(),
+        JWTClaimsSet.Builder().subject("user-1")
+          .expirationTime(Date(System.currentTimeMillis() + 600_000)).build(),
+      )
+      jwt.sign(object : BaseJWSProvider(setOf(alg)), JWSSigner {
+        override fun sign(header: JWSHeader, signingInput: ByteArray): Base64URL =
+          Base64URL.encode(
+            Signature.getInstance("EdDSA").run {
+              initSign(pair.private)
+              update(signingInput)
+              sign()
+            },
+          )
+      })
+      return jwt.serialize()
+    }
+  }
+
+  @Test
+  fun `EdDSA verifies against an Ed25519 key, under both of its algorithm names`() {
+    val ed = EdKey("ed1")
+    val verifier = JwtVerifier.localKeys(listOf(ed.jwk))
+
+    val result = verifier.verify(ed.sign())
+    assertIs<JwtVerification.Verified>(result)
+    assertEquals("user-1", result.claims.subject)
+    // RFC 9864's fully-specified name for the same signature.
+    assertIs<JwtVerification.Verified>(verifier.verify(ed.sign(alg = JWSAlgorithm.Ed25519)))
+    assertIs<JwtVerification.Verified>(verifier.verify(ed.sign(kid = null)))
+  }
+
+  @Test
+  fun `an Ed25519 token signed by a stranger is definitively rejected`() {
+    val ed = EdKey("ed1")
+    val stranger = EdKey("ed1")
+
+    assertEquals(
+      JwtVerification.Rejected(JwtRejection.badSignature),
+      JwtVerifier.localKeys(listOf(ed.jwk)).verify(stranger.sign()),
+    )
+  }
+
+  @Test
+  fun `EdDSA over an Ed448 key is inconclusive`() {
+    // Same algorithm name, a curve this verifier does not check.
+    val ed448 = EdKey("ed448", curve = "Ed448")
+
+    assertEquals(JwtVerification.Inconclusive, JwtVerifier.localKeys(listOf(ed448.jwk)).verify(ed448.sign()))
+  }
+
+  @Test
+  fun `an RSA key does not answer for an EdDSA token, nor an Ed25519 key for an RS256 one`() {
+    val ed = EdKey("k1")
+
+    assertEquals(JwtVerification.Inconclusive, local().verify(ed.sign()))
+    assertEquals(JwtVerification.Inconclusive, JwtVerifier.localKeys(listOf(ed.jwk)).verify(token()))
+  }
+
+  @Test
+  fun `the remote mode verifies against an Ed25519 JWKS`() {
+    // The shape a pod publishes when it signs with a platform's Ed25519 service key.
+    val ed = EdKey("pod-ed1")
+    val transport = StubTransport { JWKSet(ed.jwk).toString() }
+
+    assertIs<JwtVerification.Verified>(
+      JwtVerifier.remoteJwks("https://pod.example.invalid/jwks", transport).verify(ed.sign()),
+    )
+  }
+
   @Test
   fun `an algorithm outside the allowed set is inconclusive rather than rejected`() {
-    // The EdDSA case in miniature: an algorithm this verifier cannot check says nothing about the
-    // token. Rejecting would brick an issuer that signs with something we simply do not do yet.
+    // An algorithm this verifier cannot check says nothing about the token. Rejecting would brick
+    // an issuer that signs with something we simply do not do yet.
     val verifier = JwtVerifier.localKeys(listOf(key.toPublicJWK()), algorithms = setOf(JWSAlgorithm.ES256))
 
     assertEquals(JwtVerification.Inconclusive, verifier.verify(token()))

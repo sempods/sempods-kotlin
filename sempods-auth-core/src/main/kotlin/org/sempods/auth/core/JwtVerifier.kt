@@ -10,7 +10,6 @@ import com.nimbusds.jose.jwk.source.JWKSourceBuilder
 import com.nimbusds.jose.proc.BadJOSEException
 import com.nimbusds.jose.proc.BadJWSException
 import com.nimbusds.jose.proc.JOSEObjectTypeVerifier
-import com.nimbusds.jose.proc.JWSVerificationKeySelector
 import com.nimbusds.jose.proc.SecurityContext
 import com.nimbusds.jose.util.Resource
 import com.nimbusds.jose.util.ResourceRetriever
@@ -146,16 +145,9 @@ class JwtVerifier private constructor(
 
   companion object {
 
-    /**
-     * RSA and NIST P-256, both of which nimbus verifies with the JDK alone.
-     *
-     * TODO: EdDSA is not in here because nimbus's Ed25519 verifier needs Tink on the classpath,
-     *  and `sempods-server` has it while `sempods-mcp` does not — so one module would answer
-     *  differently in two services, and the one without it would fail with `NoClassDefFoundError`
-     *  rather than the [JwtVerification.Inconclusive] this class promises for an algorithm it
-     *  cannot check. Add `EdDSA` once Tink is on both, not before.
-     */
-    val DEFAULT_ALGORITHMS: Set<JWSAlgorithm> = setOf(JWSAlgorithm.RS256, JWSAlgorithm.ES256)
+    /** RSA, NIST P-256 and [Ed25519], all checked by the JDK alone. */
+    val DEFAULT_ALGORITHMS: Set<JWSAlgorithm> =
+      setOf(JWSAlgorithm.RS256, JWSAlgorithm.ES256) + Ed25519.ALGORITHMS
 
     /**
      * Verify against keys this process already holds — a self-issued token.
@@ -234,7 +226,8 @@ class JwtVerifier private constructor(
       claimChecks: ClaimChecks,
       algorithms: Set<JWSAlgorithm>,
     ): DefaultJWTProcessor<SecurityContext> = DefaultJWTProcessor<SecurityContext>().apply {
-      jwsKeySelector = JWSVerificationKeySelector(algorithms, source)
+      jwsKeySelector = Ed25519AwareKeySelector(algorithms, source)
+      jwsVerifierFactory = Ed25519AwareVerifierFactory()
       // Accept any `typ`, including none. See the class KDoc.
       jwsTypeVerifier = JOSEObjectTypeVerifier { _, _ -> }
       jwtClaimsSetVerifier = when (claimChecks) {

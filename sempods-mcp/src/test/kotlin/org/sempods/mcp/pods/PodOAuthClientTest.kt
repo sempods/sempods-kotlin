@@ -247,10 +247,33 @@ class PodOAuthClientTest {
   }
 
   @Test
+  fun `a pod signing with Ed25519 has its subject verified`() = runBlocking {
+    // A pod on a platform whose service keys are Ed25519 publishes one OKP key and signs `EdDSA`.
+    val metadata = client.discoverMetadata(base)
+    val edKey = JwtTestSupport.Ed25519Key("pod-ed1")
+    server.clear(request().withMethod("GET").withPath("/pod/_system/auth/jwks.json"))
+    server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/jwks.json"))
+      .respond(response().withStatusCode(200).withBody(JWKSet(edKey.publicJwk).toString()))
+    val now = Instant.now()
+    val token = JwtTestSupport.sign(
+      edKey,
+      JWTClaimsSet.Builder().issuer(base).subject("https://id.test/e/ed-user")
+        .issueTime(Date.from(now)).expirationTime(Date.from(now.plusSeconds(3600))).build(),
+    )
+
+    val outcome = client.verifyAccessTokenSubject(metadata, token)
+
+    assertEquals(
+      PodOAuthClient.SubjectOutcome.Readable(PodOAuthClient.PodSubject("https://id.test/e/ed-user", verified = true)),
+      outcome,
+    )
+  }
+
+  @Test
   fun `verifyAccessTokenSubject is inconclusive when the advertised JWKS has no usable key`() = runBlocking {
     val metadata = client.discoverMetadata(base)
     // Re-point the advertised JWKS at an EMPTY set — models a JWKS with no key we can verify against
-    // (empty, kid-mismatch, or a non-RSA/EdDSA pod). We could not ATTEMPT verification, so the result
+    // (empty, kid-mismatch, or an algorithm we cannot check). We could not ATTEMPT verification, so the result
     // is Unreadable (tolerated on refresh), NOT the tamper-signal VerificationFailed.
     server.clear(request().withMethod("GET").withPath("/pod/_system/auth/jwks.json"))
     server.`when`(request().withMethod("GET").withPath("/pod/_system/auth/jwks.json"))
