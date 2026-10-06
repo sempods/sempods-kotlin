@@ -248,7 +248,7 @@ class PodOAuthClient(
     // JWKS advertised → the pod is signalling "verify me". The three-valued answer is the whole
     // point and maps straight across: a JWKS that could not be fetched, a `kid` that matches
     // nothing, or an algorithm we cannot check are all "we could not ATTEMPT it" → Unreadable,
-    // never a positive VerificationFailed. Otherwise a pod signing with e.g. EdDSA, or one whose
+    // never a positive VerificationFailed. Otherwise a pod signing with e.g. PS256, or one whose
     // JWKS host blipped, would be treated as tampered and bricked on refresh.
     val verifier = verifierFor(jwksUri) ?: return SubjectOutcome.Unreadable
     // One `podIo` per verification, and the one fetch on this surface that cancellation does not
