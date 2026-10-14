@@ -1,5 +1,5 @@
 [versions]
-awsSdk = "2.55.10"
+awsSdk = "2.55.14"
 coroutines = "1.11.0"
 jackson3 = "3.2.3"
 jersey = "4.0.3"
@@ -7,9 +7,9 @@ junit = "6.1.3"
 ktor = "3.6.0"
 mongodb = "5.13.0"
 okhttp = "5.5.0"
-opentelemetry = "1.66.0"
+opentelemetry = "1.67.0"
 # The instrumentation line is published as `-alpha`; only a consumer probe uses it.
-opentelemetryInstrumentation = "2.31.1-alpha"
+opentelemetryInstrumentation = "2.32.0-alpha"
 rdf4j = "6.1.0"
 slf4j = "2.0.20"
 
@@ -48,8 +48,8 @@ kotlinxIoCore = "org.jetbrains.kotlinx:kotlinx-io-core:0.9.1"
 
 # The Jetty container `JaxRsServerModule` builds by hand: `Server`, `ServerConnector`,
 # `GzipHandler`, `VirtualThreadPool`.
-jettyServer = "org.eclipse.jetty:jetty-server:12.1.13"
-jettyUtil = "org.eclipse.jetty:jetty-util:12.1.13"
+jettyServer = "org.eclipse.jetty:jetty-server:12.1.14"
+jettyUtil = "org.eclipse.jetty:jetty-util:12.1.14"
 
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.86"
 
@@ -126,7 +126,7 @@ junit = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junitJupiterApi = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junitJupiterParams = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
 junitPlatformLauncher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
-kotlinTestJunit5 = "org.jetbrains.kotlin:kotlin-test-junit5:2.4.20"
+kotlinTestJunit5 = "org.jetbrains.kotlin:kotlin-test-junit5:2.4.21"
 mockk = "io.mockk:mockk:1.14.11"
 mockServer = "org.mock-server:mockserver-netty-no-dependencies:8.0.0"
 opentelemetryApi = { module = "io.opentelemetry:opentelemetry-api", version.ref = "opentelemetry" }
