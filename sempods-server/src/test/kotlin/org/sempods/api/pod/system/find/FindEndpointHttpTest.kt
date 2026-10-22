@@ -7,10 +7,14 @@ import org.sempods.api.assertPodBearerChallenge
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
+import org.sempods.retrieval.OverReturningFindAdapter
+import org.sempods.commons.net.SempodsVocabulary
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.getAll
 import org.eclipse.rdf4j.model.Model
+import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Values
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.net.URI
@@ -29,6 +33,9 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var podContextsDao: PodContextsDao
+
+  @Inject
+  private lateinit var overReturningFindAdapter: OverReturningFindAdapter
 
   private val schemaEvent = "https://schema.org/Event"
   private val schemaPerson = "https://schema.org/Person"
@@ -215,6 +222,61 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
       response.responseBody.contains(privateEventUri.toString()),
       "non-public event must not be visible to an anonymous caller",
     )
+  }
+
+  @Test
+  fun `an adapter that is not self-scoped cannot leak a hit from an unreadable context`() {
+    val pod = sempodsTestFactory.newPod()
+    val publicEvent = newPublicEvent(pod.name, "Public ${TestUtil.randomId()}")
+    val privateContext = sempodsUriBuilder.buildContext(pod.name, "apps/test-app/default")
+    podContextsDao.create(
+      podId = checkNotNull(pod.id),
+      contextUri = privateContext.toString(),
+      label = null, description = null, createdBy = "test",
+    )
+    val privateEvent = newEventInContext(pod.name, privateContext, "Private ${TestUtil.randomId()}")
+
+    // What an external index might answer: both events, each with a snippet behind sps:findResult,
+    // whatever the caller may read and whatever type was asked for.
+    val publicSnippet = "public snippet ${TestUtil.randomId()}"
+    val privateSnippet = "private snippet ${TestUtil.randomId()}"
+    val engineAnswer = LinkedHashModel().apply {
+      listOf(publicEvent to publicSnippet, privateEvent to privateSnippet).forEach { (event, snippet) ->
+        val node = Values.bnode()
+        add(event.toIri(), Values.iri(SempodsVocabulary.FIND_RESULT), node)
+        add(node, Values.iri("https://schema.org/text"), Values.literal(snippet))
+      }
+    }
+    overReturningFindAdapter.arm(pod.name, engineAnswer)
+    try {
+      // A token nothing in the store contains, so the SPARQL adapter vouches for neither hit.
+      fun find(vararg types: String) = http.prepareGet(findUrl(pod.name))
+        .addQueryParam("text", "absent${TestUtil.randomId()}")
+        .also { req -> types.forEach { req.addQueryParam("type", it) } }
+        .addHeader("Accept", "application/n-quads")
+        .execute()
+        .also { assertEquals(200, it.statusCode) }
+
+      val anonymous = find()
+      val model: Model = ByteArrayInputStream(anonymous.responseBodyAsBytes).use { RdfWriterUtil.readNQuads(it) }
+      assertTrue(
+        model.contains(publicEvent.toIri(), org.eclipse.rdf4j.model.vocabulary.RDF.TYPE, null),
+        "the readable hit is kept and expanded",
+      )
+      assertTrue(anonymous.responseBody.contains(publicSnippet), "the readable hit keeps its snippet")
+      assertFalse(anonymous.responseBody.contains(privateEvent.toString()), "the unreadable hit must not leak")
+      assertFalse(anonymous.responseBody.contains(privateSnippet), "the unreadable hit's snippet must not leak")
+
+      val wrongType = find(schemaPerson)
+      assertFalse(wrongType.responseBody.contains(publicEvent.toString()), "an Event must not answer type=Person")
+      assertFalse(wrongType.responseBody.contains(publicSnippet), "nor may its snippet")
+
+      val rightType = find(schemaPerson, schemaEvent)
+      assertTrue(rightType.responseBody.contains(publicEvent.toString()), "an Event answers type=Person|Event")
+      assertFalse(rightType.responseBody.contains(privateEvent.toString()))
+    } finally {
+      overReturningFindAdapter.disarm(pod.name)
+    }
   }
 
   /** Register a context and put a named event into it; returns the event URI. */

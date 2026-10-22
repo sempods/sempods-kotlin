@@ -8,16 +8,18 @@ import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
+import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.junit.jupiter.api.Test
 import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [FindService]'s central merge + cap logic, exercised with fake adapters /
- * expander (no pod store needed). Focus: the cap that only bites once several adapters overflow
- * the request limit, and the pruning that keeps each kept hit's blank nodes with it — the
- * single-adapter path is covered end-to-end by `FindEndpointHttpTest`.
+ * Unit tests for [FindService]'s central merge, verification and cap logic, exercised with fake
+ * adapters / expander (no pod store needed). Focus: the cap that only bites once several adapters
+ * overflow the request limit, the pruning that keeps each kept hit's blank nodes with it, and the
+ * verification of hits no self-scoped adapter vouches for — the single-adapter path is covered
+ * end-to-end by `FindEndpointHttpTest`.
  */
 class FindServiceTest {
 
@@ -26,6 +28,9 @@ class FindServiceTest {
   private val position = vf.createIRI("https://schema.org/position")
   private val text = vf.createIRI("https://schema.org/text")
   private val findResult = vf.createIRI(SempodsVocabulary.FIND_RESULT)
+  private val event = vf.createIRI("https://schema.org/Event")
+  private val person = vf.createIRI("https://schema.org/Person")
+  private val place = vf.createIRI("https://schema.org/Place")
 
   private fun modelOf(vararg iris: String): Model =
     LinkedHashModel().apply { iris.forEach { add(vf.createIRI(it), name, vf.createLiteral("x")) } }
@@ -41,16 +46,43 @@ class FindServiceTest {
     }
   }
 
-  private fun adapter(model: Model) = object : FindAdapter {
+  /** Adds a `sps:findResult` node carrying [snippet] to [hit], the way an external engine reports one. */
+  private fun Model.withSnippet(hit: String, snippet: String): Model = apply {
+    val node = vf.createBNode()
+    add(vf.createIRI(hit), findResult, node)
+    add(node, text, vf.createLiteral(snippet))
+  }
+
+  private fun adapter(model: Model, selfScoped: Boolean = true) = object : FindAdapter {
+    override val selfScoped = selfScoped
     override fun find(request: FindRequest, sandbox: FindSandbox): Model = model
   }
 
   /** Records the hits handed to it; returns no expansion triples. */
-  private class CapturingExpander : ResourceExpander {
+  private open class CapturingExpander : ResourceExpander {
     var lastHits: Set<String>? = null
     override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model {
       lastHits = hits.map { it.stringValue() }.toSet()
       return LinkedHashModel()
+    }
+  }
+
+  /**
+   * Stands in for a store holding [types]: for every handed hit it has types for, returns those
+   * `rdf:type` statements and a `schema:name`. Honours [FindSandbox.matchesNothing] as the contract
+   * requires.
+   */
+  private inner class TypingExpander(private val types: Map<String, Set<IRI>>) : CapturingExpander() {
+    override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model {
+      super.expand(hits, sandbox)
+      if (sandbox.matchesNothing()) return LinkedHashModel()
+      return LinkedHashModel().apply {
+        hits.forEach { hit ->
+          val hitTypes = types[hit.stringValue()] ?: return@forEach
+          hitTypes.forEach { add(hit, RDF.TYPE, it) }
+          add(hit, name, vf.createLiteral("expanded ${hit.stringValue()}"))
+        }
+      }
     }
   }
 
@@ -61,8 +93,17 @@ class FindServiceTest {
   )
 
   private fun find(limit: Int, vararg models: Model, expander: ResourceExpander = CapturingExpander()): Model =
-    FindService(adapters = models.map { adapter(it) }.toSet(), expander = expander)
-      .find(FindRequest(tokens = listOf("x"), types = emptySet(), limit = limit), sandbox)
+    find(limit = limit, adapters = models.map { adapter(it) }, expander = expander)
+
+  private fun find(
+    limit: Int,
+    adapters: List<FindAdapter>,
+    expander: ResourceExpander,
+    types: Set<IRI> = emptySet(),
+    sandbox: FindSandbox = this.sandbox,
+  ): Model =
+    FindService(adapters = adapters.toSet(), expander = expander)
+      .find(FindRequest(tokens = listOf("x"), types = types, limit = limit), sandbox)
 
   private fun subjectsOf(model: Model): Set<String> =
     model.subjects().filterIsInstance<IRI>().map { it.stringValue() }.toSet()
@@ -90,8 +131,8 @@ class FindServiceTest {
 
     // 4 distinct unranked hits across two adapters, limit 2 → IRI-order keep = {a, b}.
     assertEquals(setOf("https://e/a", "https://e/b"), subjectsOf(result))
-    // Expansion ran over exactly the kept set — dropped hits c/d are gone, not expanded.
-    assertEquals(setOf("https://e/a", "https://e/b"), expander.lastHits)
+    // The one expansion ran over every merged hit, because it verifies them before the cap.
+    assertEquals(setOf("https://e/a", "https://e/b", "https://e/c", "https://e/d"), expander.lastHits)
   }
 
   @Test
@@ -165,5 +206,142 @@ class FindServiceTest {
     assertTrue(find(10, stray).isEmpty())
     assertEquals(setOf("https://e/a"), subjectsOf(find(10, modelOf("https://e/a"), stray)))
     assertTrue(find(10, modelOf("https://e/a"), stray).filter(null, null, vf.createLiteral("stray")).isEmpty())
+  }
+
+  @Test
+  fun `drops an unvouched hit the expansion does not type, together with its blank nodes`() {
+    // b stands for a hit from a context the caller may not read: the scoped expansion has no type for it.
+    val overReturning = modelOf("https://e/a", "https://e/b")
+      .withSnippet("https://e/a", "readable")
+      .withSnippet("https://e/b", "secret")
+    val expander = TypingExpander(mapOf("https://e/a" to setOf(event)))
+
+    val result = find(limit = 10, adapters = listOf(adapter(overReturning, selfScoped = false)), expander = expander)
+
+    assertEquals(setOf("https://e/a"), subjectsOf(result))
+    assertTrue(result.contains(null, text, vf.createLiteral("readable")), "the kept hit keeps its snippet")
+    assertTrue(result.filter(null, text, vf.createLiteral("secret")).isEmpty(), "the dropped hit's snippet goes")
+    assertNoOrphanedBlankNodes(result)
+  }
+
+  @Test
+  fun `with a type constraint, drops an unvouched hit of another type`() {
+    val overReturning = modelOf("https://e/a", "https://e/b").withSnippet("https://e/b", "a person")
+    val expander = TypingExpander(mapOf("https://e/a" to setOf(event), "https://e/b" to setOf(person)))
+
+    val result = find(
+      limit = 10,
+      adapters = listOf(adapter(overReturning, selfScoped = false)),
+      expander = expander,
+      types = setOf(event),
+    )
+
+    assertEquals(setOf("https://e/a"), subjectsOf(result))
+    assertTrue(result.filter(null, text, null).isEmpty(), "the dropped hit's snippet goes")
+  }
+
+  @Test
+  fun `the type constraint is OR-combined, and one matching type of several suffices`() {
+    val overReturning = modelOf("https://e/a", "https://e/b", "https://e/c")
+    val expander = TypingExpander(
+      mapOf(
+        "https://e/a" to setOf(event),
+        "https://e/b" to setOf(person, place),
+        "https://e/c" to setOf(place),
+      ),
+    )
+
+    val result = find(
+      limit = 10,
+      adapters = listOf(adapter(overReturning, selfScoped = false)),
+      expander = expander,
+      types = setOf(event, person),
+    )
+
+    assertEquals(setOf("https://e/a", "https://e/b"), subjectsOf(result))
+  }
+
+  @Test
+  fun `an expander that returns nothing drops every unvouched hit`() {
+    val result = find(
+      limit = 10,
+      adapters = listOf(adapter(modelOf("https://e/a", "https://e/b").withSnippet("https://e/a", "s"), selfScoped = false)),
+      expander = CapturingExpander(),
+    )
+
+    assertTrue(result.isEmpty())
+  }
+
+  @Test
+  fun `an empty effective scope yields nothing, whatever the engines return`() {
+    val nothing = FindSandbox(
+      podUri = sandbox.podUri,
+      credentials = sandbox.credentials,
+      visibleContexts = setOf(URI("https://example.org/t/public")),
+      contextFilter = emptySet(),
+    )
+    // Neither engine honours the empty scope; the service must not depend on them doing so.
+    val careless = object : ResourceExpander {
+      override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model =
+        LinkedHashModel().apply { hits.forEach { add(it, RDF.TYPE, event) } }
+    }
+
+    val result = find(
+      limit = 10,
+      adapters = listOf(adapter(modelOf("https://e/a")), adapter(modelOf("https://e/b"), selfScoped = false)),
+      expander = careless,
+      sandbox = nothing,
+    )
+
+    assertTrue(result.isEmpty())
+  }
+
+  @Test
+  fun `a hit vouched for by a self-scoped adapter is kept without an expanded type`() {
+    val expander = TypingExpander(emptyMap())
+
+    val result = find(
+      limit = 10,
+      adapters = listOf(
+        adapter(modelOf("https://e/a").withSnippet("https://e/a", "vouched")),
+        // Returns a as well, without vouching: the self-scoped adapter's word is enough.
+        adapter(modelOf("https://e/a", "https://e/b"), selfScoped = false),
+      ),
+      expander = expander,
+      types = setOf(event),
+    )
+
+    assertEquals(setOf("https://e/a"), subjectsOf(result))
+    assertTrue(result.contains(null, text, vf.createLiteral("vouched")))
+  }
+
+  @Test
+  fun `only present hits count against the limit`() {
+    // a and b sort first and are best-ranked, but nothing vouches for them and the expansion has no type.
+    val overReturning = rankedModelOf("https://e/a", "https://e/b", "https://e/c")
+    val expander = TypingExpander(mapOf("https://e/c" to setOf(event)))
+
+    val result = find(
+      limit = 1,
+      adapters = listOf(adapter(overReturning, selfScoped = false), adapter(modelOf("https://e/d"))),
+      expander = expander,
+    )
+
+    assertEquals(setOf("https://e/c"), subjectsOf(result))
+  }
+
+  @Test
+  fun `the result carries the expansion of kept hits only`() {
+    val expander = TypingExpander(
+      mapOf("https://e/a" to setOf(event), "https://e/b" to setOf(event), "https://e/c" to setOf(event)),
+    )
+
+    val result = find(limit = 2, adapters = listOf(adapter(modelOf("https://e/a", "https://e/b", "https://e/c"))), expander = expander)
+
+    assertEquals(setOf("https://e/a", "https://e/b", "https://e/c"), expander.lastHits)
+    assertEquals(setOf("https://e/a", "https://e/b"), subjectsOf(result))
+    assertTrue(result.contains(vf.createIRI("https://e/a"), RDF.TYPE, event))
+    assertTrue(result.contains(vf.createIRI("https://e/b"), name, vf.createLiteral("expanded https://e/b")))
+    assertTrue(result.filter(vf.createIRI("https://e/c"), null, null).isEmpty(), "the dropped hit is not expanded into the result")
   }
 }

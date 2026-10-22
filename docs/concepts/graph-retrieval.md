@@ -76,11 +76,17 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   types. `rdf:type` is the one structured facet supported, because every engine
   knows a resource's type cheaply; general predicate filters are [proposed separately](../proposals/graph-retrieval.md). Exact match — a caller ORs known subtypes rather than relying on
   subclass reasoning.
-- `FindService` merges registered adapters and expands their hit subjects. When merged
-  hits exceed the limit it keeps the best-ranked ones: the lowest `schema:position` an
-  adapter recorded behind a hit's `sps:findResult`, then the IRI. The SPARQL adapter
-  records no rank, so its hits are capped by IRI; there is no rank fusion. A kept hit
-  keeps the blank nodes reachable from it. The caller picks no mode.
+- `FindService` merges registered adapters and expands their hit subjects. An adapter that
+  declares itself self-scoped, like the SPARQL adapter, is trusted to return only readable
+  hits of a requested type. Any other adapter's hit is kept only when the expansion, read in
+  the sandbox without inferred statements, shows an `rdf:type` for it — one of the requested
+  types when `type` is given. A hit that fails is dropped with its blank nodes before the
+  cap, so it neither leaks nor uses up the limit; the expansion covers every merged hit, up
+  to adapters × limit. When the remaining hits exceed the limit it keeps the best-ranked
+  ones: the lowest `schema:position` an adapter recorded behind a hit's `sps:findResult`,
+  then the IRI. The SPARQL adapter records no rank, so its hits are capped by IRI; there is
+  no rank fusion. A kept hit keeps the blank nodes reachable from it. The caller picks no
+  mode.
 - **The context sandbox always applies** — the same permission layer as SPARQL
   and CRUD. An anonymous visitor sees public data; an authenticated owner sees
   internal contexts too. Same `find`, different depth.
@@ -154,7 +160,7 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 
 ## Implementation
 
-- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, cap and fixed expansion.
+- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, verification, cap and fixed expansion.
 - [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.
 - [Inference proposal](../proposals/inference-context.md) — proposed hierarchy lookup; exact-match retrieval remains current.

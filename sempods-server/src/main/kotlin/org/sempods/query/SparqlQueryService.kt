@@ -167,16 +167,20 @@ class SparqlQueryService @Inject constructor(
    * context provenance (a CONSTRUCT/[executeGraphToModel] can only emit context-less triples).
    * Rows missing any of the four bindings, or with the wrong term kind for subject/predicate/graph,
    * are skipped defensively. Same `dataset` sandbox + bound-variable handling as the graph path.
+   *
+   * [includeInferred] `false` reads asserted statements only.
    */
   fun executeSelectToQuadModel(
     pod: String,
     query: String,
     dataset: Dataset?,
     bindings: Map<String, Value> = emptyMap(),
+    includeInferred: Boolean = true,
   ): Model {
     return withPodConnection(pod) { conn ->
       val prepared = conn.prepareTupleQuery(QueryLanguage.SPARQL, query)
       prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
+      prepared.includeInferred = includeInferred
       if (dataset != null) prepared.dataset = dataset
       bindings.forEach { (name, value) -> prepared.setBinding(name, value) }
       val model = LinkedHashModel()

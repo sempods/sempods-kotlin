@@ -11,9 +11,9 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
 
 /**
  * The PoC `find` engine: pure SPARQL substring match over literals, no new infrastructure.
- * Self-scopes by building the sandbox `Dataset` from `sandbox.effectiveScope()` (the optional
- * caller context downscope, else the readable ceiling), so the RDF4J dataset enforces the visible
- * contexts for this adapter.
+ * [Self-scoped][FindAdapter.selfScoped]: it builds the sandbox `Dataset` from
+ * `sandbox.effectiveScope()` (the optional caller context downscope, else the readable ceiling), so
+ * the RDF4J dataset enforces the visible contexts, and the query applies the `type` constraint.
  *
  * Known limitation (accepted for the PoC): `CONTAINS` over all literals is a full scan — no
  * index, no ranking, no semantic recall. A vector / OpenSearch engine replaces it later behind
@@ -22,6 +22,8 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
 class SparqlTextFindAdapter @Inject constructor(
   private val sparqlQueryService: SparqlQueryService,
 ) : FindAdapter {
+
+  override val selfScoped: Boolean = true
 
   override fun find(request: FindRequest, sandbox: FindSandbox): Model {
     if (request.tokens.isEmpty()) return LinkedHashModel()

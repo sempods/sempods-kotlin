@@ -117,6 +117,7 @@ rdf4jRioTurtle = { module = "org.eclipse.rdf4j:rdf4j-rio-turtle", version.ref = 
 hasmacJsonLd = "no.hasmac:hasmac-json-ld:0.10.2"
 rdf4jRepoSail = { module = "org.eclipse.rdf4j:rdf4j-repository-sail", version.ref = "rdf4j" }
 rdf4jSailMemory = { module = "org.eclipse.rdf4j:rdf4j-sail-memory", version.ref = "rdf4j" }
+rdf4jSailBase = { module = "org.eclipse.rdf4j:rdf4j-sail-base", version.ref = "rdf4j" }
 rdf4jSparqlJson = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-sparqljson", version.ref = "rdf4j" }
 
 archunit = "com.tngtech.archunit:archunit:1.5.1"

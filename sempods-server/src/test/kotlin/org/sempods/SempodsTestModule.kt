@@ -3,8 +3,11 @@ package org.sempods
 import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
+import com.google.inject.multibindings.Multibinder
 import org.sempods.commons.guice.BaseModule
 import org.sempods.pods.oauth.PodRequestVerifierObserver
+import org.sempods.retrieval.FindAdapter
+import org.sempods.retrieval.OverReturningFindAdapter
 import org.sempods.ai.AiService
 import org.sempods.ai.AiServiceException
 import org.sempods.ai.AiStructuredOutputRequest
@@ -52,6 +55,12 @@ data class SempodsTestModule(
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
 
     PodRequestVerifierObserver.bindTestProxy(binder())
+
+    // An engine that is not self-scoped, beside the SPARQL one, for the test showing FindService
+    // verifies its hits. It returns nothing for a pod it was not armed for.
+    val overReturningFindAdapter = OverReturningFindAdapter()
+    bind<OverReturningFindAdapter>().toInstance(overReturningFindAdapter)
+    Multibinder.newSetBinder(binder(), FindAdapter::class.java).addBinding().toInstance(overReturningFindAdapter)
 
     // `SempodsModule` binds the AI routes only for a configured `AI_PROVIDER`, and the suite
     // configures none. So it binds them here, with a provider that refuses every call: enough to
