@@ -12,8 +12,8 @@ import org.sempods.commons.logging.LoggingCtx
  * A `ThreadLocal` rather than a `ScopedValue`, deliberately. `ScopedValue` needs the whole
  * request inside one structured block, which the imperative [set] / [clear] pair below — driven
  * by a JAX-RS request filter and its matching response filter — cannot provide. It would also
- * buy nothing at the two thread hops in this codebase: neither inherits automatically, so both
- * capture and re-bind explicitly either way.
+ * buy nothing at the thread hops in this codebase: none inherits automatically, so each captures
+ * and re-binds explicitly either way.
  */
 object TraceContextHolder {
 

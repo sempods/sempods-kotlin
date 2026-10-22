@@ -120,8 +120,10 @@ belongs to another trace.
 
 Neither a platform thread pool nor a virtual-thread executor inherits the binding. Where it
 matters, the trace is captured and re-bound explicitly: `podIo` in `sempods-mcp` reads the holder
-on the calling thread and re-binds it inside the virtual thread it submits to. Anything else handing
-work to an executor owes the same two lines.
+on the calling thread and re-binds it inside the virtual thread it submits to, and so does
+`VirtualThreadFindExecutor`, the default `FindExecutor` the pod server's `find` fans its adapters
+out on (`FindServiceTest` pins it). Anything else handing work to an executor, a `FindExecutor` a
+deployment binds included, owes the same two lines.
 
 ## Scope
 
