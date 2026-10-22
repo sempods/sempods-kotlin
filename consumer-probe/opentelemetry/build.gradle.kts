@@ -6,7 +6,9 @@ dependencies {
   testImplementation(project(":sempods-client"))
   testImplementation(libs.okhttp)
 
-  // The API, an SDK with an in-memory exporter to read the spans back, and the instrumentation library.
+  // The API, an SDK with an in-memory exporter to read the spans back, and the instrumentation library,
+  // all at the versions the instrumentation's BOM names.
+  testImplementation(platform(libs.opentelemetryInstrumentationBomAlpha))
   testImplementation(libs.opentelemetryApi)
   testImplementation(libs.opentelemetryContext)
   testImplementation(libs.opentelemetrySdk)
