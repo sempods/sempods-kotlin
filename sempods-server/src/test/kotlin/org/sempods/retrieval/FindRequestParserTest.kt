@@ -23,6 +23,13 @@ class FindRequestParserTest {
   }
 
   @Test
+  fun `rejects a type IRI carrying a code point outside ucschar`() {
+    listOf("https://example.org/a\uE000", "https://example.org/a\uFFFE", "https://example.org/a\uD800").forEach {
+      assertFailsWith<IllegalArgumentException> { FindRequestParser.parse("alice", listOf(it), null) }
+    }
+  }
+
+  @Test
   fun `parses a clean request, tokenizing and OR-collecting types`() {
     val request = FindRequestParser.parse(
       text = "  Alice   Bob ",

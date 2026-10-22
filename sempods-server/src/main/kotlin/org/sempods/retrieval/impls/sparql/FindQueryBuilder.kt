@@ -30,7 +30,7 @@ object FindQueryBuilder {
 
   data class BoundQuery(val sparql: String, val bindings: Map<String, Value>)
 
-  /** Render a well-formed IRI as a SPARQL `IRIREF` (`<…>`). Throws if the IRI carries a break-out character. */
+  /** Render a well-formed IRI as a SPARQL `IRIREF` (`<…>`). Throws if [IriSyntax] rejects the IRI. */
   private fun iriRef(iri: IRI): String {
     require(IriSyntax.isWellFormed(iri)) { "IRI is not representable as a SPARQL IRIREF: ${iri.stringValue()}" }
     return "<${iri.stringValue()}>"

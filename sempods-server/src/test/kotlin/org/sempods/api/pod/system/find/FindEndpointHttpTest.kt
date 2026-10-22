@@ -140,6 +140,19 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `find with a type IRI carrying a private-use or non-character code point returns 400`() {
+    val pod = sempodsTestFactory.newPod()
+
+    listOf("https://example.org/a\uE000", "https://example.org/a\uFFFE").forEach { type ->
+      val response = http.prepareGet(findUrl(pod.name))
+        .addQueryParam("text", "alice")
+        .addQueryParam("type", type)
+        .execute()
+      assertEquals(400, response.statusCode, "type=$type")
+    }
+  }
+
+  @Test
   fun `find with multiple type params is OR-combined`() {
     val pod = sempodsTestFactory.newPod()
     val token = TestUtil.randomId()
