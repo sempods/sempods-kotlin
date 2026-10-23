@@ -92,7 +92,7 @@ Closing it needs the change to become **one** durable record instead of N. A Mon
 would do it but needs a replica set (declined); the intended answer is a durable change record.
 The recovery design linked above must settle when retries can be retired.
 
-### Resource boundary — no blank nodes
+### Resource boundary — no blank nodes, RFC 3987 IRIs only
 
 A resource is exactly its **own-subject** statements, and **blank nodes are forbidden** (see
 `ResourceBoundary`): pod data is fully IRI/literal-valued, a nested value must be its own IRI-named
@@ -103,6 +103,10 @@ API cannot express anonymous nested objects — now made explicit; external RDF 
 would be skolemized at the import boundary (future). Because there is no blank-node closure, a
 resource = `getStatements(subject)`, owner = subject, and context removal is a single
 `clear(context)` (no orphan pruning).
+
+Every IRI in the resource — subject, predicate, object, a literal's datatype, the context — must
+also pass `IriSyntax` (an absolute RFC 3987 IRI); `requireWithinBoundary` says what that means for
+a resource stored before the rule.
 
 ### Context awareness
 

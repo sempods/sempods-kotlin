@@ -1,6 +1,7 @@
 package org.sempods.pods
 
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.util.Values
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.junit.jupiter.api.Test
@@ -8,7 +9,8 @@ import kotlin.test.assertFailsWith
 
 /**
  * The resource boundary invariant: a model may only carry statements about the resource itself,
- * and blank nodes are forbidden (pod data is fully IRI/literal-valued).
+ * blank nodes are forbidden (pod data is fully IRI/literal-valued), and every IRI passes
+ * [IriSyntax].
  */
 class ResourceBoundaryTest {
 
@@ -61,5 +63,32 @@ class ResourceBoundaryTest {
       add(Values.bnode(), name, Values.literal("nested"), context)
     }
     assertFailsWith<IllegalArgumentException> { ResourceBoundary.requireWithinBoundary(resource, model) }
+  }
+
+  @Test
+  fun `an IRI outside RFC 3987 is rejected in every position`() {
+    // `Values.iri` would refuse these itself; the lax factory is how a parser hands them over.
+    val vf = SimpleValueFactory.getInstance()
+    val bad = vf.createIRI("https://pod.example/a\uE000")
+    val bySubject = vf.createIRI("https://pod.example/a\uFFFE")
+    listOf(
+      bySubject to LinkedHashModel().apply { add(bySubject, name, Values.literal("x"), context) },
+      resource to LinkedHashModel().apply { add(resource, bad, Values.literal("x"), context) },
+      resource to LinkedHashModel().apply { add(resource, location, bad, context) },
+      resource to LinkedHashModel().apply { add(resource, name, vf.createLiteral("x", bad), context) },
+      resource to LinkedHashModel().apply { add(resource, name, Values.literal("x"), bad) },
+      resource to LinkedHashModel().apply { add(resource, location, vf.createIRI("/a:b"), context) },
+    ).forEach { (subject, model) ->
+      assertFailsWith<IllegalArgumentException>(model.toString()) { ResourceBoundary.requireWithinBoundary(subject, model) }
+    }
+  }
+
+  @Test
+  fun `an umlaut and a supplementary character pass`() {
+    val model = LinkedHashModel().apply {
+      add(resource, location, Values.iri("https://pod.example/places/M\u00FCnchen"), context)
+      add(resource, location, Values.iri("https://pod.example/places/\uD840\uDC00"), context)
+    }
+    ResourceBoundary.requireWithinBoundary(resource, model)
   }
 }

@@ -3,6 +3,7 @@ package org.sempods.pods.contexts
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.sempods.SempodsUriBuilder.Companion.CONTEXT_PATH_PREFIX
 import org.sempods.client.SempodsPodBase
+import org.sempods.pods.IriSyntax
 import java.net.URI
 
 /**
@@ -128,6 +129,9 @@ object ContextPathRules {
    *   split points and the wrong one wins.
    * - **A query.** Same addressability problem, and `?context=` on the resource routes would carry
    *   an IRI that re-parses into something else.
+   * - **An IRI [IriSyntax] refuses** — a private-use or non-character code point, say. That string is
+   *   no RFC 3987 IRI, so it cannot identify a context (`SPS-CTX-002`), and every resource route
+   *   refuses it as `?context=`.
    *
    * The prefix is prepended here, never taken from the caller, so no path can escape the namespace
    * structurally.
@@ -180,7 +184,7 @@ object ContextPathRules {
     if (uri.query != null) {
       return "context URI must not contain query"
     }
-    return null
+    return IriSyntax.rejectionReason(uri.toString())
   }
 
   /**

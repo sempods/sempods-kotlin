@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.SempodsUriBuilder
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
@@ -229,6 +230,8 @@ class PodResourceEndpoint @Inject constructor(
   ): Response {
     rejectSystemArea(resourcePath)
     val credentials = authenticate(pod)
+    // Only for its refusal: a path that names no resource has no methods to advertise.
+    buildResourceUri(pod, resourcePath)
     val allow = buildAllowHeader(pod, resourcePath, credentials)
     return Response.ok().header(HttpHeaders.ALLOW, allow).build()
   }
@@ -253,10 +256,21 @@ class PodResourceEndpoint @Inject constructor(
   }
 
   private fun buildResourceUri(pod: String, resourcePath: String): URI {
-    return sempodsUriBuilder.buildResourceUri(
-      podName = pod,
-      resourcePath = resourcePath,
-    )
+    val resourceUri = try {
+      sempodsUriBuilder.buildResourceUri(
+        podName = pod,
+        resourcePath = resourcePath,
+      )
+    } catch (_: IllegalArgumentException) {
+      // The path arrives decoded, so `%25zz` is `%zz` here, which no URI may contain.
+      throw WebApplicationException(
+        Response.status(400).entity("resource path does not form a URI").type("text/plain").build()
+      )
+    }
+    IriSyntax.rejectionReason(resourceUri.toString())?.let { reason ->
+      throw WebApplicationException(Response.status(400).entity(reason).type("text/plain").build())
+    }
+    return resourceUri
   }
 
   private fun rejectSystemArea(resourcePath: String) {

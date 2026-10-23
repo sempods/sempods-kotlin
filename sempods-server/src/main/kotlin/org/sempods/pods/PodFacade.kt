@@ -249,7 +249,7 @@ class PodFacade @Inject constructor(
 
   /**
    * Defense-in-depth for write paths that persist a context URI: rejects URIs
-   * outside the pod's namespace or carrying a fragment. The HTTP endpoint
+   * outside the pod's namespace, carrying a fragment, or refused by [IriSyntax]. The HTTP endpoint
    * runs the same checks during input normalisation; this guards programmatic
    * callers so a bug or future code path cannot register an out-of-pod URI as
    * (public) context — which would silently widen anonymous-read scope.
@@ -267,6 +267,9 @@ class PodFacade @Inject constructor(
         parameterName = "contextUri",
         message = "context URI must not contain fragment",
       )
+    }
+    IriSyntax.rejectionReason(contextUri.toString())?.let { reason ->
+      throw ApiErrors.throwInvalidParameterError(parameterName = "contextUri", message = reason)
     }
   }
 

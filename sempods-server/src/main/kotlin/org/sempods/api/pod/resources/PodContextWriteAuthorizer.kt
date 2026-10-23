@@ -4,6 +4,7 @@ import com.google.inject.Inject
 import org.sempods.SempodsModule
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.contexts.persist.PodContextsDao
+import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.PodContextPermissionResolver
 import jakarta.ws.rs.WebApplicationException
@@ -19,8 +20,8 @@ import java.net.URI
  * Every write passes two gates:
  *
  * 1. [resolveWriteContextOrThrow] — parse the raw `?context=` parameter, normalize it against
- *    the pod base URL, and reject out-of-namespace / fragmented URIs. Nothing here depends on
- *    whether the context exists.
+ *    the pod base URL, and reject an IRI [IriSyntax] refuses and out-of-namespace / fragmented
+ *    URIs. Nothing here depends on whether the context exists.
  * 2. [authorizeWriteOrThrow] — match the resolved context against the caller's grants,
  *    honoring `<root>#manage` only along slash-delimited descendants so a `tasks#manage` grant
  *    cannot reach the sibling `tasks-private` context; then confirm the context is registered.
@@ -47,16 +48,15 @@ class PodContextWriteAuthorizer @Inject constructor(
       )
 
     val podBaseUrl = "${SempodsModule.config.apiBaseUrl}${pod}/"
-    val contextUri = if (raw.contains("://")) {
-      try {
-        URI(raw)
-      } catch (_: Exception) {
-        throw WebApplicationException(
-          Response.status(400).entity("invalid context URI").type(MediaType.TEXT_PLAIN).build()
-        )
-      }
-    } else {
-      URI("${podBaseUrl}${raw.trimStart('/')}")
+    val contextUri = try {
+      URI(if (raw.contains("://")) raw else "${podBaseUrl}${raw.trimStart('/')}")
+    } catch (_: Exception) {
+      throw WebApplicationException(
+        Response.status(400).entity("invalid context URI").type(MediaType.TEXT_PLAIN).build()
+      )
+    }
+    IriSyntax.rejectionReason(contextUri.toString())?.let { reason ->
+      throw WebApplicationException(Response.status(400).entity(reason).type(MediaType.TEXT_PLAIN).build())
     }
 
     if (!contextUri.toString().startsWith(podBaseUrl)) {

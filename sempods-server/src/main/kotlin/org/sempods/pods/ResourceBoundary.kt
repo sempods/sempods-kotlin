@@ -2,7 +2,9 @@ package org.sempods.pods
 
 import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.IRI
+import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
+import org.eclipse.rdf4j.model.Statement
 
 /**
  * Resource boundary invariant for the write-through store: a resource's model may only contain
@@ -20,8 +22,13 @@ object ResourceBoundary {
 
   /**
    * Enforce the boundary before persisting [model] as the document of [resourceIri]: every
-   * statement must have [resourceIri] as subject and must not carry a blank node. An in-process
-   * write backstop, mirrored at the HTTP layer.
+   * statement must have [resourceIri] as subject, must not carry a blank node, and every IRI in it
+   * — subject, predicate, object, a literal's datatype, the context — must pass [IriSyntax]. An
+   * in-process write backstop, mirrored at the HTTP layer.
+   *
+   * It judges the whole document, statements already stored in other contexts included, so a
+   * write to a resource that holds an IRI from before the [IriSyntax] rule fails until that IRI is
+   * repaired.
    */
   fun requireWithinBoundary(resourceIri: IRI, model: Model) {
     model.forEach { st ->
@@ -33,6 +40,19 @@ object ResourceBoundary {
         "Model for resource '$resourceIri' contains a blank node — pod data must be fully " +
           "IRI/literal-valued; a nested value must be its own IRI-named resource"
       }
+      iris(st).forEach { iri ->
+        IriSyntax.rejectionReason(iri.stringValue())?.let { reason ->
+          throw IllegalArgumentException("Model for resource '$resourceIri' contains an IRI a pod may not store: $reason")
+        }
+      }
     }
   }
+
+  private fun iris(st: Statement): List<IRI> = listOfNotNull(
+    st.subject as? IRI,
+    st.predicate,
+    st.`object` as? IRI,
+    (st.`object` as? Literal)?.datatype,
+    st.context as? IRI,
+  )
 }

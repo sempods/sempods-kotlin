@@ -217,6 +217,10 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(reserved.responseBody.contains("reserved for a future"), reserved.responseBody)
     // `_system` stays free as the separator for future per-context operations.
     assertEquals(400, put("apps/example/_system/shape").statusCode)
+    // A private-use code point arrives decoded and makes no context IRI a write could use.
+    val privateUse = put("projects/a%EE%80%80")
+    assertEquals(400, privateUse.statusCode, privateUse.responseBody)
+    assertNull(podContextsDao.fetchByContextUri(podId = checkNotNull(pod.id), contextUri = contextUri(pod.name, "projects/a\uE000")))
   }
 
   @Test
