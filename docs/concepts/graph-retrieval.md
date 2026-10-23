@@ -153,6 +153,7 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 ## Implementation
 
 - [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge and fixed expansion.
-- [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
+- [`FindHttpHandler`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindHttpHandler.kt) — GET/POST, strict fields, downscope, representation and caching headers. It authenticates nothing: the caller supplies a [`FindAuthorizer`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindAuthorization.kt), called after a `400` or `406` would have answered.
+- [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — this server's authentication around the handler.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.
 - [Inference proposal](../proposals/inference-context.md) — proposed hierarchy lookup; exact-match retrieval remains current.

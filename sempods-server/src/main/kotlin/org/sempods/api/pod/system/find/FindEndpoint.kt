@@ -1,19 +1,10 @@
 package org.sempods.api.pod.system.find
 
 import com.google.inject.Inject
-import org.sempods.commons.json.JsonMappers
-import org.sempods.SempodsUriBuilder
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
-import org.sempods.api.system.sparql.GraphResultFormat
-import org.sempods.api.system.sparql.GraphResultNegotiation
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
-import org.sempods.rdf.RdfWriterUtil
-import org.sempods.retrieval.FindRequest
-import org.sempods.retrieval.FindRequestParser
-import org.sempods.retrieval.FindSandbox
-import org.sempods.retrieval.FindService
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.POST
@@ -23,10 +14,7 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import jakarta.ws.rs.core.StreamingOutput
-import org.eclipse.rdf4j.rio.Rio
 
 /**
  * `GET`/`POST /{pod}/_system/find` — the semantic entry to the graph retrieval pattern
@@ -34,29 +22,28 @@ import org.eclipse.rdf4j.rio.Rio
  * best-effort `type`/`label`/`name` expansion) as JSON-LD (default) or N-Quads, mirroring the
  * `_system/sparql` graph negotiation.
  *
- * The endpoint stays thin: parse + validate input, authenticate, delegate to [FindService],
- * negotiate the serialization. `text` is required (whitespace-only → 400). The optional, repeatable
- * `type` constrains the returned hit's `rdf:type` (OR-combined). The optional, repeatable `context`
- * is a read downscope within the caller's readable contexts — same `requested ∩ readable` /
- * silent-exclusion semantics as the LOD read routes (sempods-spec `spec/core/lod-crud.md` §4 §"Reads"). The optional
- * `include_contexts` switches the result to the named-graph (provenance) form: each hit/expansion
- * statement grouped by the context it came from (JSON-LD), or carried as the 4th N-Quads term.
+ * The transport — parameters, negotiation, the downscope, serialization and caching headers — is
+ * [FindHttpHandler]'s. This endpoint adds this server's authentication as the handler's
+ * [FindAuthorizer]:
  *
- * The `POST` form ([findPost]) takes the same parameters in a JSON body for requests that no longer
- * fit a URL (many `contexts`); GET and POST share [executeFind]. The general predicate `filter`
- * stays a deferred additive extension (see `docs/concepts/graph-retrieval.md`).
+ * - the pod and the caller come from [authenticate]; the caller's readable contexts are the ceiling;
+ * - a `context` downscope is `requested ∩ readable` against the pod's context registry, unknown and
+ *   unreadable contexts silently dropped — the same as the LOD read routes (sempods-spec
+ *   `spec/core/lod-crud.md` §4 §"Reads");
+ * - a result read with a bearer is `Cache-Control: private, no-store`, an anonymous one `public`.
+ *
+ * The `POST` form ([findPost]) takes the same parameters in a JSON body ([FindPostRequest]) for
+ * requests that no longer fit a URL. The general predicate `filter` stays a deferred additive
+ * extension (see `docs/concepts/graph-retrieval.md`).
  */
 @Path("{pod}/_system/find")
 @Produces("application/ld+json", "application/n-quads")
 class FindEndpoint @Inject constructor(
-  private val findService: FindService,
+  private val findHttpHandler: FindHttpHandler,
   private val podResourceReadService: PodResourceReadService,
-  private val sempodsUriBuilder: SempodsUriBuilder,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(podFacade = podFacade, podDao = podDao) {
-
-  private val objectMapper = JsonMappers.default()
 
   @GET
   fun find(
@@ -67,23 +54,16 @@ class FindEndpoint @Inject constructor(
     @QueryParam("include_contexts") includeContextsParam: String?,
     @QueryParam("limit") limitParam: String?,
     @Context httpHeaders: HttpHeaders,
-  ): Response {
-    // Shared validation (REST + MCP cannot drift): whitespace-only/absent text → 400, invalid
-    // type IRI → 400, limit clamped 1..100.
-    val request = try {
-      FindRequestParser.parse(
-        text = text,
-        typeIris = typeParams ?: emptyList(),
-        limit = limitParam?.trim()?.toIntOrNull(),
-      )
-    } catch (e: IllegalArgumentException) {
-      return badRequest(e.message ?: "invalid request")
-    }
-    val includeContexts = parseIncludeContextsOrThrow(includeContextsParam)
-    // An empty repeated `?context=` list means "absent" (→ pod-wide); a present-but-blank value
-    // (`?context=`) keeps a non-empty raw list so [executeFind] treats it as a present-empty scope.
-    return executeFind(pod, request, contextParams?.takeIf { it.isNotEmpty() }, includeContexts, httpHeaders)
-  }
+  ): Response =
+    findHttpHandler.handleGet(
+      text = text,
+      typeParams = typeParams,
+      contextParams = contextParams,
+      includeContextsParam = includeContextsParam,
+      limitParam = limitParam,
+      acceptableMediaTypes = httpHeaders.acceptableMediaTypes,
+      authorizer = authorizer(pod),
+    )
 
   @POST
   @Consumes("application/json")
@@ -91,102 +71,26 @@ class FindEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     body: String?,
     @Context httpHeaders: HttpHeaders,
-  ): Response {
-    val rawBody = body?.takeIf { it.isNotBlank() } ?: return badRequest("missing JSON request body")
-    val parsed = try {
-      JsonMappers.strict().readValue(rawBody, FindPostRequest::class.java)
-    } catch (e: Exception) {
-      return badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
-    }
-    val request = try {
-      FindRequestParser.parse(
-        text = parsed.text,
-        typeIris = parsed.type ?: emptyList(),
-        limit = parsed.limit,
-      )
-    } catch (e: IllegalArgumentException) {
-      return badRequest(e.message ?: "invalid request")
-    }
-    return executeFind(pod, request, parsed.contexts, parsed.includeContexts == true, httpHeaders)
-  }
+  ): Response =
+    findHttpHandler.handlePost(
+      body = body,
+      acceptableMediaTypes = httpHeaders.acceptableMediaTypes,
+      authorizer = authorizer(pod),
+    )
 
-  /**
-   * Shared core for GET and POST: negotiate the serialization, authenticate, resolve the optional
-   * context downscope, run [FindService], and serialize. `includeContexts` selects flat vs.
-   * named-graph (provenance) output.
-   */
-  private fun executeFind(
-    pod: String,
-    request: FindRequest,
-    rawContexts: List<String>?,
-    includeContexts: Boolean,
-    httpHeaders: HttpHeaders,
-  ): Response {
-    val format = GraphResultNegotiation.select(httpHeaders.acceptableMediaTypes)
-      ?: return Response.status(Response.Status.NOT_ACCEPTABLE)
-        .entity("find can only produce application/ld+json or application/n-quads")
-        .type(MediaType.TEXT_PLAIN)
-        .build()
-
+  private fun authorizer(pod: String) = FindAuthorizer {
     val credentials = authenticate(pod)
-    // A pod's global identifier is its own URI (sempods are decentralized Linked Open Data); the
-    // retrieval layer and its adapters key on this rather than the server-local pod name. The
-    // canonical (no-trailing-slash) form comes from SempodsUriBuilder, the same builder that mints
-    // every resource URI.
-    val podUri = credentials.pod.uri
-    // Optional context downscope. `rawContexts == null` = absent → pod-wide within the readable
-    // ceiling. A present list is fail-closed: blank-only (`contexts:[]` / `[""]`) resolves to an
-    // empty scope (→ empty result), NOT pod-wide; otherwise `requested ∩ readable` with
-    // unknown/unreadable contexts silently dropped. Mirrors the LOD read routes.
-    val contextFilter = rawContexts?.let { raw ->
-      val cleaned = raw.filter { it.isNotBlank() }
-      if (cleaned.isEmpty()) {
-        emptySet()
-      } else {
-        podResourceReadService.resolveVisibleContexts(pod, credentials, cleaned)
-      }
-    }
-    val sandbox = FindSandbox(
-      podUri = podUri,
+    FindAuthorization(
+      // A pod's global identifier is its own URI; the retrieval layer and its adapters key on it
+      // rather than on the server-local pod name.
+      podUri = credentials.pod.uri,
       credentials = credentials,
       visibleContexts = credentials.restrictedContexts,
-      contextFilter = contextFilter,
+      // A non-empty request always resolves to a set; an absent one never reaches the resolver.
+      contextResolver = { requested ->
+        podResourceReadService.resolveVisibleContexts(pod, credentials, requested) ?: emptySet()
+      },
+      cacheControl = if (credentials.oauthClientId != null) "private, no-store" else "public",
     )
-    val model = findService.find(request = request, sandbox = sandbox)
-
-    val entity: Any = if (includeContexts && format == GraphResultFormat.JSON_LD) {
-      // Named-graph JSON-LD: statements grouped by their source context (provenance), the same
-      // representation `get_resource?include_contexts=true` returns — but multi-subject.
-      objectMapper.writeValueAsString(RdfWriterUtil.toJsonLdNamedGraphs(model))
-    } else {
-      // Flat by default (drop context deterministically); for include_contexts + N-Quads keep the
-      // context as each statement's 4th term.
-      val outModel = if (includeContexts) model else RdfWriterUtil.flatten(model)
-      StreamingOutput { out ->
-        val writer = Rio.createWriter(format.rdfFormat, out)
-        writer.startRDF()
-        for (statement in outModel) writer.handleStatement(statement)
-        writer.endRDF()
-      }
-    }
-
-    // Permission-scoped caching (`docs/concepts/graph-retrieval.md` "GET caching is
-    // permission-scoped"): the body depends on the negotiated serialization (Accept) AND on the
-    // bearer — an anonymous caller sees public contexts only, an authenticated one sees private
-    // contexts too. A bearer-backed result must never be served to a different caller from a shared
-    // cache, so it is marked `private, no-store`; anonymous results may be cached. `Vary` keys
-    // shared caches on both.
-    val cacheControl = if (credentials.oauthClientId != null) "private, no-store" else "public"
-    return Response.ok(entity)
-      .type(format.contentType)
-      .header(HttpHeaders.VARY, "Accept, Authorization")
-      .header(HttpHeaders.CACHE_CONTROL, cacheControl)
-      .build()
   }
-
-  private fun badRequest(message: String): Response =
-    Response.status(Response.Status.BAD_REQUEST)
-      .entity(message)
-      .type(MediaType.TEXT_PLAIN)
-      .build()
 }

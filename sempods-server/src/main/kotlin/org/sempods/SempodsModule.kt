@@ -63,6 +63,7 @@ import org.sempods.api.pod.system.auth.*
 import org.sempods.api.pod.system.contexts.ContextRegistryCacheFilter
 import org.sempods.api.pod.system.contexts.PodContextsEndpoint
 import org.sempods.api.pod.system.find.FindEndpoint
+import org.sempods.api.pod.system.find.FindHttpHandler
 import org.sempods.api.pod.system.mcp.McpEndpoint
 import org.sempods.api.pod.system.meta.PodMetaEndpoint
 import org.sempods.api.pod.system.resources.PodSlotWriteService
@@ -225,6 +226,7 @@ class SempodsModule : BaseModule() {
     // Graph-retrieval `find`. New search engines (vector, OpenSearch, …) subscribe by
     // contributing a FindAdapter to this set binder — no change to the endpoint or FindService.
     bind<FindService>().asSingleton()
+    bind<FindHttpHandler>().asSingleton()
     bind<ResourceExpander>().to(SparqlResourceExpander::class.java).asSingleton()
     bind<SparqlTextFindAdapter>().asSingleton()
     val findAdapters = Multibinder.newSetBinder(binder(), FindAdapter::class.java)
