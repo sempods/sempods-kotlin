@@ -1,6 +1,8 @@
 package org.sempods.retrieval
 
 import org.sempods.commons.net.SempodsVocabulary
+import org.sempods.commons.trace.TraceContext
+import org.sempods.commons.trace.TraceContextHolder
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.spec.PodRef
 import org.eclipse.rdf4j.model.IRI
@@ -11,15 +13,23 @@ import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.junit.jupiter.api.Test
 import java.net.URI
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
  * Unit tests for [FindService]'s central merge, verification and cap logic, exercised with fake
  * adapters / expander (no pod store needed). Focus: the cap that only bites once several adapters
- * overflow the request limit, the pruning that keeps each kept hit's blank nodes with it, and the
- * verification of hits no self-scoped adapter vouches for — the single-adapter path is covered
- * end-to-end by `FindEndpointHttpTest`.
+ * overflow the request limit, the pruning that keeps each kept hit's blank nodes with it, the
+ * verification of hits no self-scoped adapter vouches for, and the fan-out executor that carries
+ * the trace — the single-adapter path is covered end-to-end by `FindEndpointHttpTest`.
  */
 class FindServiceTest {
 
@@ -101,8 +111,9 @@ class FindServiceTest {
     expander: ResourceExpander,
     types: Set<IRI> = emptySet(),
     sandbox: FindSandbox = this.sandbox,
+    executor: FindExecutor = VirtualThreadFindExecutor(),
   ): Model =
-    FindService(adapters = adapters.toSet(), expander = expander)
+    FindService(adapters = adapters.toSet(), expander = expander, executor = executor)
       .find(FindRequest(tokens = listOf("x"), types = types, limit = limit), sandbox)
 
   private fun subjectsOf(model: Model): Set<String> =
@@ -343,5 +354,104 @@ class FindServiceTest {
     assertTrue(result.contains(vf.createIRI("https://e/a"), RDF.TYPE, event))
     assertTrue(result.contains(vf.createIRI("https://e/b"), name, vf.createLiteral("expanded https://e/b")))
     assertTrue(result.filter(vf.createIRI("https://e/c"), null, null).isEmpty(), "the dropped hit is not expanded into the result")
+  }
+
+  // --- the fan-out executor ---------------------------------------------------------------------
+
+  /** Records, per call, the trace bound and the thread it ran on, and returns [model]. */
+  private inner class ObservingAdapter(private val model: Model = modelOf("https://e/a")) : FindAdapter {
+    override val selfScoped = true
+    val traces: MutableList<TraceContext?> = Collections.synchronizedList(mutableListOf())
+    val threads: MutableSet<Thread> = ConcurrentHashMap.newKeySet()
+    override fun find(request: FindRequest, sandbox: FindSandbox): Model {
+      traces += TraceContextHolder.get()
+      threads += Thread.currentThread()
+      return model
+    }
+  }
+
+  @Test
+  fun `the default executor runs each adapter on a virtual thread under the caller's trace`() {
+    val first = ObservingAdapter(modelOf("https://e/a"))
+    val second = ObservingAdapter(modelOf("https://e/b"))
+
+    val outer = TraceContextHolder.get()
+    TraceContextHolder.with(TraceContext.random()) { trace ->
+      val result = find(limit = 10, adapters = listOf(first, second), expander = CapturingExpander())
+
+      assertEquals(setOf("https://e/a", "https://e/b"), subjectsOf(result))
+      assertEquals(listOf(trace, trace), first.traces + second.traces)
+      assertTrue((first.threads + second.threads).all { it.isVirtual && it != Thread.currentThread() })
+      // The caller's own binding is untouched by the hop.
+      assertSame(trace, TraceContextHolder.get())
+    }
+    assertSame(outer, TraceContextHolder.get())
+  }
+
+  @Test
+  fun `without a trace on the caller, the default executor binds none in the adapter`() {
+    val adapter = ObservingAdapter()
+
+    // On a fresh thread, so nothing a test runner thread may hold reaches the caller.
+    var callerTrace: TraceContext? = TraceContext.random()
+    Thread.ofPlatform().start {
+      callerTrace = TraceContextHolder.get()
+      find(limit = 10, adapters = listOf(adapter), expander = CapturingExpander())
+    }.join()
+
+    assertNull(callerTrace)
+
+    assertEquals(listOf<TraceContext?>(null), adapter.traces)
+  }
+
+  @Test
+  fun `the injected executor is the one every adapter runs on`() {
+    val submitted = AtomicInteger()
+    val inline = FindExecutor { task ->
+      submitted.incrementAndGet()
+      task.run()
+    }
+    val first = ObservingAdapter(modelOf("https://e/a"))
+    val second = ObservingAdapter(modelOf("https://e/b"))
+
+    val result = find(
+      limit = 10,
+      adapters = listOf(first, second),
+      expander = CapturingExpander(),
+      executor = inline,
+    )
+
+    assertEquals(setOf("https://e/a", "https://e/b"), subjectsOf(result))
+    assertEquals(2, submitted.get())
+    // Inline means on the caller: no other executor ran them on a thread of its own.
+    assertEquals(setOf(Thread.currentThread()), first.threads + second.threads)
+  }
+
+  @Test
+  fun `an adapter's failure fails the find, with the adapter's exception as the cause`() {
+    val failure = IllegalStateException("engine down")
+    val failing = object : FindAdapter {
+      override fun find(request: FindRequest, sandbox: FindSandbox): Model = throw failure
+    }
+
+    val thrown = assertFailsWith<ExecutionException> {
+      find(limit = 10, adapters = listOf(adapter(modelOf("https://e/a")), failing), expander = CapturingExpander())
+    }
+
+    assertSame(failure, thrown.cause)
+  }
+
+  @Test
+  fun `an executor that refuses a task fails the find`() {
+    val refusing = FindExecutor { throw RejectedExecutionException("full") }
+
+    assertFailsWith<RejectedExecutionException> {
+      find(
+        limit = 10,
+        adapters = listOf(adapter(modelOf("https://e/a"))),
+        expander = CapturingExpander(),
+        executor = refusing,
+      )
+    }
   }
 }

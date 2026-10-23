@@ -76,12 +76,12 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   types. `rdf:type` is the one structured facet supported, because every engine
   knows a resource's type cheaply; general predicate filters are [proposed separately](../proposals/graph-retrieval.md). Exact match — a caller ORs known subtypes rather than relying on
   subclass reasoning.
-- `FindService` merges registered adapters and expands their hit subjects. An adapter that
-  declares itself self-scoped, like the SPARQL adapter, is trusted to return only readable
-  hits of a requested type. Any other adapter's hit is kept only when the expansion, read in
-  the sandbox without inferred statements, shows an `rdf:type` for it — one of the requested
-  types when `type` is given. A hit that fails is dropped with its blank nodes before the
-  cap, so it neither leaks nor uses up the limit; the expansion covers every merged hit, up
+- `FindService` runs the registered adapters in parallel on a bound `FindExecutor`, merges
+  their models and expands their hit subjects. An adapter that declares itself self-scoped,
+  like the SPARQL adapter, is trusted to return only readable hits of a requested type. Any
+  other adapter's hit is kept only when the expansion, read in the sandbox without inferred
+  statements, shows an `rdf:type` for it — one of the requested types when `type` is given.
+  A hit that fails is dropped with its blank nodes before the cap, so it neither leaks nor uses up the limit; the expansion covers every merged hit, up
   to adapters × limit. When the remaining hits exceed the limit it keeps the best-ranked
   ones: the lowest `schema:position` an adapter recorded behind a hit's `sps:findResult`,
   then the IRI. The SPARQL adapter records no rank, so its hits are capped by IRI; there is
