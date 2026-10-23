@@ -1,22 +1,37 @@
 package org.sempods.retrieval
 
+import org.eclipse.rdf4j.common.net.ParsedIRI
 import org.eclipse.rdf4j.model.IRI
+import java.net.URISyntaxException
 
 /**
- * Minimal IRI syntax guard. `SimpleValueFactory.createIRI` validates permissively (it only
- * requires a scheme), so a caller-supplied IRI can carry characters that no RFC 3987 IRI may
- * contain — spaces, control chars, and ``<>"{}|^`\`` — which are also exactly the characters that
- * would break out of a SPARQL `IRIREF` (and which RDF4J rejects even when `\u`-escaped). Rejecting
- * them at the input boundary is the injection guard for caller-supplied IRIs.
+ * Guard for a caller-supplied IRI that is about to be embedded as a SPARQL `IRIREF` (`<…>`) in
+ * query text.
+ *
+ * `SimpleValueFactory.createIRI` only requires a colon, so an [IRI] can carry characters that no
+ * RFC 3987 IRI may contain. [isWellFormed] parses the string with RDF4J's strict `ParsedIRI`
+ * constructor and requires an absolute IRI. That rejects:
+ *
+ * - the `IRIREF` break-out characters `<` `>` `"` `{` `}` `|` `^` `` ` `` `\`, space and controls;
+ * - every code point outside RFC 3987 `ucschar` — lone surrogates, non-characters, the specials
+ *   `U+FFF0`–`U+FFFD`, the tags `U+E0000`–`U+E0FFF`;
+ * - private-use code points, except in the query component, where RFC 3987 admits them as `iprivate`;
+ * - a malformed structure or percent-encoding, and a relative reference.
+ *
+ * The break-out characters are what make this an injection guard. Everything else is RFC 3987
+ * hygiene that RDF4J's value factory does not apply. An IRI passed to the RDF4J store API or bound
+ * into a parsed query needs no guard.
  */
-internal object IriSyntax {
+object IriSyntax {
 
-  // '<' '>' '"' '{' '}' '|' '^' '`' '\\'
-  private val ILLEGAL = setOf(0x3C, 0x3E, 0x22, 0x7B, 0x7D, 0x7C, 0x5E, 0x60, 0x5C)
-
+  /** Whether [iri] is an absolute RFC 3987 IRI, and so can be wrapped as a SPARQL `IRIREF` (`<…>`). */
   fun isWellFormed(iri: IRI): Boolean =
-    iri.stringValue().none { ch ->
-      val c = ch.code
-      c <= 0x20 || c == 0x7F || (c in 0x80..0x9F) || (c in ILLEGAL)
+    try {
+      ParsedIRI(iri.stringValue()).isAbsolute
+    } catch (_: URISyntaxException) {
+      false
+    } catch (_: IllegalArgumentException) {
+      // ParsedIRI reads an out-of-range port with Integer.parseInt and lets the NumberFormatException out.
+      false
     }
 }
