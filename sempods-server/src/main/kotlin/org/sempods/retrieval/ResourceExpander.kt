@@ -11,6 +11,18 @@ import org.eclipse.rdf4j.model.Model
  * adapter found the hits — but it is inherently a pod-store read, so the concrete query engine
  * (SPARQL today) lives behind this SPI in an `impls` package. Keeping it behind the interface lets
  * [FindService] stay free of any store/query specifics.
+ *
+ * [FindService] also verifies with it the hits of adapters that are not
+ * [selfScoped][FindAdapter.selfScoped]: such a hit is kept only if the expansion carries an
+ * `rdf:type` for it. An implementation therefore:
+ *
+ * - MUST return every asserted `rdf:type` a hit carries in [FindSandbox.effectiveScope] — a type it
+ *   leaves out can drop a hit the caller may read;
+ * - MUST NOT return anything from outside that scope, inferred statements included — a type from
+ *   there would admit a hit the caller may not read;
+ * - returns nothing when [FindSandbox.matchesNothing].
+ *
+ * An expander that returns nothing is valid, and drops every hit no self-scoped adapter vouches for.
  */
 interface ResourceExpander {
 

@@ -119,6 +119,8 @@ dependencies {
   testRuntimeOnly(libs.jerseyJettyHttp)
 
   testImplementation(libs.slf4jApi)
+  // `InferencerConnection`, to put an inferred statement into a store the expander must not read.
+  testImplementation(libs.rdf4jSailBase)
 
   // test implementation bundles
   testImplementation(libs.bundles.test)
