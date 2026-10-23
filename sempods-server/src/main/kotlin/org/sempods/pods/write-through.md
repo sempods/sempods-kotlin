@@ -104,6 +104,10 @@ would be skolemized at the import boundary (future). Because there is no blank-n
 resource = `getStatements(subject)`, owner = subject, and context removal is a single
 `clear(context)` (no orphan pruning).
 
+Every IRI in the resource — subject, predicate, object, a literal's datatype, the context — must
+also pass `IriSyntax` (an absolute RFC 3987 IRI); `requireWithinBoundary` says what that means for
+a resource stored before the rule.
+
 ### Context awareness
 
 Context (named graph) is first-class in sempods (it carries authorization). Change events keep it:

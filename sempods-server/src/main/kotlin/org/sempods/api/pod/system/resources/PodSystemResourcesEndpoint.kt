@@ -7,6 +7,7 @@ import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.pod.resources.PodResourceWriteService
+import org.sempods.pods.IriSyntax
 import org.sempods.api.pod.resources.RepresentationTags
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
@@ -514,7 +515,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
   // -- helpers --
 
   private fun decodeUriSegmentOrThrow(segment: String, role: String): URI {
-    return try {
+    val uri = try {
       UriEncodingUtil.decodeUrlSafeBase64ToUriStrict(segment)
     } catch (e: IllegalArgumentException) {
       throw WebApplicationException(
@@ -524,6 +525,11 @@ class PodSystemResourcesEndpoint @Inject constructor(
           .build()
       )
     }
+    // `java.net.URI` admits any non-ASCII character. What IriSyntax refuses no route may address, reads included.
+    IriSyntax.rejectionReason(uri.toString())?.let { reason ->
+      throw WebApplicationException(Response.status(400).entity("invalid $role segment: $reason").type(MediaType.TEXT_PLAIN).build())
+    }
+    return uri
   }
 
   /**

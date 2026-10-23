@@ -1,9 +1,11 @@
-package org.sempods.retrieval
+package org.sempods.pods
 
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.junit.jupiter.api.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -96,5 +98,20 @@ class IriSyntaxTest {
     assertFalse(IriSyntax.isWellFormed(iri("https://example.org/a%zz")), "bad percent-encoding")
     assertFalse(IriSyntax.isWellFormed(iri("https://example.org:99999999999/")), "port out of range")
     assertFalse(IriSyntax.isWellFormed(iri("/a:b")), "relative reference")
+  }
+
+  @Test
+  fun `the rejection reason names the IRI and what is wrong with it`() {
+    assertNull(IriSyntax.rejectionReason("https://example.org/a"))
+    listOf(
+      "https://example.org/a\uE000" to "U+E000",
+      "https://example.org/a%zz" to "percent encoding",
+      "/a:b" to "relative reference",
+      "https://example.org:99999999999/" to "port",
+    ).forEach { (iri, detail) ->
+      val reason = assertNotNull(IriSyntax.rejectionReason(iri), iri)
+      assertTrue(reason.startsWith("'$iri' is not an absolute RFC 3987 IRI: "), reason)
+      assertTrue(reason.contains(detail, ignoreCase = true), reason)
+    }
   }
 }

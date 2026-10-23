@@ -1,7 +1,7 @@
 package org.sempods.retrieval.impls.sparql
 
 import org.sempods.retrieval.FindRequest
-import org.sempods.retrieval.IriSyntax
+import org.sempods.pods.IriSyntax
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory

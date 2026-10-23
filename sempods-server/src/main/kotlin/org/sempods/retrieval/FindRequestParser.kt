@@ -1,5 +1,6 @@
 package org.sempods.retrieval
 
+import org.sempods.pods.IriSyntax
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 

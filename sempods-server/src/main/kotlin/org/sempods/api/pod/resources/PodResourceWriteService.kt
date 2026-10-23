@@ -5,6 +5,7 @@ import org.sempods.commons.jaxrs.errors.ApiException
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.errors.PodResourceErrors
+import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.mongo.persist.PodDbo
@@ -14,6 +15,8 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import org.eclipse.rdf4j.model.BNode
+import org.eclipse.rdf4j.model.IRI
+import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.rio.RDFFormat
 import tools.jackson.databind.JsonNode
@@ -59,7 +62,8 @@ class PodResourceWriteService @Inject constructor(
    *
    * A subject under the pod's context namespace, [resourceUri] or one in the body, is `400`
    * ([ContextPathRules.reservedSubjectReason]). For [resourceUri] that comes before authorization,
-   * so it says nothing about [contextUri].
+   * so it says nothing about [contextUri]. So is a predicate, an object or a literal's datatype in
+   * the body that is not an absolute RFC 3987 IRI ([IriSyntax]); the endpoints check [resourceUri].
    */
   fun putResource(
     pod: String,
@@ -113,7 +117,8 @@ class PodResourceWriteService @Inject constructor(
    * multivalued operations.
    *
    * A subject under the pod's context namespace is `400`, as for [putResource] — also when
-   * statements about [resourceUri] are already stored there. [deleteResource] removes them.
+   * statements about [resourceUri] are already stored there. [deleteResource] removes them. An IRI
+   * in the body [IriSyntax] rejects is `400` as for [putResource].
    */
   fun mergePatchResource(
     pod: String,
@@ -276,6 +281,13 @@ class PodResourceWriteService @Inject constructor(
           .build()
       )
     }
+    // ResourceBoundary refuses the same IRIs as a 500; here they are the caller's 400. Subjects and
+    // contexts are compared with the request's own IRIs below, which already passed.
+    model.forEach { stmt ->
+      rejectMalformedIri(stmt.predicate.stringValue())
+      (stmt.`object` as? IRI)?.let { rejectMalformedIri(it.stringValue()) }
+      (stmt.`object` as? Literal)?.let { rejectMalformedIri(it.datatype.stringValue()) }
+    }
     // Before the foreign-subject check, so a nested subject is refused for the namespace too.
     subjects.forEach { rejectReservedSubject(credentials, it.stringValue()) }
     if (subjects.any { it != resourceIri }) {
@@ -393,6 +405,10 @@ class PodResourceWriteService @Inject constructor(
     WebApplicationException(
       Response.status(400).entity(message).type(MediaType.TEXT_PLAIN).build()
     )
+
+  private fun rejectMalformedIri(iri: String) {
+    IriSyntax.rejectionReason(iri)?.let { throw badRequest(it) }
+  }
 
   private fun rejectReservedSubject(credentials: SempodsCredentials, subject: String) {
     ContextPathRules.reservedSubjectReason("${credentials.pod.uri}/", subject)?.let { throw badRequest(it) }
