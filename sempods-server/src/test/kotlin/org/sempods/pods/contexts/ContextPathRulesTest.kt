@@ -149,6 +149,14 @@ class ContextPathRulesTest {
     notResolvable("a b", because = "invalid context path")
   }
 
+  @Test
+  fun `a path outside RFC 3987 resolves to nothing, and one in a caller's own language resolves`() {
+    // `java.net.URI` admits these; no write route would take the context they name.
+    notResolvable("notes/a\uE000", because = "RFC 3987")
+    notResolvable("notes/a\uFFFE", because = "RFC 3987")
+    assertEquals("${podBase}_system/contexts/gr\u00FC\u00DFe/\u4F8B", resolved("gr\u00FC\u00DFe/\u4F8B"))
+  }
+
   // ─── reservedSubjectReason: what a write may not be about ─────────────────
 
   private fun reserved(subject: String, podBaseUrl: String = podBase) {
