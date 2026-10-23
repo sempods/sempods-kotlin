@@ -129,8 +129,9 @@ object ContextPathRules {
    *   split points and the wrong one wins.
    * - **A query.** Same addressability problem, and `?context=` on the resource routes would carry
    *   an IRI that re-parses into something else.
-   * - **An IRI [IriSyntax] refuses** — a private-use or non-character code point, say. The resource
-   *   routes refuse it as a write context, so nothing could ever be stored in it.
+   * - **An IRI [IriSyntax] refuses** — a private-use or non-character code point, say. That string is
+   *   no RFC 3987 IRI, so it cannot identify a context (`SPS-CTX-002`), and every resource route
+   *   refuses it as `?context=`.
    *
    * The prefix is prepended here, never taken from the caller, so no path can escape the namespace
    * structurally.
