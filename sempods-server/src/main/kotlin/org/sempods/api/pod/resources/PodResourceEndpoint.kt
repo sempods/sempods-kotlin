@@ -230,6 +230,8 @@ class PodResourceEndpoint @Inject constructor(
   ): Response {
     rejectSystemArea(resourcePath)
     val credentials = authenticate(pod)
+    // Only for its refusal: a path that names no resource has no methods to advertise.
+    buildResourceUri(pod, resourcePath)
     val allow = buildAllowHeader(pod, resourcePath, credentials)
     return Response.ok().header(HttpHeaders.ALLOW, allow).build()
   }

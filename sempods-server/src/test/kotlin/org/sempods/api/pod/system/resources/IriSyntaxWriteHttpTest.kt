@@ -172,6 +172,10 @@ class IriSyntaxWriteHttpTest : SempodsIntegrationTest() {
 
     val privateUse = send("PUT", inContext("$api${pod.name}/notes/a%EE%80%80", tasks.toString()), token, body)
     assertRefused("U+E000 in the path", privateUse)
+    listOf("GET", "OPTIONS").forEach { method ->
+      assertRefused("$method with U+E000 in the path", send(method, "$api${pod.name}/notes/a%EE%80%80", token))
+    }
+    assertRefused("OPTIONS on the b64 route", send("OPTIONS", "$api${pod.name}/_system/resources/${b64("$api${pod.name}/notes/a")}", token))
     // Decoded, `%25zz` is `%zz`, which is not a URI at all.
     assertBadRequest("%zz in the path", send("PUT", inContext("$api${pod.name}/notes/a%25zz", tasks.toString()), token, body))
   }
