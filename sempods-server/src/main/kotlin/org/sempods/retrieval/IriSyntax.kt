@@ -6,7 +6,7 @@ import java.net.URISyntaxException
 
 /**
  * Guard for a caller-supplied IRI that is about to be embedded as a SPARQL `IRIREF` (`<…>`) in
- * query text. `FindRequestParser` and `FindQueryBuilder` share it.
+ * query text.
  *
  * `SimpleValueFactory.createIRI` only requires a colon, so an [IRI] can carry characters that no
  * RFC 3987 IRI may contain. [isWellFormed] parses the string with RDF4J's strict `ParsedIRI`
@@ -18,9 +18,9 @@ import java.net.URISyntaxException
  * - private-use code points, except in the query component, where RFC 3987 admits them as `iprivate`;
  * - a malformed structure or percent-encoding, and a relative reference.
  *
- * The break-out characters are what make this an injection guard: RDF4J rejects them in an
- * `IRIREF` even when `\u`-escaped. Everything else is RFC 3987 hygiene that RDF4J's value factory
- * does not apply. An IRI passed to the RDF4J store API or bound into a parsed query needs no guard.
+ * The break-out characters are what make this an injection guard. Everything else is RFC 3987
+ * hygiene that RDF4J's value factory does not apply. An IRI passed to the RDF4J store API or bound
+ * into a parsed query needs no guard.
  */
 object IriSyntax {
 

@@ -14,10 +14,11 @@ import org.eclipse.rdf4j.model.impl.SimpleValueFactory
  * - **Tokens** are passed as bound variables (`?tok0`, …) via `Query.setBinding`.
  * - **Type IRIs** and **hit IRIs** go into `VALUES` clauses via [iriRef], which requires a
  *   well-formed IRI ([IriSyntax]) — an RFC 3987 IRI, which cannot contain a SPARQL `IRIREF`
- *   break-out character — and wraps it in `<…>`. They are *not* bound, because RDF4J's `BindingAssignerOptimizer`
- *   corrupts a bound variable that sits inside an `IN` / `VALUES` list of two or more members.
- *   (`\u`-escaping is not an option: RDF4J decodes UCHARs inside an IRIREF and re-rejects the
- *   decoded character, so the illegal char must be excluded, not escaped.) Caller-supplied type
+ *   break-out character — and wraps it in `<…>`. They are *not* bound, because RDF4J's
+ *   `BindingAssignerOptimizer` corrupts a bound variable that sits inside an `IN` / `VALUES` list
+ *   of two or more members. (`\u`-escaping is not an option: RDF4J decodes UCHARs inside an
+ *   IRIREF and re-rejects the decoded character, so the illegal char must be excluded, not
+ *   escaped.) Caller-supplied type
  *   IRIs are already rejected at the input boundary by `FindRequestParser`; this is the
  *   defense-in-depth that keeps the builder unable to emit injectable SPARQL.
  *
