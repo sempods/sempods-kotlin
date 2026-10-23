@@ -73,8 +73,28 @@ class IriSyntaxTest {
   }
 
   @Test
+  fun `accepts a private-use code point in the query component`() {
+    // RFC 3987 `iquery` admits `iprivate`; the path and the fragment do not.
+    assertTrue(IriSyntax.isWellFormed(iri("https://example.org/a?q=")))
+    assertFalse(IriSyntax.isWellFormed(iri("https://example.org/a#")))
+  }
+
+  @Test
   fun `rejects non-characters`() {
     assertRejected(0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0x1FFFF, 0xEFFFE, 0x10FFFE, 0x10FFFF)
     assertAccepted(0xFDCF, 0xFDF0, 0x1FFFD)
+  }
+
+  @Test
+  fun `rejects the specials and the tags, which ucschar leaves out`() {
+    assertRejected(0xFFF0, 0xFFFD, 0xE0000, 0xE0FFF)
+    assertAccepted(0xFFEF, 0xE1000)
+  }
+
+  @Test
+  fun `rejects a malformed IRI and a relative reference`() {
+    assertFalse(IriSyntax.isWellFormed(iri("https://example.org/a%zz")), "bad percent-encoding")
+    assertFalse(IriSyntax.isWellFormed(iri("https://example.org:99999999999/")), "port out of range")
+    assertFalse(IriSyntax.isWellFormed(iri("/a:b")), "relative reference")
   }
 }

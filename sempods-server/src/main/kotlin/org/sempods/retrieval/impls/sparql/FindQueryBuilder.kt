@@ -13,8 +13,8 @@ import org.eclipse.rdf4j.model.impl.SimpleValueFactory
  * No caller input is ever raw-string-concatenated into the query:
  * - **Tokens** are passed as bound variables (`?tok0`, …) via `Query.setBinding`.
  * - **Type IRIs** and **hit IRIs** go into `VALUES` clauses via [iriRef], which requires a
- *   well-formed IRI ([IriSyntax]) — one that cannot contain a SPARQL `IRIREF` break-out character
- *   — and wraps it in `<…>`. They are *not* bound, because RDF4J's `BindingAssignerOptimizer`
+ *   well-formed IRI ([IriSyntax]) — an RFC 3987 IRI, which cannot contain a SPARQL `IRIREF`
+ *   break-out character — and wraps it in `<…>`. They are *not* bound, because RDF4J's `BindingAssignerOptimizer`
  *   corrupts a bound variable that sits inside an `IN` / `VALUES` list of two or more members.
  *   (`\u`-escaping is not an option: RDF4J decodes UCHARs inside an IRIREF and re-rejects the
  *   decoded character, so the illegal char must be excluded, not escaped.) Caller-supplied type

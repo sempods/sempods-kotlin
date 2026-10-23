@@ -43,7 +43,7 @@ object FindRequestParser {
         } catch (_: IllegalArgumentException) {
           throw IllegalArgumentException("invalid 'type' IRI: $trimmed")
         }
-        // createIRI is lax; reject IRIs with characters no RFC 3987 IRI may contain (also the
+        // createIRI is lax; reject anything that is not an absolute RFC 3987 IRI (which excludes the
         // SPARQL IRIREF break-out chars) so a malicious type can never reach query construction.
         require(IriSyntax.isWellFormed(iri)) { "invalid 'type' IRI: $trimmed" }
         add(iri)

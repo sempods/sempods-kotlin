@@ -76,6 +76,7 @@ dependencies {
   implementation(libs.rdf4jSailApi)
   implementation(libs.rdf4jSailMemory)
   implementation(libs.rdf4jCommonTransaction)
+  implementation(libs.rdf4jCommonIo)
   runtimeOnly(libs.rdf4jRioJsonld)
   runtimeOnly(libs.rdf4jRioNquads)
   runtimeOnly(libs.rdf4jSparqlJson)

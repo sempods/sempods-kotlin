@@ -24,7 +24,7 @@ class FindRequestParserTest {
 
   @Test
   fun `rejects a type IRI carrying a code point outside ucschar`() {
-    listOf("https://example.org/a\uE000", "https://example.org/a\uFFFE", "https://example.org/a\uD800").forEach {
+    listOf("https://example.org/a\uE000", "https://example.org/a\uFFFE", "https://example.org/a\uFFF0", "https://example.org/a\uD800").forEach {
       assertFailsWith<IllegalArgumentException> { FindRequestParser.parse("alice", listOf(it), null) }
     }
   }
