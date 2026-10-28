@@ -166,6 +166,7 @@ and MCP behavior.
 
 Container images are `ghcr.io/haed/sempods`, `ghcr.io/haed/sempods-auth` and
 `ghcr.io/haed/sempods-mcp`. `latest` moves; clean builds also carry a short commit tag.
+All three start from the [Java base image](deployments/java-base/README.md).
 Read the source revision of a running container with:
 
 <!-- doc-example: illustrative; OCI label checked against root Gradle image metadata configuration -->

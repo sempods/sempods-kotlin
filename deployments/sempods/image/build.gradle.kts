@@ -54,7 +54,7 @@ application {
 
 jib {
   from {
-    image = "ghcr.io/haed/java-base:latest"
+    image = "ghcr.io/sempods/java-base:latest"
   }
   to {
     image = "ghcr.io/haed/sempods"
