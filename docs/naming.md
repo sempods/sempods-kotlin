@@ -147,7 +147,8 @@ across the three services — one concept, one spelling.
 
 **Infrastructure** — the docker services `sempods-auth` and `sempods-mcp`, the network and volume
 names (`sempods`, `sempods-edge`, `sempods-media`, `sempods-mongo`), the S3 buckets
-`sempods-media` / `sempods-media-test`, and the host paths `/opt/sempods`, `/var/lib/sempods/media`.
+`sempods-media` / `sempods-media-test`, the host paths `/opt/sempods`, `/var/lib/sempods/media`,
+and the base image `ghcr.io/sempods/java-base`, which images outside this repository build on.
 
 **The pod server's own docker service is the one exception, and is not frozen** — it is the
 subject of the next paragraph. Everything else in this section is.

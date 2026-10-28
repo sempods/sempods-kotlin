@@ -20,6 +20,7 @@ For the distinction between required protocol behavior and optional modules, sta
 - [Shared auth library](../sempods-auth-core/README.md)
 - [Hosted MCP service](../sempods-mcp/docs/README.md)
 - [MongoDB document contract](../sempods-commons-mongo/docs/document-contract.md)
+- [Java base image](../deployments/java-base/README.md) of the service containers
 
 ## Vision — why this exists
 

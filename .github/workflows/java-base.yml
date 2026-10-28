@@ -1,0 +1,83 @@
+name: Java base image
+
+# `ghcr.io/sempods/java-base`, the image the three services' Jib builds start from
+# (`deployments/java-base/README.md`).
+#
+# The weekly schedule is the point of this workflow: `eclipse-temurin:25-jre-resolute` moves with
+# every JDK patch release and Ubuntu security update, and nothing else rebuilds this image to pick
+# them up. `push` publishes a change to the Dockerfile without waiting for Monday; a pull request
+# touching it builds both platforms and pushes nothing. So does a manual run from any branch but
+# `main`.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'deployments/java-base/**'
+      - '.github/workflows/java-base.yml'
+  pull_request:
+    paths:
+      - 'deployments/java-base/**'
+      - '.github/workflows/java-base.yml'
+
+permissions:
+  contents: read
+
+# A publish is not cancelled halfway; a pull request's superseded build is.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The arm64 half is built under emulation.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` is what the Jib builds pull. The date tag is what a deployment pins when it needs
+      # to say which rebuild it runs on, since `latest` moves every week.
+      #
+      # Annotations, not labels. Jib copies the base image's configuration, labels included, into
+      # every image built on it, so a label set here would turn up on `ghcr.io/haed/sempods` with
+      # this repository's title and build date. Annotations sit on the manifest, which Jib does not
+      # copy. The index carries them too, because that is where GHCR reads the description of a
+      # multi-platform image.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/java-base
+          tags: |
+            type=raw,value=latest
+            type=raw,value={{date 'YYYYMMDD'}}
+          annotations: |
+            org.opencontainers.image.title=java-base
+            org.opencontainers.image.description=Eclipse Temurin 25 JRE with tcmalloc and the JVM DNS cache disabled
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: deployments/java-base
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          annotations: ${{ steps.meta.outputs.annotations }}

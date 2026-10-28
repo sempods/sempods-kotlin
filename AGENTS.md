@@ -130,6 +130,7 @@ IST documentation:
 - Pod data layer (PodRepository, PodFacade): `sempods-server/src/main/kotlin/org/sempods/pods/AGENTS.md`
 - MongoDB document contract (IST): `sempods-commons-mongo/docs/document-contract.md` — what a row written through these helpers looks like (null and empty omitted, `Instant` at milliseconds, `_id`), the two query asymmetries that follow from it, and the conventions for writing a DAO on them. It sits at the module whose helpers implement it because it holds for all three services
 - Collection layer (IST): `sempods-server/docs/collections.md` — the pod server's collections: hand-written driver DAOs, the three whose store belongs to a shared module instead, which database, and startup maintenance
+- Java base image (IST): `deployments/java-base/README.md` — what the service images inherit, and the weekly rebuild that publishes it
 - AI layer (IST): `docs/ai-layer.md`
 - MCP per-pod surface (IST): `docs/mcp/` — JSON-RPC endpoint, tools, OAuth-gated access, client behavioral clusters
 - LOD/REST/CRUD layer: **not here** — it is [sempods-spec `spec/core/lod-crud.md`](https://github.com/sempods/sempods-spec/blob/main/spec/core/lod-crud.md). Two-layer model, context rules, base64url convention. Cited from this code by requirement identifier
