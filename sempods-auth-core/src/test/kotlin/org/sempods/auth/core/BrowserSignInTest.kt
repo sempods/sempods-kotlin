@@ -26,6 +26,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -152,13 +153,47 @@ class BrowserSignInTest {
   }
 
   @Test
-  fun `a sign-in begun for another redirect address is unknown there, and spent`() {
+  fun `a sign-in begun for another redirect address is unknown there, and still completes at its own`() {
     val signIn = signIn()
     val started = signIn.begin(relyingParty(), parked)
     val elsewhere = relyingParty(redirectUri = "https://app.example.invalid/another/cb")
 
     assertEquals(UNKNOWN, signIn.complete(elsewhere, callbackFor(started)))
-    assertEquals(UNKNOWN, signIn.complete(relyingParty(), callbackFor(started)))
+    assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(relyingParty(), callbackFor(started)))
+  }
+
+  @Test
+  fun `an unknown state is answered without asking for the provider`() {
+    val signIn = signIn()
+
+    val done = signIn.complete(REDIRECT_URI, callbackFor(signIn.begin(relyingParty(), parked)).copy(state = Secrets.newSecret())) {
+      error("an unknown state must not cost a discovery")
+    }
+
+    assertEquals(UNKNOWN, done)
+  }
+
+  @Test
+  fun `an unreachable provider leaves the sign-in parked for a retry`() {
+    val signIn = signIn()
+    val rp = relyingParty()
+    val started = signIn.begin(rp, parked)
+
+    assertNull(signIn.complete(REDIRECT_URI, callbackFor(started)) { null })
+    assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(rp, callbackFor(started)))
+  }
+
+  @Test
+  fun `a repeated iss is no single answer, and is refused`() {
+    val signIn = signIn()
+    val rp = relyingParty()
+    val started = signIn.begin(rp, parked)
+
+    val repeated = callbackFor(started, iss = BrowserSignIn.responseIssuer(listOf(ISSUER, "https://attacker.example.invalid")))
+
+    assertEquals(refused(BrowserSignIn.Refusal.WRONG_ISSUER), signIn.complete(rp, repeated))
+    assertEquals(ISSUER, BrowserSignIn.responseIssuer(listOf(ISSUER)))
+    assertNull(BrowserSignIn.responseIssuer(null))
   }
 
   @Test

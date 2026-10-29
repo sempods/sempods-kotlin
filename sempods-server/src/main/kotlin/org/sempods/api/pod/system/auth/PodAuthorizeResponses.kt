@@ -5,7 +5,7 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodBrowserCookies
-import org.sempods.auth.core.BrowserSignIn
+import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.net.UrlUtil
@@ -350,8 +350,7 @@ internal object PodAuthorizeResponses {
 
   private fun counted(count: Long, unit: String): String = if (count == 1L) "1 $unit" else "$count ${unit}s"
 
-  /** As long as the sign-in it guards may take (`PodLoginStateStore` parks with the default). */
-  private val LOGIN_PIN_TTL_SECONDS = BrowserSignIn.DEFAULT_TTL.toSeconds().toInt()
+  private val LOGIN_PIN_TTL_SECONDS = PodLoginStateStore.TTL.toSeconds().toInt()
 
   /**
    * What a well-formed `dyn:` client_id with no registration behind it is answered with.

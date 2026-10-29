@@ -272,7 +272,7 @@ fun Application.webUiEndpoint(
     get("/_system/ui/login/callback") {
       when (val done = call.completeSignIn(signIn, loginPin, identityProvider, UI_CALLBACK_PATH) ?: return@get) {
         is BrowserSignIn.Completion.Refused -> {
-          logger.warn { "ui login callback rejected: ${done.reason}" }
+          if (done.reason != BrowserSignIn.Refusal.UNKNOWN_STATE) logger.warn { "ui login callback rejected: ${done.reason}" }
           call.respondText(
             when (done.reason) {
               BrowserSignIn.Refusal.UNKNOWN_STATE -> "invalid or expired login state"

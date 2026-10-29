@@ -38,12 +38,15 @@ object PodSecretKey {
   )
 
   internal fun resolve(configured: String?, fallbackRequested: Boolean, isDevelopment: Boolean): SecretCipher {
-    check(!(fallbackRequested && !isDevelopment)) {
-      "$DEV_FALLBACK_ENV_VARIABLE arms a key derived from a published seed and must not be set in " +
-        "production — configure $ENV_VARIABLE instead"
-    }
+    val fallback = Env.checkDevelopmentFallback(
+      DEV_FALLBACK_ENV_VARIABLE,
+      arms = "a key derived from a published seed",
+      instead = "configure $ENV_VARIABLE instead",
+      requested = fallbackRequested,
+      isDevelopment = isDevelopment,
+    )
     if (configured != null) return SecretCipher.fromBase64(configured)
-    check(fallbackRequested) {
+    check(fallback) {
       "$ENV_VARIABLE must be set (base64, ${SecretCipher.KEY_BYTES} bytes: openssl rand -base64 32) — it " +
         "encrypts sign-ins in flight, and replicas must agree on it. Set $DEV_FALLBACK_ENV_VARIABLE=true " +
         "for a local run."

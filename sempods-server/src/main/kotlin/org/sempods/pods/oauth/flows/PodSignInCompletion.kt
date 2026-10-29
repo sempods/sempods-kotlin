@@ -32,12 +32,15 @@ class PodSignInCompletion @Inject internal constructor(
 ) {
 
   internal fun complete(pod: HostedPod, callback: BrowserSignIn.Callback): PodSignInResult {
-    val relyingParty = identityProvider.relyingPartyOrNull(pod.name)
-      ?: return PodSignInResult.IdentityProviderUnavailable
-    val (pending, verified) = when (val done = loginStateStore.signIn.complete(relyingParty, callback)) {
+    val done = loginStateStore.signIn.complete(identityProvider.callbackUri(pod.name), callback) {
+      identityProvider.relyingPartyOrNull(pod.name)
+    } ?: return PodSignInResult.IdentityProviderUnavailable
+    val (pending, verified) = when (done) {
       is BrowserSignIn.Completion.Refused -> {
-        logger.warn {
-          "[oauth/authorize] login callback rejected: ${done.reason} (pod='${pod.name}', clientId='${done.payload?.clientId}')"
+        if (done.reason != BrowserSignIn.Refusal.UNKNOWN_STATE) {
+          logger.warn {
+            "[oauth/authorize] login callback rejected: ${done.reason} (pod='${pod.name}', clientId='${done.payload?.clientId}')"
+          }
         }
         return PodSignInResult.Refused(done.reason)
       }
@@ -129,7 +132,7 @@ internal sealed interface PodSignInResult {
   /** The callback is not this pod's sign-in's answer. Nothing was exchanged. */
   data class Refused(val refusal: BrowserSignIn.Refusal) : PodSignInResult
 
-  /** The id-server could not be discovered, so nothing could be checked. The sign-in is still parked. */
+  /** The id-server could not be discovered. The sign-in and its pin are left in place for a retry. */
   data object IdentityProviderUnavailable : PodSignInResult
 
   /**

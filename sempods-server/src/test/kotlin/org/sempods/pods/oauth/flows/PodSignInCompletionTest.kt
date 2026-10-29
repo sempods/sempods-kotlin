@@ -95,17 +95,14 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `a sign-in parked for another pod is refused here and spent`() {
+  fun `a sign-in parked for another pod is refused here and left for that pod`() {
     val owned = Owned()
     val parked = Parked(owned, pod = "another-pod")
 
     assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = "x")))
-    assertEquals(
-      BrowserSignIn.Completion.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE, null),
-      loginStateStore.signIn.complete(
-        identityProvider.relyingParty("another-pod"),
-        BrowserSignIn.Callback(parked.state, parked.pin, FakeIdServerTransport.ISSUER, code = "x", error = null),
-      ),
+    assertIs<BrowserSignIn.Completion.Failed<PendingLogin>>(
+      loginStateStore.signIn.complete(identityProvider.relyingParty("another-pod"), parked.callback(code = "x")),
+      "still parked for its own pod, where the made-up code then fails the exchange",
     )
   }
 

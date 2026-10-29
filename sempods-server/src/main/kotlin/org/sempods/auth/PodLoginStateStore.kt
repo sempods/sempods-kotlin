@@ -6,6 +6,7 @@ import org.sempods.SempodsCollections
 import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.SecretCipher
 import org.sempods.commons.mongo.putNotNull
+import java.time.Duration
 
 /**
  * The browser request a user left behind when they were sent to the id-server to sign in: an
@@ -23,6 +24,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase, cipher:
     db = db,
     collectionName = SempodsCollections.OAUTH_LOGIN_STATES,
     cipher = cipher,
+    ttl = TTL,
     write = {
       put("clientId", it.clientId)
       putNotNull("redirectUri", it.redirectUri)
@@ -47,4 +49,9 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase, cipher:
       )
     },
   )
+
+  companion object {
+    /** How long a sign-in may take; the pin cookie lives as long. */
+    val TTL: Duration = BrowserSignIn.DEFAULT_TTL
+  }
 }

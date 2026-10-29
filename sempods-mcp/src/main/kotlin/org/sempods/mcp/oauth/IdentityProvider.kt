@@ -39,6 +39,8 @@ class IdentityProvider(
    * @throws IllegalStateException when no issuer is configured, or discovery fails. Both are
    *   conditions a caller answers with 503 rather than a login page that cannot work.
    */
-  fun relyingPartyFor(callbackPath: String): OidcRelyingParty =
-    relyingParties.forRedirectUri(serviceBaseUrl.trimEnd('/') + callbackPath)
+  fun relyingPartyFor(callbackPath: String): OidcRelyingParty = relyingParties.forRedirectUri(callbackUri(callbackPath))
+
+  /** Where [callbackPath] is, without discovering anything. */
+  fun callbackUri(callbackPath: String): String = serviceBaseUrl.trimEnd('/') + callbackPath
 }

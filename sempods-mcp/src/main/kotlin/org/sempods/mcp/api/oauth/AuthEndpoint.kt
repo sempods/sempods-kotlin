@@ -293,7 +293,9 @@ fun Application.authEndpoint(
       val done = call.completeSignIn(signIn, loginPin, identityProvider, OIDC_CALLBACK_PATH) ?: return@get
       val (pending, identity) = when (done) {
         is BrowserSignIn.Completion.Refused -> {
-          logger.warn { "login callback rejected: ${done.reason} (client=${forLog(done.payload?.clientId)})" }
+          if (done.reason != BrowserSignIn.Refusal.UNKNOWN_STATE) {
+            logger.warn { "login callback rejected: ${done.reason} (client=${forLog(done.payload?.clientId)})" }
+          }
           return@get call.respondText(
             when (done.reason) {
               BrowserSignIn.Refusal.UNKNOWN_STATE -> "invalid or expired login state"

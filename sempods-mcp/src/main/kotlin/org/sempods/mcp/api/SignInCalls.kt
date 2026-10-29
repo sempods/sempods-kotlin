@@ -15,20 +15,18 @@ private val logger = KotlinLogging.logger("org.sempods.mcp.api")
 internal suspend fun ApplicationCall.relyingPartyOrUnavailable(
   identityProvider: IdentityProvider,
   callbackPath: String,
-): OidcRelyingParty? = try {
-  identityProvider.relyingPartyFor(callbackPath)
-} catch (e: Exception) {
-  logger.warn(e) { "identity provider discovery failed" }
-  respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
+): OidcRelyingParty? = identityProvider.relyingPartyOrNull(callbackPath) ?: run {
+  respondUnavailable()
   null
 }
 
 /**
- * Completes the sign-in this callback names, or answers 503 and returns `null`.
+ * Completes the sign-in this callback names, or answers 503 and returns `null` with the sign-in and
+ * its pin left in place for a retry.
  *
- * The pin is withdrawn first, so every answer expires it: a cookie named after its `state` is not
- * overwritten by the next attempt. Reading it is a request concern and clearing it a response one,
- * so the comparison still sees it.
+ * Otherwise the pin is withdrawn, so every answer expires it: a cookie named after its `state` is
+ * not overwritten by the next attempt. Reading it is a request concern and clearing it a response
+ * one, so the comparison still sees it.
  */
 internal suspend fun <T> ApplicationCall.completeSignIn(
   signIn: BrowserSignIn<T>,
@@ -38,13 +36,26 @@ internal suspend fun <T> ApplicationCall.completeSignIn(
 ): BrowserSignIn.Completion<T>? {
   val q = request.queryParameters
   val state = q["state"]
-  pin.clear(this, state)
-  val relyingParty = relyingPartyOrUnavailable(identityProvider, callbackPath) ?: return null
-  return signIn.complete(
-    relyingParty,
-    BrowserSignIn.Callback(
-      state = state, presentedPin = pin.presented(this, state), iss = q["iss"],
-      code = q["code"], error = q["error"], errorDescription = q["error_description"],
-    ),
+  val callback = BrowserSignIn.Callback(
+    state = state, presentedPin = pin.presented(this, state), iss = BrowserSignIn.responseIssuer(q.getAll("iss")),
+    code = q["code"], error = q["error"], errorDescription = q["error_description"],
   )
+  val done = signIn.complete(identityProvider.callbackUri(callbackPath), callback) {
+    identityProvider.relyingPartyOrNull(callbackPath)
+  } ?: run {
+    respondUnavailable()
+    return null
+  }
+  pin.clear(this, state)
+  return done
 }
+
+private fun IdentityProvider.relyingPartyOrNull(callbackPath: String): OidcRelyingParty? = try {
+  relyingPartyFor(callbackPath)
+} catch (e: Exception) {
+  logger.warn(e) { "identity provider discovery failed" }
+  null
+}
+
+private suspend fun ApplicationCall.respondUnavailable() =
+  respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
