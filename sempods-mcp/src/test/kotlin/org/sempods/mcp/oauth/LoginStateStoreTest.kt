@@ -52,9 +52,20 @@ class LoginStateStoreTest {
   private val idServer = FakeIdentityProvider(audience = "did:web:mcp.test")
   private val relyingParty = idServer.identityProvider("https://mcp.test").relyingPartyFor("/oidc/callback")
 
+  /** Parks [pending], signs in, and answers what came back out. */
+  private fun roundTrip(pending: LoginStateStore.PendingAuthorize): LoginStateStore.PendingAuthorize {
+    val started = store.signIn.begin(relyingParty, pending)
+    idServer.expect(webId = "https://id.test/e/abc", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
+    val done = store.signIn.complete(
+      relyingParty,
+      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = "c", error = null),
+    )
+    return assertIs<BrowserSignIn.Completion.SignedIn<LoginStateStore.PendingAuthorize>>(done).payload
+  }
+
   @Test
-  fun `the whole authorize request survives the round trip`() {
-    val pending = LoginStateStore.PendingAuthorize(
+  fun `the whole authorize request survives the round trip, and so does one that leaves things out`() {
+    val full = LoginStateStore.PendingAuthorize(
       profile = "default",
       clientId = "dyn:abc",
       redirectUri = "http://127.0.0.1:1/cb",
@@ -63,31 +74,8 @@ class LoginStateStoreTest {
       codeChallenge = "challenge",
       codeChallengeMethod = "S256",
     )
-    val started = store.signIn.begin(relyingParty, pending)
-    idServer.expect(webId = "https://id.test/e/abc", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
+    val sparse = full.copy(clientState = null, scopes = emptySet(), codeChallenge = null, codeChallengeMethod = null)
 
-    val done = store.signIn.complete(
-      relyingParty,
-      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = "c", error = null),
-    )
-
-    assertEquals(pending, assertIs<BrowserSignIn.Completion.SignedIn<LoginStateStore.PendingAuthorize>>(done).payload)
-  }
-
-  @Test
-  fun `what the AI client left out stays out`() {
-    val pending = LoginStateStore.PendingAuthorize(
-      profile = "default", clientId = "dyn:abc", redirectUri = "http://127.0.0.1:1/cb",
-      clientState = null, scopes = emptySet(), codeChallenge = null, codeChallengeMethod = null,
-    )
-    val started = store.signIn.begin(relyingParty, pending)
-    idServer.expect(webId = "https://id.test/e/abc", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
-
-    val done = store.signIn.complete(
-      relyingParty,
-      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = "c", error = null),
-    )
-
-    assertEquals(pending, assertIs<BrowserSignIn.Completion.SignedIn<LoginStateStore.PendingAuthorize>>(done).payload)
+    for (pending in listOf(full, sparse)) assertEquals(pending, roundTrip(pending))
   }
 }

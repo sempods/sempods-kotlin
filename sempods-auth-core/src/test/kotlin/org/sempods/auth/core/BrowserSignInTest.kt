@@ -12,6 +12,7 @@ import com.nimbusds.jwt.SignedJWT
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.net.URI
 import java.security.KeyPairGenerator
@@ -73,7 +74,7 @@ class BrowserSignInTest {
     }
 
     private fun nonceOf(authorizationUrl: String): String =
-      URI(authorizationUrl).query.split('&').first { it.startsWith("nonce=") }.removePrefix("nonce=")
+      checkNotNull(UrlUtil.queryParams(URI(authorizationUrl).rawQuery, decodeParams = true)["nonce"])
   }
 
   private val provider = FakeProvider()
@@ -230,12 +231,12 @@ class BrowserSignInTest {
 
     val refused = signIn.begin(rp, parked)
     assertEquals(
-      BrowserSignIn.Completion.Failed(parked, "access_denied", "the person said no", cause = null),
+      BrowserSignIn.Completion.Failed(parked, "access_denied", "the person said no"),
       signIn.complete(rp, callbackFor(refused, code = null, error = "access_denied").copy(errorDescription = "the person said no")),
     )
 
     val empty = signIn.begin(rp, parked)
-    assertEquals(BrowserSignIn.Completion.Failed(parked, providerError = null, providerErrorDescription = null, cause = null), signIn.complete(rp, callbackFor(empty, code = " ")))
+    assertEquals(BrowserSignIn.Completion.Failed(parked), signIn.complete(rp, callbackFor(empty, code = " ")))
   }
 
   @Test

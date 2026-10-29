@@ -32,13 +32,9 @@ class PodSignInCompletion @Inject internal constructor(
 ) {
 
   internal fun complete(pod: HostedPod, callback: BrowserSignIn.Callback): PodSignInResult {
-    val relyingParty = try {
-      identityProvider.relyingParty(pod.name)
-    } catch (e: Exception) {
-      logger.warn(e) { "[oauth/sign-in] identity provider discovery failed: pod='${pod.name}'" }
-      return PodSignInResult.IdentityProviderUnavailable
-    }
-    val verified = when (val done = loginStateStore.signIn.complete(relyingParty, callback)) {
+    val relyingParty = identityProvider.relyingPartyOrNull(pod.name)
+      ?: return PodSignInResult.IdentityProviderUnavailable
+    val (pending, verified) = when (val done = loginStateStore.signIn.complete(relyingParty, callback)) {
       is BrowserSignIn.Completion.Refused -> {
         logger.warn {
           "[oauth/authorize] login callback rejected: ${done.reason} (pod='${pod.name}', clientId='${done.payload?.clientId}')"
@@ -49,22 +45,20 @@ class PodSignInCompletion @Inject internal constructor(
       is BrowserSignIn.Completion.Failed -> return failed(pod, done)
       is BrowserSignIn.Completion.SignedIn -> done
     }
-    val pending = verified.payload
-
     logger.info {
       "[oauth/authorize] login completed: pod='${pod.name}', clientId='${pending.clientId}', " +
-          "webId='${verified.identity.webId}'"
+          "webId='${verified.webId}'"
     }
     // Remembered on this pod's own origin, so the next authorization needs no round trip and
     // `prompt=none` has something to answer with. One instant for both: the session's `auth_time`
     // and the principal this request runs under describe the same sign-in, and two `Instant.now()`
     // calls would date it twice.
     val authTime = Instant.now()
-    val aliases = identityProvider.aliasesOf(verified.identity)
+    val aliases = identityProvider.aliasesOf(verified)
     val sessionToken = podTokenIssuer.issueSession(
-      pod.name, verified.identity.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
+      pod.name, verified.webId, aliases, authTime, PodTokenIssuer.SESSION_TTL_SECONDS,
     )
-    val principal = SessionPrincipal(verified.identity.webId, aliases, authTime)
+    val principal = SessionPrincipal(verified.webId, aliases, authTime)
     return PodSignInResult.SignedIn(sessionToken, resume(pod, pending, principal))
   }
 

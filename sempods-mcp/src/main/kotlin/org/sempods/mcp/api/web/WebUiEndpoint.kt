@@ -18,6 +18,8 @@ import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.ProfilePath
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.api.completeSignIn
+import org.sempods.mcp.api.relyingPartyOrUnavailable
 import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.pods.PodAuthorizationAnswer
 import org.sempods.mcp.pods.PodClientIdentity
@@ -45,7 +47,6 @@ import java.security.MessageDigest
 import java.util.Date
 import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.auth.core.Secrets
 import org.sempods.commons.ktor.auth.BrowserPinCookie
 import org.sempods.commons.utils.appendEscapedHtml
 
@@ -255,16 +256,11 @@ fun Application.webUiEndpoint(
       namePrefix = UI_LOGIN_PIN_COOKIE_PREFIX,
       path = UI_CALLBACK_PATH,
       secure = config.isSecure,
-      maxAgeSeconds = signIn.ttl.toSeconds().toInt(),
+      maxAge = signIn.ttl,
     )
 
     get("/_system/ui/login") {
-      val relyingParty = try {
-        identityProvider.relyingPartyFor(UI_CALLBACK_PATH)
-      } catch (e: Exception) {
-        logger.warn(e) { "identity provider discovery failed" }
-        return@get call.respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
-      }
+      val relyingParty = call.relyingPartyOrUnavailable(identityProvider, UI_CALLBACK_PATH) ?: return@get
       // The pin pins the callback to *this* browser: without it an attacker starts a login, gets
       // the callback link opened in someone else's browser, and that browser holds a session for
       // the attacker's identity — under which the UI would then save pod connections.
@@ -274,30 +270,7 @@ fun Application.webUiEndpoint(
     }
 
     get("/_system/ui/login/callback") {
-      val q = call.request.queryParameters
-      val state = q["state"] ?: return@get call.respondText("missing state", status = HttpStatusCode.BadRequest)
-      // The state reaches a cookie *name* below, and it arrived from a stranger. A value that
-      // cannot be one is refused here rather than further down: it could never match a parked
-      // request anyway, and rendering `Set-Cookie` with it throws — turning this 400 into a 500.
-      if (!Secrets.isWellFormed(state)) {
-        return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
-      }
-      // Withdrawn as soon as the flow it belongs to is named, so *every* answer below expires it
-      // — including "unknown state". Cookie names carry the state, so a pin nobody withdraws is
-      // not overwritten by the next attempt; it lingers its full fifteen minutes. Reading the pin
-      // is a request concern and clearing it a response one, so the comparison still works.
-      loginPin.clear(call, state)
-      val relyingParty = try {
-        identityProvider.relyingPartyFor(UI_CALLBACK_PATH)
-      } catch (e: Exception) {
-        logger.warn(e) { "identity provider discovery failed" }
-        return@get call.respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
-      }
-      val callback = BrowserSignIn.Callback(
-        state = state, presentedPin = loginPin.presented(call, state), iss = q["iss"],
-        code = q["code"], error = q["error"], errorDescription = q["error_description"],
-      )
-      when (val done = signIn.complete(relyingParty, callback)) {
+      when (val done = call.completeSignIn(signIn, loginPin, identityProvider, UI_CALLBACK_PATH) ?: return@get) {
         is BrowserSignIn.Completion.Refused -> {
           logger.warn { "ui login callback rejected: ${done.reason}" }
           call.respondText(

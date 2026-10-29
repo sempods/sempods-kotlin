@@ -75,6 +75,14 @@ class OidcRelyingParty(
     ResourceRetriever { url -> Resource(transport.get(url.toString()), "application/json") },
   )
 
+  /**
+   * Whether an authorization response naming [iss] comes from this provider (RFC 9207 §2.4):
+   * the same string, or none where the provider does not promise one. Checked before anything
+   * else in the response is believed, an error included.
+   */
+  fun acceptsResponseIssuer(iss: String?): Boolean =
+    iss?.let { it == metadata.issuer } ?: !metadata.authorizationResponseIssParameterSupported
+
   /** What a caller has to keep until the callback comes back. */
   data class Started(
     val authorizationUrl: String,

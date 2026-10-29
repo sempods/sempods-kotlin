@@ -355,7 +355,15 @@ class PodAuthEndpoint @Inject constructor(
     // its full fifteen minutes, and a handful of cancelled sign-ins would pile up on the callback
     // path until the browser starts evicting cookies, the session among them. Attached here rather
     // than at each `return`, because there are six of them and one will be missed.
-    return withPinCleared(podDbo.name, state, completeLogin(podDbo, state, iss, code, error, errorDescription, httpHeaders))
+    val callback = BrowserSignIn.Callback(
+      state = state,
+      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
+      iss = iss,
+      code = code,
+      error = error,
+      errorDescription = errorDescription,
+    )
+    return withPinCleared(podDbo.name, state, completeLogin(podDbo, callback))
   }
 
   /**
@@ -372,24 +380,8 @@ class PodAuthEndpoint @Inject constructor(
     return Response.fromResponse(response).cookie(cookies.clearLoginPin(pod, checkNotNull(state))).build()
   }
 
-  private fun completeLogin(
-    podDbo: PodDbo,
-    state: String?,
-    iss: String?,
-    code: String?,
-    error: String?,
-    errorDescription: String?,
-    httpHeaders: HttpHeaders,
-  ): Response {
-    val callback = BrowserSignIn.Callback(
-      state = state,
-      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
-      iss = iss,
-      code = code,
-      error = error,
-      errorDescription = errorDescription,
-    )
-    return when (val result = podSignInCompletion.complete(podDbo.hosted, callback)) {
+  private fun completeLogin(podDbo: PodDbo, callback: BrowserSignIn.Callback): Response =
+    when (val result = podSignInCompletion.complete(podDbo.hosted, callback)) {
       is PodSignInResult.Refused -> when (result.refusal) {
         BrowserSignIn.Refusal.UNKNOWN_STATE ->
           Response.status(400).entity("invalid or expired login state").type("text/plain").build()
@@ -423,7 +415,6 @@ class PodAuthEndpoint @Inject constructor(
           .build()
       }
     }
-  }
 
   @GET
   @Path("jwks.json")

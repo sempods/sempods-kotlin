@@ -14,11 +14,11 @@ import java.time.Duration
  * after the `state`, and presents it back. How a cookie is set is the caller's HTTP stack.
  *
  * The parked row holds the code verifier encrypted under [cipher] and the pin as its SHA-256. A row
- * this instance cannot decrypt reads as an unknown `state`.
+ * this instance cannot decrypt, or one an older node parked, reads as an unknown `state`.
  *
  * [complete] checks, each before the next: the `state` (spent first, on every callback); the
- * redirect address it was begun for; the pin; `iss` (RFC 9207 §2.4); the provider's error; the code
- * and the token's nonce.
+ * redirect address it was begun for; the pin; `iss` ([OidcRelyingParty.acceptsResponseIssuer]); the
+ * provider's error; the code and the token's nonce.
  *
  * @param collectionName flows may share one: a callback at a redirect address other than its own
  *   is spent there as an unknown `state`.
@@ -54,12 +54,11 @@ class BrowserSignIn<T>(
       put(FIELD_PIN_SHA256, it.pinSha256)
     },
     read = {
-      // A row an older node parked has no encrypted verifier, so it reads as expired.
-      val encryptedVerifier = getString(FIELD_CODE_VERIFIER) ?: return@OneTimeStore null
       Parked(
         payload = get(FIELD_PAYLOAD, Document::class.java)?.read() ?: return@OneTimeStore null,
         redirectUri = getString(FIELD_REDIRECT_URI) ?: return@OneTimeStore null,
-        codeVerifier = runCatching { cipher.decrypt(encryptedVerifier) }.getOrNull() ?: return@OneTimeStore null,
+        codeVerifier = getString(FIELD_CODE_VERIFIER)?.let { runCatching { cipher.decrypt(it) }.getOrNull() }
+          ?: return@OneTimeStore null,
         nonce = getString(FIELD_NONCE) ?: return@OneTimeStore null,
         pinSha256 = getString(FIELD_PIN_SHA256) ?: return@OneTimeStore null,
       )
@@ -108,9 +107,9 @@ class BrowserSignIn<T>(
      */
     data class Failed<T>(
       val payload: T,
-      val providerError: String?,
-      val providerErrorDescription: String?,
-      val cause: Exception?,
+      val providerError: String? = null,
+      val providerErrorDescription: String? = null,
+      val cause: Exception? = null,
     ) : Completion<T>
 
     data class SignedIn<T>(val payload: T, val identity: OidcRelyingParty.VerifiedIdentity) : Completion<T>
@@ -133,28 +132,23 @@ class BrowserSignIn<T>(
    *   A `state` this class could not have minted ([Secrets.isWellFormed]) is not looked up.
    */
   fun complete(relyingParty: OidcRelyingParty, callback: Callback): Completion<T> {
-    val state = callback.state?.takeIf(Secrets::isWellFormed) ?: return Completion.Refused(Refusal.UNKNOWN_STATE, null)
-    val pending = parked.consume(state)
-    if (pending == null || pending.redirectUri != relyingParty.redirectUri) {
-      return Completion.Refused(Refusal.UNKNOWN_STATE, null)
-    }
+    val pending = callback.state?.takeIf(Secrets::isWellFormed)?.let(parked::consume)
+      ?.takeIf { it.redirectUri == relyingParty.redirectUri }
+      ?: return Completion.Refused(Refusal.UNKNOWN_STATE, null)
     val payload = pending.payload
 
     val pin = callback.presentedPin
     if (pin == null || !Secrets.matches(sha256Hex(pin), pending.pinSha256)) {
       return Completion.Refused(Refusal.OTHER_BROWSER, payload)
     }
-    val metadata = relyingParty.metadata
-    val issuerMatches = callback.iss?.let { it == metadata.issuer } ?: !metadata.authorizationResponseIssParameterSupported
-    if (!issuerMatches) return Completion.Refused(Refusal.WRONG_ISSUER, payload)
+    if (!relyingParty.acceptsResponseIssuer(callback.iss)) return Completion.Refused(Refusal.WRONG_ISSUER, payload)
 
-    if (callback.error != null) return Completion.Failed(payload, callback.error, callback.errorDescription, cause = null)
-    val code = callback.code?.trim()?.takeIf { it.isNotEmpty() }
-      ?: return Completion.Failed(payload, providerError = null, providerErrorDescription = null, cause = null)
+    if (callback.error != null) return Completion.Failed(payload, callback.error, callback.errorDescription)
+    val code = callback.code?.trim()?.takeIf { it.isNotEmpty() } ?: return Completion.Failed(payload)
     return try {
       Completion.SignedIn(payload, relyingParty.completeAuthorization(code, pending.codeVerifier, pending.nonce))
     } catch (e: Exception) {
-      Completion.Failed(payload, providerError = null, providerErrorDescription = null, cause = e)
+      Completion.Failed(payload, cause = e)
     }
   }
 
