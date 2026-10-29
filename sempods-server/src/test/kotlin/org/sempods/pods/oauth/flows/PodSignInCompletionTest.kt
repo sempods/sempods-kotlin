@@ -62,8 +62,8 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
       errorDescription: String? = null,
       pin: String? = this.pin,
       iss: String? = FakeIdServerTransport.ISSUER,
-    ) = PodSignInCallback(
-      state = state, iss = iss, code = code, error = error, errorDescription = errorDescription, presentedPin = pin,
+    ) = BrowserSignIn.Callback(
+      state = state, presentedPin = pin, iss = iss, code = code, error = error, errorDescription = errorDescription,
     )
   }
 
@@ -73,11 +73,11 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
     val parked = Parked(owned)
 
     assertEquals(
-      PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE),
+      PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE),
       completion.complete(owned.pod, parked.callback(code = "x").copy(state = Secrets.newSecret())),
     )
     assertIs<PodSignInResult.Failed>(completion.complete(owned.pod, parked.callback()))
-    assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback()))
+    assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback()))
   }
 
   @Test
@@ -90,7 +90,7 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
 
     assertEquals(1, results.count { it is PodSignInResult.SignedIn }, "$results")
     results.filterNot { it is PodSignInResult.SignedIn }.forEach {
-      assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), it)
+      assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), it)
     }
   }
 
@@ -99,9 +99,9 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
     val owned = Owned()
     val parked = Parked(owned, pod = "another-pod")
 
-    assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = "x")))
+    assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = "x")))
     assertEquals(
-      BrowserSignIn.Completion.UnknownState,
+      BrowserSignIn.Completion.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE, null),
       loginStateStore.signIn.complete(
         identityProvider.relyingParty("another-pod"),
         BrowserSignIn.Callback(parked.state, parked.pin, FakeIdServerTransport.ISSUER, code = "x", error = null),
@@ -119,11 +119,11 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
         val callback = if (answer == "code") parked.callback(code = code) else parked.callback(error = "access_denied")
 
         assertEquals(
-          PodSignInResult.Refused(PodSignInRefusal.WRONG_ISSUER),
+          PodSignInResult.Refused(BrowserSignIn.Refusal.WRONG_ISSUER),
           completion.complete(owned.pod, callback.copy(iss = iss)),
           "iss $iss, $answer",
         )
-        assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, callback), "iss $iss, $answer")
+        assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), completion.complete(owned.pod, callback), "iss $iss, $answer")
       }
     }
   }
@@ -136,10 +136,10 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
       val code = fakeIdServer.expect(webId = owned.webId, nonce = parked.nonce)
 
       assertEquals(
-        PodSignInResult.Refused(PodSignInRefusal.OTHER_BROWSER),
+        PodSignInResult.Refused(BrowserSignIn.Refusal.OTHER_BROWSER),
         completion.complete(owned.pod, parked.callback(code = code, pin = presented)),
       )
-      assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = code)))
+      assertEquals(PodSignInResult.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = code)))
     }
   }
 

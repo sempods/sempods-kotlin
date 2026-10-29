@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.UriInfo
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
@@ -30,9 +31,7 @@ import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentForm
 import org.sempods.pods.oauth.flows.PodServiceConsentRequest
 import org.sempods.pods.oauth.flows.PodServiceConsentResult
-import org.sempods.pods.oauth.flows.PodSignInCallback
 import org.sempods.pods.oauth.flows.PodSignInCompletion
-import org.sempods.pods.oauth.flows.PodSignInRefusal
 import org.sempods.pods.oauth.flows.PodSignInResult
 import org.sempods.pods.oauth.flows.PodSignInResumed
 import org.sempods.pods.oauth.flows.PodConsentForm
@@ -382,31 +381,31 @@ class PodAuthEndpoint @Inject constructor(
     errorDescription: String?,
     httpHeaders: HttpHeaders,
   ): Response {
-    val callback = PodSignInCallback(
+    val callback = BrowserSignIn.Callback(
       state = state,
+      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
       iss = iss,
       code = code,
       error = error,
       errorDescription = errorDescription,
-      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
     )
     return when (val result = podSignInCompletion.complete(podDbo.hosted, callback)) {
       is PodSignInResult.Refused -> when (result.refusal) {
-        PodSignInRefusal.UNKNOWN_STATE ->
+        BrowserSignIn.Refusal.UNKNOWN_STATE ->
           Response.status(400).entity("invalid or expired login state").type("text/plain").build()
 
-        PodSignInRefusal.OTHER_BROWSER -> Response.status(400)
+        BrowserSignIn.Refusal.OTHER_BROWSER -> Response.status(400)
           .entity("this sign-in was not started in this browser — please start it again")
           // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
           .type("text/plain;charset=UTF-8")
           .build()
 
-        PodSignInRefusal.WRONG_ISSUER ->
+        BrowserSignIn.Refusal.WRONG_ISSUER ->
           Response.status(400).entity("this sign-in answer did not come from the identity server").type("text/plain").build()
-
-        PodSignInRefusal.IDENTITY_PROVIDER_UNAVAILABLE ->
-          Response.status(503).entity("identity provider unavailable").type("text/plain").build()
       }
+
+      PodSignInResult.IdentityProviderUnavailable ->
+        Response.status(503).entity("identity provider unavailable").type("text/plain").build()
 
       is PodSignInResult.Failed ->
         oauthErrorToParked(result.pending, podDbo.name, result.error, result.description)

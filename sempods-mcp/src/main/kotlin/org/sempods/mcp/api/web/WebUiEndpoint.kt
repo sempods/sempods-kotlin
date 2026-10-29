@@ -298,27 +298,20 @@ fun Application.webUiEndpoint(
         code = q["code"], error = q["error"], errorDescription = q["error_description"],
       )
       when (val done = signIn.complete(relyingParty, callback)) {
-        BrowserSignIn.Completion.UnknownState ->
-          call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
-
-        is BrowserSignIn.Completion.OtherBrowser -> {
-          logger.warn { "ui login callback rejected: browser pin ${if (done.pinPresented) "mismatch" else "absent"}" }
+        is BrowserSignIn.Completion.Refused -> {
+          logger.warn { "ui login callback rejected: ${done.reason}" }
           call.respondText(
-            "this sign-in was not started in this browser — please sign in again",
+            when (done.reason) {
+              BrowserSignIn.Refusal.UNKNOWN_STATE -> "invalid or expired login state"
+              BrowserSignIn.Refusal.OTHER_BROWSER -> "this sign-in was not started in this browser — please sign in again"
+              BrowserSignIn.Refusal.WRONG_ISSUER -> "this sign-in answer did not come from the id-server"
+            },
             status = HttpStatusCode.BadRequest,
           )
         }
 
-        is BrowserSignIn.Completion.WrongIssuer -> {
-          logger.warn { "ui login callback rejected: iss '${forLog(done.presentedIssuer)}' is not the id-server" }
-          call.respondText("this sign-in answer did not come from the id-server", status = HttpStatusCode.BadRequest)
-        }
-
-        is BrowserSignIn.Completion.ProviderError, is BrowserSignIn.Completion.NoCode ->
-          call.respondText("login failed", status = HttpStatusCode.Unauthorized)
-
-        is BrowserSignIn.Completion.ExchangeFailed -> {
-          logger.warn(done.cause) { "id-server token exchange failed" }
+        is BrowserSignIn.Completion.Failed -> {
+          logger.warn(done.cause) { "ui login failed: id-server error '${forLog(done.providerError)}'" }
           call.respondText("login failed", status = HttpStatusCode.Unauthorized)
         }
 

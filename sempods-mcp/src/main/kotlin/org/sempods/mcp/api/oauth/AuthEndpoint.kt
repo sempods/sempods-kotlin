@@ -312,57 +312,41 @@ fun Application.authEndpoint(
         state = state, presentedPin = loginPin.presented(call, state), iss = q["iss"],
         code = q["code"], error = q["error"], errorDescription = q["error_description"],
       )
-      fun flowOf(pending: LoginStateStore.PendingAuthorize) =
-        "profile=${pending.profile}, client=${forLog(pending.clientId)}"
-
-      // Each of these re-proves the address before using it. The parked request was checked at
-      // `/authorize`, but a client can be deleted between the two, and the type says an error may
-      // only travel to an address that belongs to a client this server currently knows — so a
-      // vanished client is answered here rather than at its former callback.
-      suspend fun refuseLogin(pending: LoginStateStore.PendingAuthorize, description: String) = call.respondOAuthError(
-        redirectPolicyFor(dcrClientDao, pending.profile), pending.clientId, pending.redirectUri,
-        OAuthErrorCode.ACCESS_DENIED, description, pending.clientState, ProfilePath.baseUrlFor(base, pending.profile),
-      )
-
-      // The first three are no answer to the AI client's request — nothing ties the callback to a
-      // request it made, to this browser, or to the id-server — so they are refused here and never
-      // redirected. The rest are the id-server's answer, and the client hears it.
+      // A refusal is no answer to the AI client's request, so it is answered here and never
+      // redirected. A failure is the id-server's answer, and the client hears it. Each re-proves the
+      // address before using it: a client can be deleted while its request was parked, and an error
+      // may only travel to an address that belongs to a client this server currently knows.
       val signedIn = when (val done = signIn.complete(relyingParty, callback)) {
-        BrowserSignIn.Completion.UnknownState ->
-          return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
-
-        is BrowserSignIn.Completion.OtherBrowser -> {
-          logger.warn {
-            "login callback rejected: browser nonce ${if (done.pinPresented) "mismatch" else "absent"} (${flowOf(done.payload)})"
-          }
+        is BrowserSignIn.Completion.Refused -> {
+          logger.warn { "login callback rejected: ${done.reason} (client=${forLog(done.payload?.clientId)})" }
           return@get call.respondText(
-            "login session not recognised for this browser — please restart the sign-in from your AI client",
+            when (done.reason) {
+              BrowserSignIn.Refusal.UNKNOWN_STATE -> "invalid or expired login state"
+              BrowserSignIn.Refusal.OTHER_BROWSER ->
+                "login session not recognised for this browser — please restart the sign-in from your AI client"
+              BrowserSignIn.Refusal.WRONG_ISSUER ->
+                "this sign-in answer did not come from the id-server — please restart the sign-in from your AI client"
+            },
             status = HttpStatusCode.BadRequest,
           )
         }
 
-        is BrowserSignIn.Completion.WrongIssuer -> {
-          logger.warn {
-            "login callback rejected: iss '${forLog(done.presentedIssuer)}' is not the id-server (${flowOf(done.payload)})"
+        is BrowserSignIn.Completion.Failed -> {
+          val pending = done.payload
+          // The id-server's own `error` value is a stranger's string; it goes to the log, and the
+          // client gets the one thing it can act on.
+          logger.warn(done.cause) {
+            "id-server login failed (profile=${pending.profile}, client=${forLog(pending.clientId)}): ${forLog(done.providerError)}"
           }
-          return@get call.respondText(
-            "this sign-in answer did not come from the id-server — please restart the sign-in from your AI client",
-            status = HttpStatusCode.BadRequest,
+          val description = when {
+            done.providerError != null -> "login was refused or failed"
+            done.cause == null -> "no authorization code"
+            else -> "login failed"
+          }
+          return@get call.respondOAuthError(
+            redirectPolicyFor(dcrClientDao, pending.profile), pending.clientId, pending.redirectUri,
+            OAuthErrorCode.ACCESS_DENIED, description, pending.clientState, ProfilePath.baseUrlFor(base, pending.profile),
           )
-        }
-
-        is BrowserSignIn.Completion.ProviderError -> {
-          // The id-server's own `error` value is a stranger's string reaching an AI client's URL
-          // bar; it goes to the log, and the client gets the one thing it can act on.
-          logger.info { "id-server refused the login (${flowOf(done.payload)}): ${forLog(done.error)}" }
-          return@get refuseLogin(done.payload, "login was refused or failed")
-        }
-
-        is BrowserSignIn.Completion.NoCode -> return@get refuseLogin(done.payload, "no authorization code")
-
-        is BrowserSignIn.Completion.ExchangeFailed -> {
-          logger.warn(done.cause) { "id-server token exchange failed (${flowOf(done.payload)})" }
-          return@get refuseLogin(done.payload, "login failed")
         }
 
         is BrowserSignIn.Completion.SignedIn -> done

@@ -1,9 +1,5 @@
 package org.sempods.auth.core
 
-import com.mongodb.ConnectionString
-import com.mongodb.MongoClientSettings
-import com.mongodb.client.MongoClient
-import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import com.nimbusds.jose.JWSAlgorithm
@@ -15,7 +11,6 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.net.URI
@@ -25,7 +20,6 @@ import java.security.interfaces.RSAPublicKey
 import java.time.Duration
 import java.util.Date
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -100,6 +94,8 @@ class BrowserSignInTest {
 
   private val parked = Next("https://app.example.invalid/after")
 
+  private fun refused(reason: BrowserSignIn.Refusal) = BrowserSignIn.Completion.Refused(reason, parked)
+
   /** The callback a browser that started [started] carries back, everything in order. */
   private fun callbackFor(
     started: BrowserSignIn.Started,
@@ -129,16 +125,16 @@ class BrowserSignInTest {
     val rp = relyingParty()
 
     val unknown = signIn.begin(rp, parked).copy(state = Secrets.newSecret())
-    assertEquals(BrowserSignIn.Completion.UnknownState, signIn.complete(rp, callbackFor(unknown)))
+    assertEquals(UNKNOWN, signIn.complete(rp, callbackFor(unknown)))
 
     val used = signIn.begin(rp, parked)
     assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(rp, callbackFor(used)))
-    assertEquals(BrowserSignIn.Completion.UnknownState, signIn.complete(rp, callbackFor(used)))
+    assertEquals(UNKNOWN, signIn.complete(rp, callbackFor(used)))
 
     val shortLived = signIn(ttl = Duration.ofMillis(1))
     val expired = shortLived.begin(rp, parked)
     Thread.sleep(20)
-    assertEquals(BrowserSignIn.Completion.UnknownState, shortLived.complete(rp, callbackFor(expired)))
+    assertEquals(UNKNOWN, shortLived.complete(rp, callbackFor(expired)))
   }
 
   @Test
@@ -147,7 +143,7 @@ class BrowserSignInTest {
     val rp = relyingParty()
     for (junk in listOf(null, "", " ", "a;b", "x".repeat(43) + "=")) {
       assertEquals(
-        BrowserSignIn.Completion.UnknownState,
+        UNKNOWN,
         signIn.complete(rp, BrowserSignIn.Callback(junk, "pin", ISSUER, "code", null)),
         "state '$junk'",
       )
@@ -160,8 +156,8 @@ class BrowserSignInTest {
     val started = signIn.begin(relyingParty(), parked)
     val elsewhere = relyingParty(redirectUri = "https://app.example.invalid/another/cb")
 
-    assertEquals(BrowserSignIn.Completion.UnknownState, signIn.complete(elsewhere, callbackFor(started)))
-    assertEquals(BrowserSignIn.Completion.UnknownState, signIn.complete(relyingParty(), callbackFor(started)))
+    assertEquals(UNKNOWN, signIn.complete(elsewhere, callbackFor(started)))
+    assertEquals(UNKNOWN, signIn.complete(relyingParty(), callbackFor(started)))
   }
 
   @Test
@@ -171,18 +167,18 @@ class BrowserSignInTest {
 
     val withoutPin = signIn.begin(rp, parked)
     assertEquals(
-      BrowserSignIn.Completion.OtherBrowser(parked, pinPresented = false),
+      refused(BrowserSignIn.Refusal.OTHER_BROWSER),
       signIn.complete(rp, callbackFor(withoutPin, code = "never-exchanged", pin = null)),
     )
 
     val otherBrowser = signIn.begin(rp, parked)
     val anotherSignIn = signIn.begin(rp, parked)
     assertEquals(
-      BrowserSignIn.Completion.OtherBrowser(parked, pinPresented = true),
+      refused(BrowserSignIn.Refusal.OTHER_BROWSER),
       signIn.complete(rp, callbackFor(otherBrowser, code = "never-exchanged", pin = anotherSignIn.browserPin)),
     )
     assertEquals(
-      BrowserSignIn.Completion.UnknownState,
+      UNKNOWN,
       signIn.complete(rp, callbackFor(otherBrowser)),
       "a refused callback spends the sign-in",
     )
@@ -196,13 +192,13 @@ class BrowserSignInTest {
     for (iss in listOf("https://attacker.example.invalid", "$ISSUER/", null)) {
       val started = signIn.begin(rp, parked)
       assertEquals(
-        BrowserSignIn.Completion.WrongIssuer(parked, iss),
+        refused(BrowserSignIn.Refusal.WRONG_ISSUER),
         signIn.complete(rp, callbackFor(started, iss = iss)),
         "iss $iss",
       )
       val erred = signIn.begin(rp, parked)
       assertEquals(
-        BrowserSignIn.Completion.WrongIssuer(parked, iss),
+        refused(BrowserSignIn.Refusal.WRONG_ISSUER),
         signIn.complete(rp, callbackFor(erred, code = null, iss = iss, error = "access_denied")),
         "an error under iss $iss",
       )
@@ -221,7 +217,8 @@ class BrowserSignInTest {
     assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(rp, callback))
 
     val misnamed = signIn.begin(rp, parked)
-    assertIs<BrowserSignIn.Completion.WrongIssuer<Next>>(
+    assertEquals(
+      refused(BrowserSignIn.Refusal.WRONG_ISSUER),
       signIn.complete(rp, callbackFor(misnamed, iss = "https://attacker.example.invalid")),
     )
   }
@@ -233,12 +230,12 @@ class BrowserSignInTest {
 
     val refused = signIn.begin(rp, parked)
     assertEquals(
-      BrowserSignIn.Completion.ProviderError(parked, "access_denied", "the person said no"),
+      BrowserSignIn.Completion.Failed(parked, "access_denied", "the person said no", cause = null),
       signIn.complete(rp, callbackFor(refused, code = null, error = "access_denied").copy(errorDescription = "the person said no")),
     )
 
     val empty = signIn.begin(rp, parked)
-    assertEquals(BrowserSignIn.Completion.NoCode(parked), signIn.complete(rp, callbackFor(empty, code = " ")))
+    assertEquals(BrowserSignIn.Completion.Failed(parked, providerError = null, providerErrorDescription = null, cause = null), signIn.complete(rp, callbackFor(empty, code = " ")))
   }
 
   @Test
@@ -249,7 +246,8 @@ class BrowserSignInTest {
     // Still signed, still unexpired, for the same person — only the nonce says it is not this one.
     val code = provider.codeFor(started.authorizationUrl, nonce = "another-sign-ins-nonce")
 
-    val failed = assertIs<BrowserSignIn.Completion.ExchangeFailed<Next>>(signIn.complete(rp, callbackFor(started, code = code)))
+    val failed = assertIs<BrowserSignIn.Completion.Failed<Next>>(signIn.complete(rp, callbackFor(started, code = code)))
+    assertNotNull(failed.cause, "the exchange is what failed")
 
     assertEquals(parked, failed.payload)
   }
@@ -289,11 +287,11 @@ class BrowserSignInTest {
       read = { getString("next")?.let(::Next) },
     )
 
-    assertEquals(BrowserSignIn.Completion.UnknownState, otherKey.complete(rp, callbackFor(started)))
+    assertEquals(UNKNOWN, otherKey.complete(rp, callbackFor(started)))
   }
 
   companion object {
-    private const val MONGO_URL = "mongodb://localhost:27018"
+    private val UNKNOWN = BrowserSignIn.Completion.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE, null)
     private const val ISSUER = "https://id.example.invalid"
     private const val CLIENT_ID = "did:web:app.example.invalid"
     private const val REDIRECT_URI = "https://app.example.invalid/cb"
@@ -301,30 +299,17 @@ class BrowserSignInTest {
     private const val KEY_ID = "browser-sign-in-test"
 
     private val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
-    private val dbName = "sempods-auth-core-test-" + UUID.randomUUID().toString().replace("-", "").take(10)
 
-    private var mongoClient: MongoClient? = null
     private var db: MongoDatabase? = null
 
     @BeforeAll @JvmStatic
     fun setup() {
-      assumeTrue(mongoReachable(), "local MongoDB at $MONGO_URL not reachable — skipping")
-      mongoClient = MongoClients.create(MONGO_URL).also { db = it.getDatabase(dbName) }
+      db = TestMongo.database()
     }
 
     @AfterAll @JvmStatic
     fun teardown() {
       db?.drop()
-      mongoClient?.close()
     }
-
-    private fun mongoReachable(): Boolean = runCatching {
-      val settings = MongoClientSettings.builder()
-        .applyConnectionString(ConnectionString(MONGO_URL))
-        .applyToClusterSettings { it.serverSelectionTimeout(1, TimeUnit.SECONDS) }
-        .build()
-      MongoClients.create(settings).use { it.getDatabase("admin").runCommand(Document("ping", 1)) }
-      true
-    }.getOrDefault(false)
   }
 }

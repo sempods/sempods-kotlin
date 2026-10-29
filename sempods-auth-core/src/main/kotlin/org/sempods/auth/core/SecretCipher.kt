@@ -75,6 +75,15 @@ class SecretCipher(keyBytes: ByteArray) {
     /** The key length AES-256 takes. */
     const val KEY_BYTES = 32
 
+    /**
+     * A cipher under [encoded], base64 or base64url — what `openssl rand -base64 32` prints.
+     *
+     * @throws IllegalArgumentException when it does not decode to [KEY_BYTES] bytes.
+     */
+    @JvmStatic
+    fun fromBase64(encoded: String): SecretCipher =
+      SecretCipher(runCatching { Base64.getDecoder().decode(encoded) }.getOrElse { Base64.getUrlDecoder().decode(encoded) })
+
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val VERSION_PREFIX = "v1:"
     private const val IV_LENGTH_BYTES = 12

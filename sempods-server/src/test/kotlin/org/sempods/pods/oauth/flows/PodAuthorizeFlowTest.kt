@@ -199,7 +199,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     assertEquals(redirectUri, parked.redirectUri)
     assertEquals(state, parked.clientState)
     assertEquals(challenge, parked.codeChallenge)
-    assertEquals(BrowserSignIn.Completion.UnknownState, completeSignIn(owned, login), "the state is spent once")
+    assertEquals(BrowserSignIn.Completion.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE, null), completeSignIn(owned, login), "the state is spent once")
   }
 
   @Test

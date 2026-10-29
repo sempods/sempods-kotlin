@@ -1,22 +1,16 @@
 package org.sempods.auth.core
 
-import com.mongodb.ConnectionString
-import com.mongodb.MongoClientSettings
-import com.mongodb.client.MongoClient
-import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.bson.Document
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.time.Instant
 import java.util.Date
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -45,32 +39,20 @@ import kotlin.test.assertTrue
 class RefreshTokenStoreTest {
 
   companion object {
-    private const val MONGO_URL = "mongodb://localhost:27018"
     private const val COLLECTION = "refreshTokens"
     private const val MCP_COLLECTION = "refreshTokens.mcpShaped"
-    private val dbName = "sempods-auth-core-test-" + UUID.randomUUID().toString().replace("-", "").take(10)
-    private var mongoClient: MongoClient? = null
     private var db: MongoDatabase? = null
 
     @BeforeAll @JvmStatic
     fun setup() {
-      assumeTrue(mongoReachable(), "local MongoDB not reachable — skipping RefreshTokenStore test")
-      mongoClient = MongoClients.create(MONGO_URL).also { db = it.getDatabase(dbName) }
+      db = TestMongo.database()
     }
 
     @AfterAll @JvmStatic
     fun teardown() {
-      db?.drop(); mongoClient?.close()
+      db?.drop()
     }
 
-    private fun mongoReachable(): Boolean = runCatching {
-      val settings = MongoClientSettings.builder()
-        .applyConnectionString(ConnectionString(MONGO_URL))
-        .applyToClusterSettings { it.serverSelectionTimeout(1, TimeUnit.SECONDS) }
-        .build()
-      MongoClients.create(settings).use { it.getDatabase("admin").runCommand(Document("ping", 1)) }
-      true
-    }.getOrDefault(false)
 
     /**
      * Far enough out that Mongo's TTL reaper never prunes a fixture mid-test. Time is otherwise the

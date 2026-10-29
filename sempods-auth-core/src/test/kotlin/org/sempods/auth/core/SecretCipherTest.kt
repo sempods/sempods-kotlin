@@ -64,6 +64,15 @@ class SecretCipherTest {
   }
 
   @Test
+  fun `a key is read from base64 and from base64url`() {
+    val key = ByteArray(32) { (it + 1).toByte() }
+    for (encoded in listOf(Base64.getEncoder().encodeToString(key), Base64.getUrlEncoder().encodeToString(key))) {
+      assertEquals("x", SecretCipher.fromBase64(encoded).decrypt(cipher.encrypt("x")))
+    }
+    assertFailsWith<IllegalArgumentException> { SecretCipher.fromBase64(Base64.getEncoder().encodeToString(ByteArray(16))) }
+  }
+
+  @Test
   fun `constructor rejects a wrong-length key`() {
     assertFailsWith<IllegalArgumentException> { SecretCipher(ByteArray(16)) }
   }

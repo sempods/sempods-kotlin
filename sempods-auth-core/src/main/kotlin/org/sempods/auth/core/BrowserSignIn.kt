@@ -6,42 +6,23 @@ import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.time.Duration
 
 /**
- * A browser's round trip to an OpenID Provider, from the redirect out to the identity that comes
- * back: [OidcRelyingParty] for the protocol, a [OneTimeStore] for what waits in between.
+ * A browser's round trip to an OpenID Provider: [begin] parks the caller's payload and answers
+ * where the browser goes, [complete] takes the callback and answers who signed in.
  *
- * ```
- * val started = signIn.begin(relyingParty, payload = whereTheUserWasGoing)
- * setCookie(pinCookieName(started.state), started.browserPin, maxAge = signIn.ttl)
- * redirect(started.authorizationUrl)
+ * `state` is a bearer, so a captured login URL would complete in whoever's browser opens it. The
+ * **browser pin** ties it to the browser that started it: the caller sets it as a cookie named
+ * after the `state`, and presents it back. How a cookie is set is the caller's HTTP stack.
  *
- * // …the callback arrives with ?state=&iss=&code= (or &error=)
- * clearCookie(pinCookieName(state))
- * when (val done = signIn.complete(relyingParty, BrowserSignIn.Callback(state, pinCookie, iss, code, error))) {
- *   is BrowserSignIn.Completion.SignedIn -> establishSession(done.identity, done.payload)
- *   else -> refuse(done)
- * }
- * ```
+ * The parked row holds the code verifier encrypted under [cipher] and the pin as its SHA-256. A row
+ * this instance cannot decrypt reads as an unknown `state`.
  *
- * `state` names the parked sign-in and is spent first, on every callback. It is a bearer, though:
- * a login URL captured by one party would complete in whoever's browser opens it, and that browser
- * would end up signed in as the attacker. The **browser pin** is the second factor — minted here,
- * set as a cookie by the caller, required back. The cookie is the caller's, because how one is set
- * depends on its HTTP stack; its name should carry the `state`, so that two sign-ins in one browser
- * do not overwrite each other's pin.
+ * [complete] checks, each before the next: the `state` (spent first, on every callback); the
+ * redirect address it was begun for; the pin; `iss` (RFC 9207 §2.4); the provider's error; the code
+ * and the token's nonce.
  *
- * What is parked holds no secret in the clear: the code verifier is encrypted under [cipher], since
- * it has to be presented again, and the pin is kept as its SHA-256, since it is only compared.
- * A row this instance cannot decrypt reads as an unknown `state`.
- *
- * The callback is checked in this order, and each step decides before the next looks: the `state`;
- * the redirect address it was begun for; the pin; the `iss` parameter (RFC 9207 §2.4, before an
- * error is believed); the provider's error; the code, exchanged over the back channel and its token
- * checked against the nonce this sign-in sent.
- *
- * @param collectionName where sign-ins are parked. Flows may share one: a sign-in whose callback
- *   arrives at a redirect address other than its own is spent there as an unknown `state`.
- * @param write and [read] carry the caller's payload, which is stored in a sub-document of its own
- *   (see [OneTimeStore] for the contract). [read] returns `null` for a payload it cannot use.
+ * @param collectionName flows may share one: a callback at a redirect address other than its own
+ *   is spent there as an unknown `state`.
+ * @param write and [read] carry the payload in a sub-document ([OneTimeStore] has the contract).
  * @param ttl how long a sign-in may take. The pin cookie should live as long.
  */
 class BrowserSignIn<T>(
@@ -85,19 +66,10 @@ class BrowserSignIn<T>(
     },
   )
 
-  /**
-   * Where the browser goes, and the pin the caller sets as a cookie beside it.
-   *
-   * @property browserPin the cookie's value. Never stored, and never sent anywhere but that cookie.
-   */
+  /** @property browserPin the cookie's value. Never stored. */
   data class Started(val authorizationUrl: String, val state: String, val browserPin: String)
 
-  /**
-   * What the provider sent the browser back with, and the pin cookie the browser presented —
-   * `null` for each that was absent.
-   *
-   * @property iss the `iss` authorization response parameter (RFC 9207).
-   */
+  /** The callback's query parameters and the pin cookie, `null` for each that was absent. */
   data class Callback(
     val state: String?,
     val presentedPin: String?,
@@ -107,108 +79,86 @@ class BrowserSignIn<T>(
     val errorDescription: String? = null,
   )
 
-  /** What a callback came to: exactly one of these. Every outcome but [UnknownState] spent the sign-in. */
+  enum class Refusal {
+    /** No parked sign-in under that `state`: unknown, expired, already used, or begun elsewhere. */
+    UNKNOWN_STATE,
+
+    /** No pin, or another sign-in's. */
+    OTHER_BROWSER,
+
+    /** `iss` names another provider, or none where the provider promised one. */
+    WRONG_ISSUER,
+  }
+
+  /** What a callback came to. Every outcome but [Refusal.UNKNOWN_STATE] spent the sign-in. */
   sealed interface Completion<out T> {
 
-    /** No parked sign-in under that `state`: unknown, expired, already used, or begun elsewhere. */
-    data object UnknownState : Completion<Nothing>
-
-    /** The browser presented no pin, or another sign-in's. Nothing was exchanged. */
-    data class OtherBrowser<T>(val payload: T, val pinPresented: Boolean) : Completion<T>
-
     /**
-     * The answer does not name the provider this sign-in went to, or names none where the provider
-     * promised it would ([OidcProviderMetadata.authorizationResponseIssParameterSupported]).
-     * Nothing in it was acted on, an error included.
+     * Not this sign-in's answer, so nothing in it was acted on. Answer it directly, never at an
+     * address from [payload].
      *
-     * @property presentedIssuer what arrived, `null` for nothing. A stranger's string: log it escaped.
+     * @property payload `null` for [Refusal.UNKNOWN_STATE]; otherwise for the log only.
      */
-    data class WrongIssuer<T>(val payload: T, val presentedIssuer: String?) : Completion<T>
+    data class Refused<T>(val reason: Refusal, val payload: T?) : Completion<T>
 
     /**
-     * The sign-in ended at the provider, which answered [error] (RFC 6749 §4.1.2.1). Both values
-     * are the provider's own text and reach the caller unchecked.
+     * This sign-in's answer, and a failure: the provider answered [providerError] (RFC 6749
+     * §4.1.2.1, its own unchecked text), the code could not be exchanged or its token does not
+     * belong to this sign-in ([cause]), or the callback carried neither code nor error (both `null`).
      */
-    data class ProviderError<T>(val payload: T, val error: String, val errorDescription: String?) : Completion<T>
+    data class Failed<T>(
+      val payload: T,
+      val providerError: String?,
+      val providerErrorDescription: String?,
+      val cause: Exception?,
+    ) : Completion<T>
 
-    /** The callback carries neither a code nor an error. */
-    data class NoCode<T>(val payload: T) : Completion<T>
-
-    /**
-     * The code could not be exchanged, or the token that came back does not belong to this
-     * sign-in — another nonce, another audience, a bad signature ([OidcRelyingParty.completeAuthorization]).
-     */
-    data class ExchangeFailed<T>(val payload: T, val cause: Exception) : Completion<T>
-
-    /** Signed in: who the provider says this is, and what the caller parked. */
     data class SignedIn<T>(val payload: T, val identity: OidcRelyingParty.VerifiedIdentity) : Completion<T>
   }
 
-  /**
-   * Parks [payload] and answers where the browser goes.
-   *
-   * @param prompt forwarded to the provider when it parses as an OIDC `prompt`, else dropped.
-   */
+  /** @param prompt forwarded when it parses as an OIDC `prompt`, else dropped. */
   fun begin(relyingParty: OidcRelyingParty, payload: T, prompt: String? = null): Started {
     val state = parked.newKey()
     val started = relyingParty.beginAuthorization(prompt = prompt, state = state)
     val browserPin = Secrets.newSecret()
     parked.create(
       state,
-      Parked(
-        payload = payload,
-        redirectUri = relyingParty.redirectUri,
-        codeVerifier = started.codeVerifier,
-        nonce = started.nonce,
-        pinSha256 = sha256Hex(browserPin),
-      ),
+      Parked(payload, relyingParty.redirectUri, started.codeVerifier, started.nonce, sha256Hex(browserPin)),
     )
     return Started(started.authorizationUrl, state, browserPin)
   }
 
   /**
-   * Completes the sign-in [Callback.state] names, against the [relyingParty] whose redirect
-   * address the callback arrived at.
-   *
-   * A `state` this class could not have minted ([Secrets.isWellFormed]) is an unknown one, and is
-   * not looked up. Callers that build a cookie name from it check the same shape before they do.
+   * @param relyingParty the one whose redirect address the callback arrived at.
+   *   A `state` this class could not have minted ([Secrets.isWellFormed]) is not looked up.
    */
   fun complete(relyingParty: OidcRelyingParty, callback: Callback): Completion<T> {
-    // Spent first and unconditionally: a replayed callback must find nothing, whether it carries a
-    // code, an error, or neither.
-    val state = callback.state?.takeIf(Secrets::isWellFormed) ?: return Completion.UnknownState
-    val pending = parked.consume(state) ?: return Completion.UnknownState
-    if (pending.redirectUri != relyingParty.redirectUri) return Completion.UnknownState
+    val state = callback.state?.takeIf(Secrets::isWellFormed) ?: return Completion.Refused(Refusal.UNKNOWN_STATE, null)
+    val pending = parked.consume(state)
+    if (pending == null || pending.redirectUri != relyingParty.redirectUri) {
+      return Completion.Refused(Refusal.UNKNOWN_STATE, null)
+    }
     val payload = pending.payload
 
-    // Before the code is exchanged: a callback opened in the wrong browser must cost nothing.
-    val presentedPin = callback.presentedPin
-    if (presentedPin == null || !Secrets.matches(sha256Hex(presentedPin), pending.pinSha256)) {
-      return Completion.OtherBrowser(payload, pinPresented = presentedPin != null)
+    val pin = callback.presentedPin
+    if (pin == null || !Secrets.matches(sha256Hex(pin), pending.pinSha256)) {
+      return Completion.Refused(Refusal.OTHER_BROWSER, payload)
     }
-
-    // Simple string comparison (RFC 9207 §2.4), and before the error: an error from another
-    // provider is no more this provider's answer than a code from one.
     val metadata = relyingParty.metadata
-    val issuerMatches = when (val iss = callback.iss) {
-      null -> !metadata.authorizationResponseIssParameterSupported
-      else -> iss == metadata.issuer
-    }
-    if (!issuerMatches) return Completion.WrongIssuer(payload, callback.iss)
+    val issuerMatches = callback.iss?.let { it == metadata.issuer } ?: !metadata.authorizationResponseIssParameterSupported
+    if (!issuerMatches) return Completion.Refused(Refusal.WRONG_ISSUER, payload)
 
-    callback.error?.let { return Completion.ProviderError(payload, it, callback.errorDescription) }
-    val code = callback.code?.trim()?.takeIf { it.isNotEmpty() } ?: return Completion.NoCode(payload)
-
-    val identity = try {
-      relyingParty.completeAuthorization(code, pending.codeVerifier, pending.nonce)
+    if (callback.error != null) return Completion.Failed(payload, callback.error, callback.errorDescription, cause = null)
+    val code = callback.code?.trim()?.takeIf { it.isNotEmpty() }
+      ?: return Completion.Failed(payload, providerError = null, providerErrorDescription = null, cause = null)
+    return try {
+      Completion.SignedIn(payload, relyingParty.completeAuthorization(code, pending.codeVerifier, pending.nonce))
     } catch (e: Exception) {
-      return Completion.ExchangeFailed(payload, e)
+      Completion.Failed(payload, providerError = null, providerErrorDescription = null, cause = e)
     }
-    return Completion.SignedIn(payload, identity)
   }
 
   companion object {
-    /** Fifteen minutes: long enough to sign in with a provider's second factor, short enough to reap. */
     @JvmField
     val DEFAULT_TTL: Duration = Duration.ofMinutes(15)
 
