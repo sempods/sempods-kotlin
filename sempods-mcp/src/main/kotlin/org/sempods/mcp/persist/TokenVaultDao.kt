@@ -11,7 +11,7 @@ import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.commons.mongo.putNotNull
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.bson.Document
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.Date

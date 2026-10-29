@@ -13,12 +13,16 @@ import com.nimbusds.jose.util.JSONObjectUtils
  * @param issuer the value a token's `iss` must equal, byte for byte. A provider that advertises
  *   one string and signs another is misconfigured, and the mismatch is worth catching here rather
  *   than as a rejected token later.
+ * @param authorizationResponseIssParameterSupported whether every authorization response names
+ *   [issuer] in an `iss` parameter (RFC 9207 §3). Where it does, a response without one is
+ *   refused ([BrowserSignIn]).
  */
 data class OidcProviderMetadata(
   val issuer: String,
   val authorizationEndpoint: String,
   val tokenEndpoint: String,
   val jwksUri: String,
+  val authorizationResponseIssParameterSupported: Boolean = false,
 ) {
 
   companion object {
@@ -41,6 +45,7 @@ data class OidcProviderMetadata(
         authorizationEndpoint = required("authorization_endpoint"),
         tokenEndpoint = required("token_endpoint"),
         jwksUri = required("jwks_uri"),
+        authorizationResponseIssParameterSupported = document["authorization_response_iss_parameter_supported"] == true,
       )
     }
 

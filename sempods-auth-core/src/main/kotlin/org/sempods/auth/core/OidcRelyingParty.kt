@@ -39,7 +39,8 @@ import java.net.URL
  *
  * `state` ties the callback to the request that began it; `nonce` ties the *token* to it. Both
  * fail silently when left out — the login still works, and so does a replayed one — which is why
- * neither is optional in the signatures below.
+ * neither is optional in the signatures below. [BrowserSignIn] runs this round trip for a browser,
+ * with the store, the browser pin and the `iss` check around it.
  *
  * Transport is a port ([HttpTransport]): the services that use this hold different HTTP clients,
  * and a shared implementation owning one would impose it on the others.
@@ -60,7 +61,8 @@ import java.net.URL
 class OidcRelyingParty(
   val metadata: OidcProviderMetadata,
   private val clientId: String,
-  private val redirectUri: String,
+  /** Where the provider sends the browser back. [BrowserSignIn] completes a sign-in only here. */
+  val redirectUri: String,
   private val transport: HttpTransport,
   val trustsEquivalentIdentities: Boolean = false,
 ) {

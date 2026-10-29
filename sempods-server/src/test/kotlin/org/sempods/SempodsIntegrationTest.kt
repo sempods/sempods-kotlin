@@ -225,7 +225,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
       nonce = nonce ?: checkNotNull(query["nonce"]) { "authorization request carries no nonce" },
       claims = claims,
     )
-    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&code=$code")
+    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&iss=${enc(FakeIdServerTransport.ISSUER)}&code=$code")
       .addHeader("Cookie", pin)
       .setFollowRedirect(false).execute()
   }

@@ -292,9 +292,10 @@ class PodAuthorizeFlow @Inject internal constructor(
         "login" in promptValues -> "login"
         else -> null
       }
-      val started = signIn.park(pod, forwardedPrompt) { codeVerifier, nonce, browserPin ->
-        PendingLogin(
-          pod = pod.name,
+      val started = signIn.park(
+        pod,
+        forwardedPrompt,
+        pending = PendingLogin(
           clientId = normalizedClientId,
           redirectUri = normalizedRedirectUri,
           clientState = clientState,
@@ -305,11 +306,8 @@ class PodAuthorizeFlow @Inject internal constructor(
           prompt = promptValues.minus(OAuthSyntax.FORCE_REAUTH_PROMPTS).sorted().joinToString(" ").takeIf { it.isNotEmpty() },
           codeChallenge = codeChallenge,
           codeChallengeMethod = codeChallengeMethod,
-          codeVerifier = codeVerifier,
-          nonce = nonce,
-          browserPin = browserPin,
-        )
-      } ?: return PodAuthorizeResult.Refused(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
+        ),
+      ) ?: return PodAuthorizeResult.Refused(PodAuthorizeRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
       logger.info {
         "[oauth/authorize] Redirecting to login: pod='${pod.name}', " +
             "clientId='$normalizedClientId', forceReauth=$forceReauth, forwardedPrompt=${forwardedPrompt ?: "(none)"}"

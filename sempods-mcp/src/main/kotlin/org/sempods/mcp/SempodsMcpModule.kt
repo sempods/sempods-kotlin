@@ -11,7 +11,8 @@ import org.sempods.mcp.oauth.SempodsClientHttpTransport
 import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
 import org.sempods.mcp.auth.WebSession
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
+import org.sempods.mcp.crypto.McpSecretKey
 import org.sempods.auth.core.SempodsAuthCoreModule
 import org.sempods.auth.core.SigningKeyStore
 import org.sempods.auth.core.SigningKeys
@@ -111,7 +112,7 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   // Encryption-at-rest for the secrets the service holds recoverable: pod tokens + the private
   // signing-key JWK. Key from MCP_SECRET_KEY (mandatory on a public/https deployment).
   @Provides @Singleton
-  fun secretCipher(): SecretCipher = SecretCipher.fromEnv(config.isSecure)
+  fun secretCipher(): SecretCipher = McpSecretKey.cipherFromEnv(config.isSecure)
 
   @Provides @Singleton
   fun tokenVaultDao(db: MongoDatabase, cipher: SecretCipher): TokenVaultDao = TokenVaultDao(db, cipher)
@@ -143,13 +144,13 @@ class SempodsMcpModule(private val config: SempodsMcpConfig) : BaseModule() {
   // --- One-time OAuth flow state (Mongo-backed, TTL-indexed, atomic single-use consume) ---
 
   @Provides @Singleton
-  fun loginStateStore(db: MongoDatabase): LoginStateStore = LoginStateStore(db)
+  fun loginStateStore(db: MongoDatabase, cipher: SecretCipher): LoginStateStore = LoginStateStore(db, cipher)
 
   @Provides @Singleton
   fun consentTransactionStore(db: MongoDatabase): ConsentTransactionStore = ConsentTransactionStore(db)
 
   @Provides @Singleton
-  fun webLoginStateStore(db: MongoDatabase): WebLoginStateStore = WebLoginStateStore(db)
+  fun webLoginStateStore(db: MongoDatabase, cipher: SecretCipher): WebLoginStateStore = WebLoginStateStore(db, cipher)
 
   @Provides @Singleton
   fun podConnectStateStore(db: MongoDatabase, cipher: SecretCipher): PodConnectStateStore =

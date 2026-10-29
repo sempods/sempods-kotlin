@@ -39,7 +39,8 @@ layouts and neither had a row rewritten. The compound index over the owner is a 
 not derived from the codec — this server stores `podName` without ever querying on it.
 
 `oauth.loginStates` and `oauth.consentTransactions` do not own their mechanism either: both are
-`sempods-auth-core`'s `OneTimeStore` with a payload codec — one-time (`findOneAndDelete`), `_id` is
+`sempods-auth-core`'s `OneTimeStore` with a payload codec, the first through `BrowserSignIn`, which
+keeps the parked request under `payload` beside the sign-in's encrypted verifier — one-time (`findOneAndDelete`), `_id` is
 the SHA-256 of the value the browser holds rather than the value, TTL index plus a check on read
 because the reaper runs on its own schedule. They are two rather than one because the session says
 *who* is submitting a consent form and the transaction says *which screen* it is and that it has not

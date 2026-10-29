@@ -11,7 +11,7 @@ import java.util.Date
  * What is here is the part that differs per service: which collection, and what a row looks like.
  *
  * **Encryption at rest stays on this side of the port.** [SigningKeyDao] puts the private JWK
- * through [org.sempods.mcp.crypto.SecretCipher] because this deployment already holds other
+ * through [org.sempods.auth.core.SecretCipher] because this deployment already holds other
  * people's pod tokens under the same envelope, and a signing key beside them in plaintext would be
  * the weakest row in the database. That is a property of this store, not of the port: the other
  * two services store their keys in the clear and are right to.

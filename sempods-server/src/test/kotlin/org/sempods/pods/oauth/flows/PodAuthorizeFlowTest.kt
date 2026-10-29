@@ -1,16 +1,22 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import org.sempods.FakeIdServerTransport
+import org.sempods.auth.PendingLogin
+import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.auth.core.OAuthSyntax
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.PodSignOut
+import java.net.URI
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,6 +49,25 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var podSignOut: PodSignOut
+
+  @Inject
+  private lateinit var identityProvider: PodIdentityProvider
+
+  @Inject
+  private lateinit var fakeIdServer: FakeIdServerTransport
+
+  /** Completes the sign-in [login] parked, as its callback would, and answers what it came to. */
+  private fun completeSignIn(owned: Owned, login: PodAuthorizeResult.Login): BrowserSignIn.Completion<PendingLogin> {
+    val nonce = checkNotNull(UrlUtil.queryParams(URI(login.authorizationUrl).rawQuery, decodeParams = true)["nonce"])
+    val code = fakeIdServer.expect(webId = owned.webId, nonce = nonce)
+    return loginStateStore.signIn.complete(
+      identityProvider.relyingParty(owned.pod.name),
+      BrowserSignIn.Callback(login.state, login.browserPin, FakeIdServerTransport.ISSUER, code, error = null),
+    )
+  }
+
+  private fun parkedBy(owned: Owned, login: PodAuthorizeResult.Login): PendingLogin =
+    assertIs<BrowserSignIn.Completion.SignedIn<PendingLogin>>(completeSignIn(owned, login)).payload
 
   private fun request(
     responseType: String? = "code",
@@ -169,14 +194,12 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     assertTrue(login.browserPin.isNotBlank(), "the callback is tied to this browser by this")
 
     // The request survives the round trip here, not in a parameter the browser carries.
-    val parked = assertNotNull(loginStateStore.consume(login.state))
-    assertEquals(owned.pod.name, parked.pod)
+    val parked = parkedBy(owned, login)
     assertEquals(clientId, parked.clientId)
     assertEquals(redirectUri, parked.redirectUri)
     assertEquals(state, parked.clientState)
     assertEquals(challenge, parked.codeChallenge)
-    assertEquals(login.browserPin, parked.browserPin)
-    assertNull(loginStateStore.consume(login.state), "the state is spent once")
+    assertEquals(BrowserSignIn.Completion.UnknownState, completeSignIn(owned, login), "the state is spent once")
   }
 
   @Test
@@ -187,7 +210,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val result = flow.authorize(owned.pod, request(prompt = "login consent"), session = null)
 
     val login = assertIs<PodAuthorizeResult.Login>(result, "was: $result")
-    assertEquals("consent", assertNotNull(loginStateStore.consume(login.state)).prompt)
+    assertEquals("consent", parkedBy(owned, login).prompt)
   }
 
   @Test

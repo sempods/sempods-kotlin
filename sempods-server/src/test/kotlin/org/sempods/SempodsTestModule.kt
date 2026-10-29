@@ -16,6 +16,7 @@ import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow
 import org.sempods.api.pod.system.auth.ServiceAccessFlow
 import org.sempods.auth.core.HttpTransport
+import org.sempods.auth.core.SecretCipher
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
@@ -105,6 +106,14 @@ data class SempodsTestModule(
       ),
     )
   }
+
+  /**
+   * The suite sets neither `SEMPODS_SECRET_KEY` nor its development fallback, so it brings its own
+   * key. How a deployment resolves one is `PodSecretKeyTest`'s.
+   */
+  @Provides
+  @Singleton
+  fun provideSecretCipher(): SecretCipher = SecretCipher(ByteArray(SecretCipher.KEY_BYTES) { (it + 1).toByte() })
 
   /**
    * Pin the identity issuer so the fake below and the WebID namespace agree on it. Without this

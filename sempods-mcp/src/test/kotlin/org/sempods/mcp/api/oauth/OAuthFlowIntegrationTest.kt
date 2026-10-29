@@ -160,7 +160,7 @@ class OAuthFlowIntegrationTest {
         config = config,
         dcrClientDao = DcrClientDao(database),
         authorizationCodeStore = AuthorizationCodeStore(database, SempodsMcpCollections.OAUTH_AUTH_CODES),
-        loginStateStore = LoginStateStore(database),
+        loginStateStore = LoginStateStore(database, testSecretCipher()),
         identityProvider = idServer.identityProvider(BASE),
         consentTransactionStore = ConsentTransactionStore(database),
         refreshTokenStore = refreshTokens,
@@ -204,7 +204,7 @@ class OAuthFlowIntegrationTest {
 
     // 3. The id-server sends the browser back with a code; the token is fetched over the back
     //    channel with the verifier that never left this process.
-    val callbackResp = client.get("/oidc/callback?state=${enc(loginState)}&code=an-auth-code") {
+    val callbackResp = client.get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=an-auth-code") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
     assertEquals(HttpStatusCode.OK, callbackResp.status)
@@ -921,7 +921,8 @@ class OAuthFlowIntegrationTest {
     // resolve later. Assert on the invariant: whatever is parked must match what was validated.
     assertEquals(HttpStatusCode.Found, resp.status, "the padded id resolves to its client, so the flow starts")
     val parked = db!!.getCollection(SempodsMcpCollections.OAUTH_LOGIN_STATES).find().first()
-    assertEquals(clientId, parked?.getString("clientId"), "the parked id must be the one that was validated")
+    val parkedRequest = parked?.get("payload", Document::class.java)
+    assertEquals(clientId, parkedRequest?.getString("clientId"), "the parked id must be the one that was validated")
   }
 
   @Test
@@ -965,7 +966,7 @@ class OAuthFlowIntegrationTest {
 
     db!!.getCollection(SempodsMcpCollections.OAUTH_CLIENT_REGISTRATIONS).deleteOne(Document("clientId", clientId))
 
-    val resp = http.get("/oidc/callback?state=${enc(loginState)}&error=access_denied") {
+    val resp = http.get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&error=access_denied") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
     assertEquals(HttpStatusCode.BadRequest, resp.status)
@@ -986,7 +987,7 @@ class OAuthFlowIntegrationTest {
     )["client_id"].asString()
     val (loginState, nonceCookie) = http.startAuthorize(clientId, state = "client-state-1")
 
-    val resp = http.get("/oidc/callback?state=${enc(loginState)}&error=totally_made_up_code") {
+    val resp = http.get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&error=totally_made_up_code") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
     val location = Url(assertNotNull(resp.headers[HttpHeaders.Location], "a live client is answered at its address"))
@@ -1081,12 +1082,12 @@ class OAuthFlowIntegrationTest {
     // A victim's browser that never started /authorize holds no nonce cookie: completing a captured
     // login URL there must be refused, not turned into a consent for the initiating (attacker's) client.
     val (state1, _) = client.startAuthorize(clientId)
-    val noCookie = client.get("/oidc/callback?state=${enc(state1)}&code=an-auth-code")
+    val noCookie = client.get("/oidc/callback?state=${enc(state1)}&iss=${enc(ISSUER)}&code=an-auth-code")
     assertEquals(HttpStatusCode.BadRequest, noCookie.status, "callback without the nonce cookie must be refused")
 
     // A wrong nonce is likewise refused.
     val (state2, _) = client.startAuthorize(clientId)
-    val wrongCookie = client.get("/oidc/callback?state=${enc(state2)}&code=an-auth-code") {
+    val wrongCookie = client.get("/oidc/callback?state=${enc(state2)}&iss=${enc(ISSUER)}&code=an-auth-code") {
       header(HttpHeaders.Cookie, "mcp_login_$state2=not-the-nonce")
     }
     assertEquals(HttpStatusCode.BadRequest, wrongCookie.status, "callback with a mismatched nonce must be refused")
@@ -1094,6 +1095,31 @@ class OAuthFlowIntegrationTest {
     // The matching cookie (same browser) completes the flow — control.
     val (state3, nonce3) = client.startAuthorize(clientId)
     assertEquals(HttpStatusCode.OK, client.oidcCallback(state3, nonce3).status, "the initiating browser's nonce must be accepted")
+  }
+
+  @Test
+  fun `a login callback that names another issuer, or none, is refused and reaches no client`() = testApplication {
+    // RFC 9207: the id-server names itself in every answer. One that does not is another server's,
+    // and neither its code nor its error may reach the AI client.
+    installAuth()
+    val client = createClient { followRedirects = false }
+    val clientId = mapper.readTree(
+      client.post("/register") {
+        contentType(ContentType.Application.Json)
+        setBody("""{"redirect_uris":["$REDIRECT"],"client_name":"Test"}""")
+      }.bodyAsText(),
+    )["client_id"].asString()
+
+    for (iss in listOf("&iss=${enc("https://attacker.test")}", "")) {
+      for (answer in listOf("code=an-auth-code", "error=access_denied")) {
+        val (state, nonceCookie) = client.startAuthorize(clientId)
+        val resp = client.get("/oidc/callback?state=${enc(state)}$iss&$answer") {
+          header(HttpHeaders.Cookie, nonceCookie)
+        }
+        assertEquals(HttpStatusCode.BadRequest, resp.status, "iss '$iss', $answer")
+        assertNull(resp.headers[HttpHeaders.Location], "iss '$iss', $answer: nothing is redirected to the client")
+      }
+    }
   }
 
   @Test
@@ -1293,7 +1319,7 @@ class OAuthFlowIntegrationTest {
 
   /** Completes the id-server round-trip at `/oidc/callback`, presenting the browser nonce cookie. */
   private suspend fun HttpClient.oidcCallback(loginState: String, nonceCookie: String): HttpResponse =
-    get("/oidc/callback?state=${enc(loginState)}&code=an-auth-code") {
+    get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=an-auth-code") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
 }

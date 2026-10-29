@@ -16,9 +16,9 @@ import java.net.URI
  * exactly that request and break the flow; `None` would send it on cross-site sub-requests, which
  * neither needs.
  *
- * The framework-specific half of what `sempods-mcp` does with `LoginCsrfPin` and `WebSession`.
- * What the two services share — minting a secret, comparing one — lives in
- * `sempods-auth-core`'s `Secrets`; the cookie types do not travel between Ktor and JAX-RS.
+ * The JAX-RS half of what `sempods-commons-ktor`'s `BrowserPinCookie` and `sempods-mcp`'s
+ * `WebSession` do in Ktor. The pin itself — minting it, comparing what comes back — is
+ * `sempods-auth-core`'s `BrowserSignIn`; the cookie types do not travel between Ktor and JAX-RS.
  *
  * @param apiBaseUrl the address this server is reached at. Its **path** matters: a deployment
  *   mounted under a prefix (`https://example.test/sempods/`) serves every pod route below that

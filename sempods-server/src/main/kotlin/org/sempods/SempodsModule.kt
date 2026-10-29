@@ -4,6 +4,7 @@ import org.sempods.auth.core.HttpTransport
 import org.sempods.auth.core.SempodsAuthCoreModule
 import org.sempods.auth.core.SigningKeyStore
 import org.sempods.auth.core.SigningKeys
+import com.google.inject.Provider
 import com.google.inject.Provides
 import com.google.inject.Singleton
 import com.google.inject.multibindings.Multibinder
@@ -73,6 +74,8 @@ import org.sempods.auth.CommonsHttpTransport
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
+import org.sempods.auth.PodSecretKey
+import org.sempods.auth.core.SecretCipher
 import okhttp3.OkHttpClient
 import org.sempods.client.SempodsOkHttp
 import org.sempods.client.net.SempodsOutboundGuard
@@ -160,6 +163,8 @@ class SempodsModule : BaseModule() {
     bind<HttpTransport>().to(CommonsHttpTransport::class.java).asSingleton()
     bind<PodIdentityProvider>().asSingleton()
     bind<PodLoginStateStore>().asSingleton()
+    // Eager, so a deployment without its key fails the boot rather than its first sign-in.
+    bind<SecretCipher>().toProvider(Provider { PodSecretKey.cipherFromEnv() }).asEagerSingleton()
     bind<ConsentTransactionStore>().asSingleton()
 
     bind<PodDao>().asSingleton()

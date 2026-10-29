@@ -344,6 +344,7 @@ class PodAuthEndpoint @Inject constructor(
   fun oidcCallback(
     @PathParam("pod") pod: String,
     @QueryParam("state") state: String?,
+    @QueryParam("iss") iss: String?,
     @QueryParam("code") code: String?,
     @QueryParam("error") error: String?,
     @QueryParam("error_description") errorDescription: String?,
@@ -355,7 +356,7 @@ class PodAuthEndpoint @Inject constructor(
     // its full fifteen minutes, and a handful of cancelled sign-ins would pile up on the callback
     // path until the browser starts evicting cookies, the session among them. Attached here rather
     // than at each `return`, because there are six of them and one will be missed.
-    return withPinCleared(podDbo.name, state, completeLogin(podDbo, state, code, error, errorDescription, httpHeaders))
+    return withPinCleared(podDbo.name, state, completeLogin(podDbo, state, iss, code, error, errorDescription, httpHeaders))
   }
 
   /**
@@ -375,6 +376,7 @@ class PodAuthEndpoint @Inject constructor(
   private fun completeLogin(
     podDbo: PodDbo,
     state: String?,
+    iss: String?,
     code: String?,
     error: String?,
     errorDescription: String?,
@@ -382,6 +384,7 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     val callback = PodSignInCallback(
       state = state,
+      iss = iss,
       code = code,
       error = error,
       errorDescription = errorDescription,
@@ -397,10 +400,16 @@ class PodAuthEndpoint @Inject constructor(
           // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
           .type("text/plain;charset=UTF-8")
           .build()
+
+        PodSignInRefusal.WRONG_ISSUER ->
+          Response.status(400).entity("this sign-in answer did not come from the identity server").type("text/plain").build()
+
+        PodSignInRefusal.IDENTITY_PROVIDER_UNAVAILABLE ->
+          Response.status(503).entity("identity provider unavailable").type("text/plain").build()
       }
 
       is PodSignInResult.Failed ->
-        oauthErrorToParked(result.pending, result.error, result.description)
+        oauthErrorToParked(result.pending, podDbo.name, result.error, result.description)
 
       is PodSignInResult.SignedIn -> {
         val answer = when (val resumed = result.resumed) {
@@ -471,10 +480,11 @@ class PodAuthEndpoint @Inject constructor(
    */
   private fun oauthErrorToParked(
     pending: PendingLogin,
+    podName: String,
     error: OAuthErrorCode,
     errorDescription: String,
   ): Response =
-    PodOAuthErrorResponses.renderToParked(pending, error, errorDescription, config)
+    PodOAuthErrorResponses.renderToParked(pending, podName, error, errorDescription, config)
 
   companion object {
     private val logger = KotlinLogging.logger {}

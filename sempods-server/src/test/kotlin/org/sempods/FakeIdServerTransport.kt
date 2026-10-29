@@ -69,7 +69,8 @@ class FakeIdServerTransport @Inject constructor() : HttpTransport {
   override fun get(url: String): String = when (url) {
     "$ISSUER/.well-known/openid-configuration" -> """
       {"issuer":"$ISSUER","authorization_endpoint":"$ISSUER/authorize",
-       "token_endpoint":"$ISSUER/token","jwks_uri":"$ISSUER/.well-known/jwks.json"}
+       "token_endpoint":"$ISSUER/token","jwks_uri":"$ISSUER/.well-known/jwks.json",
+       "authorization_response_iss_parameter_supported":true}
     """.trimIndent()
 
     "$ISSUER/.well-known/jwks.json" -> JWKSet(key.toPublicJWK()).toString()

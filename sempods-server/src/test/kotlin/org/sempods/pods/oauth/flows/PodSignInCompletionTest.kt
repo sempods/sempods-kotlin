@@ -3,11 +3,14 @@ package org.sempods.pods.oauth.flows
 import com.google.inject.Inject
 import org.sempods.FakeIdServerTransport
 import org.sempods.auth.PendingLogin
+import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.Secrets
-import org.sempods.commons.tests.TestUtil.randomId
+import org.sempods.commons.net.UrlUtil
 import org.sempods.pods.oauth.PodTokenIssuer
+import java.net.URI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -30,34 +33,38 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
   @Inject
   private lateinit var podTokenIssuer: PodTokenIssuer
 
+  @Inject
+  private lateinit var identityProvider: PodIdentityProvider
+
   /** A sign-in parked for [owned], as [PodSignIn] parks one: its state, nonce and browser pin. */
   private inner class Parked(owned: Owned, pod: String = owned.pod.name, serviceConsent: Boolean = false) {
-    val state = loginStateStore.newState()
-    val nonce = randomId()
-    val pin = Secrets.newSecret()
+    private val started = loginStateStore.signIn.begin(
+      identityProvider.relyingParty(pod),
+      PendingLogin(
+        clientId = clientId,
+        redirectUri = redirectUri,
+        clientState = "client-state",
+        scope = owned.readScope,
+        prompt = null,
+        codeChallenge = challenge,
+        codeChallengeMethod = "S256",
+        serviceConsent = serviceConsent,
+      ),
+      prompt = null,
+    )
+    val state = started.state
+    val nonce = checkNotNull(UrlUtil.queryParams(URI(started.authorizationUrl).rawQuery, decodeParams = true)["nonce"])
+    val pin = started.browserPin
 
-    init {
-      loginStateStore.create(
-        state,
-        PendingLogin(
-          pod = pod,
-          clientId = clientId,
-          redirectUri = redirectUri,
-          clientState = "client-state",
-          scope = owned.readScope,
-          prompt = null,
-          codeChallenge = challenge,
-          codeChallengeMethod = "S256",
-          codeVerifier = Secrets.newSecret(),
-          nonce = nonce,
-          browserPin = pin,
-          serviceConsent = serviceConsent,
-        ),
-      )
-    }
-
-    fun callback(code: String? = null, error: String? = null, errorDescription: String? = null, pin: String? = this.pin) =
-      PodSignInCallback(state = state, code = code, error = error, errorDescription = errorDescription, presentedPin = pin)
+    fun callback(
+      code: String? = null,
+      error: String? = null,
+      errorDescription: String? = null,
+      pin: String? = this.pin,
+      iss: String? = FakeIdServerTransport.ISSUER,
+    ) = PodSignInCallback(
+      state = state, iss = iss, code = code, error = error, errorDescription = errorDescription, presentedPin = pin,
+    )
   }
 
   @Test
@@ -67,7 +74,7 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
 
     assertEquals(
       PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE),
-      completion.complete(owned.pod, parked.callback(code = "x").copy(state = loginStateStore.newState())),
+      completion.complete(owned.pod, parked.callback(code = "x").copy(state = Secrets.newSecret())),
     )
     assertIs<PodSignInResult.Failed>(completion.complete(owned.pod, parked.callback()))
     assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback()))
@@ -93,7 +100,32 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
     val parked = Parked(owned, pod = "another-pod")
 
     assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, parked.callback(code = "x")))
-    assertEquals(null, loginStateStore.consume(parked.state))
+    assertEquals(
+      BrowserSignIn.Completion.UnknownState,
+      loginStateStore.signIn.complete(
+        identityProvider.relyingParty("another-pod"),
+        BrowserSignIn.Callback(parked.state, parked.pin, FakeIdServerTransport.ISSUER, code = "x", error = null),
+      ),
+    )
+  }
+
+  @Test
+  fun `an answer that does not name the id-server is refused before anything in it is used, and the sign-in is spent`() {
+    val owned = Owned()
+    for (iss in listOf("https://attacker.example", "${FakeIdServerTransport.ISSUER}/", null)) {
+      for (answer in listOf("code", "error")) {
+        val parked = Parked(owned)
+        val code = fakeIdServer.expect(webId = owned.webId, nonce = parked.nonce)
+        val callback = if (answer == "code") parked.callback(code = code) else parked.callback(error = "access_denied")
+
+        assertEquals(
+          PodSignInResult.Refused(PodSignInRefusal.WRONG_ISSUER),
+          completion.complete(owned.pod, callback.copy(iss = iss)),
+          "iss $iss, $answer",
+        )
+        assertEquals(PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE), completion.complete(owned.pod, callback), "iss $iss, $answer")
+      }
+    }
   }
 
   @Test

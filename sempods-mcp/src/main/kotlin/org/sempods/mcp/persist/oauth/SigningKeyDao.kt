@@ -7,7 +7,7 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Sorts
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.bson.Document
 import java.util.Date
 

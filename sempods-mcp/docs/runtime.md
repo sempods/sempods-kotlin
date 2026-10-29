@@ -144,11 +144,11 @@ connect pods into the selected profile). `/mcp` is not an alias for the root.
 
 ## Credentials at rest
 
-A standalone AES-256-GCM `crypto/SecretCipher`
-(`v1:` envelope; key from `MCP_SECRET_KEY`, **mandatory when https or `PRODUCTION=true`**, with a
-deterministic dev key only on genuine local dev) encrypts the two secrets the service must keep
-recoverable: the pod access/refresh tokens (`TokenVaultDao`) and the private OAuth signing-key JWK
-(`SigningKeyDao`). Reads expect ciphertext, always — there is **no legacy-plaintext tolerance and
+`sempods-auth-core`'s AES-256-GCM `SecretCipher` (`v1:` envelope; key from `MCP_SECRET_KEY` through
+`crypto/McpSecretKey`, **mandatory when https or `PRODUCTION=true`**, with a deterministic dev key
+only on genuine local dev) encrypts the secrets the service must keep recoverable: the pod
+access/refresh tokens (`TokenVaultDao`), the private OAuth signing-key JWK (`SigningKeyDao`) and
+the PKCE verifiers of the flows in the next section. Reads expect ciphertext, always — there is **no legacy-plaintext tolerance and
 no startup migration** (see [Deployment stance](../AGENTS.md#deployment-stance-poc--no-migrations)). Decrypt-failure semantics are
 **asymmetric**: an undecryptable pod-token row is treated as unreadable (`find` → null → "reconnect
 this pod"; the refresh sweep skips it), while an undecryptable **signing key is fatal** (`findAll`
@@ -195,8 +195,9 @@ replicas. One-time consume is an **atomic `findOneAndDelete`** (exactly one of N
 consumers wins; reads still check `expiresAt` because the TTL reaper is periodic); the
 reauthorize replay predicate compiles into a single conditional `findOneAndDelete`. Secret
 lookup keys (codes / states / txn ids) are stored as **SHA-256 `_id`s** (`crypto/sha256Hex`),
-and the pod-connect PKCE `codeVerifier` is additionally `SecretCipher`-encrypted (it is
-redeemable at an external token endpoint). Double-refresh across
+and every PKCE verifier they hold is additionally `SecretCipher`-encrypted (it is redeemable at an
+external token endpoint): the pod connect's, and those of the two id-server sign-ins, which
+`BrowserSignIn` parks with the browser pin as its SHA-256. Double-refresh across
 replicas is closed at two levels: a **per-token claim** on the vault row
 (`TokenVaultDao.tryClaimRefresh` / `releaseRefreshClaim`, claim TTL 60 s, keyed by a boot-time
 `persist/InstanceId`) is the correctness primitive — `PodTokenProvider` claims before every

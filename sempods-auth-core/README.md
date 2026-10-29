@@ -17,6 +17,8 @@ uses [`sempods-client`](../sempods-client/README.md). The coordinate is
 | Rotate refresh tokens and detect reuse | [RefreshTokenStore](src/main/kotlin/org/sempods/auth/core/RefreshTokenStore.kt) |
 | Sign and verify JWTs | [SigningKeys](src/main/kotlin/org/sempods/auth/core/SigningKeys.kt), [JwtVerifier](src/main/kotlin/org/sempods/auth/core/JwtVerifier.kt) |
 | Sign in against an OIDC provider | [OidcRelyingParty](src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt), [IdTokenVerifier](src/main/kotlin/org/sempods/auth/core/IdTokenVerifier.kt) |
+| Send a browser to that provider and take its answer back | [BrowserSignIn](src/main/kotlin/org/sempods/auth/core/BrowserSignIn.kt) |
+| Encrypt a secret that has to stay recoverable at rest | [SecretCipher](src/main/kotlin/org/sempods/auth/core/SecretCipher.kt) |
 
 For example, both the identity service and the pod redeem authorization codes. They use the same
 store implementation, each with its own database. A code from the identity service cannot be
@@ -28,4 +30,4 @@ application. Guice is optional; Mongo-backed stores require the caller's databas
 supplies configuration, persistence and transport. Exact contracts belong to the linked KDoc.
 
 [Tests](src/test/kotlin/org/sempods/auth/core/) cover redirect policy, PKCE, token validation,
-one-time redemption and refresh rotation. The services' HTTP tests cover their endpoint wiring.
+one-time redemption, refresh rotation, the browser sign-in and encryption at rest. The services' HTTP tests cover their endpoint wiring.

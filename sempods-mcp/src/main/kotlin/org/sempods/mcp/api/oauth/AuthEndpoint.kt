@@ -5,7 +5,6 @@ import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.forLog
 import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.audit.AuditLog
-import org.sempods.mcp.auth.LoginCsrfPin
 import org.sempods.mcp.auth.WebSession
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
@@ -65,8 +64,10 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Date
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
+import org.sempods.commons.ktor.auth.BrowserPinCookie
 import org.sempods.commons.utils.appendEscapedHtml
 
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.oauth")
@@ -109,11 +110,13 @@ fun Application.authEndpoint(
   val OIDC_CALLBACK_PATH = "/oidc/callback"
 
   // Login-CSRF pin: set on the `/authorize` → id-server redirect, required back at
-  // `/oidc/callback`. See [LoginCsrfPin] for why `state` alone is not enough.
-  val loginPin = LoginCsrfPin(
-    cookieNamePrefix = LOGIN_NONCE_COOKIE_PREFIX,
-    cookiePath = LOGIN_NONCE_COOKIE_PATH,
+  // `/oidc/callback`. See [BrowserSignIn] for why `state` alone is not enough.
+  val signIn = loginStateStore.signIn
+  val loginPin = BrowserPinCookie(
+    namePrefix = LOGIN_NONCE_COOKIE_PREFIX,
+    path = LOGIN_NONCE_COOKIE_PATH,
     secure = config.isSecure,
+    maxAgeSeconds = signIn.ttl.toSeconds().toInt(),
   )
 
   // --- RFC 7591 Dynamic Client Registration (profile from the URL path; default = root) ---
@@ -246,18 +249,11 @@ fun Application.authEndpoint(
       logger.warn(e) { "identity provider discovery failed" }
       return call.respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
     }
-    // The id-server's `state` is also the key this flow is stored under: one value tying the
-    // callback to this request, rather than two that could disagree about which it belongs to.
-    val started = relyingParty.beginAuthorization(
-      prompt = promptValues.intersect(forwardedPrompts).firstOrNull(),
-      state = loginStateStore.newState(),
-    )
-    // The browserNonce pins the callback to *this* browser (login-CSRF defense) — the `state` is
+    // The browser pin ties the callback to *this* browser (login-CSRF defense) — the `state` is
     // bearer on its own, and a login URL captured by one party must not complete in another's
-    // browser. Set as a cookie below.
-    val browserNonce = loginPin.mint()
-    loginStateStore.create(
-      started.state,
+    // browser.
+    val started = signIn.begin(
+      relyingParty,
       LoginStateStore.PendingAuthorize(
         profile = profile,
         clientId = clientId,
@@ -266,12 +262,10 @@ fun Application.authEndpoint(
         scopes = scopes,
         codeChallenge = codeChallenge,
         codeChallengeMethod = codeChallengeMethod,
-        browserNonce = browserNonce,
-        oidcCodeVerifier = started.codeVerifier,
-        oidcNonce = started.nonce,
       ),
+      prompt = promptValues.intersect(forwardedPrompts).firstOrNull(),
     )
-    loginPin.set(call, started.state, browserNonce)
+    loginPin.set(call, started.state, started.browserPin)
     call.respondRedirect(started.authorizationUrl)
   }
 
@@ -297,8 +291,6 @@ fun Application.authEndpoint(
     get("/oidc/callback") {
       val q = call.request.queryParameters
       val state = q["state"] ?: return@get call.respondText("missing state", status = HttpStatusCode.BadRequest)
-      val code = q["code"]
-      val error = q["error"]
       // The state reaches a cookie *name* below, and it arrived from a stranger. A value that
       // cannot be one is refused here rather than further down: it could never match a parked
       // request anyway, and rendering `Set-Cookie` with it throws — turning this 400 into a 500.
@@ -306,56 +298,77 @@ fun Application.authEndpoint(
         return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
       }
       // Withdrawn as soon as the flow it belongs to is named, so *every* answer below expires it
-      // — including "unknown state". Cookie names carry the state now, so a pin nobody withdraws
-      // is not overwritten by the next attempt; it lingers its full fifteen minutes. Reading the
-      // pin is a request concern and clearing it a response one, so the comparison still works.
+      // — including "unknown state". Cookie names carry the state, so a pin nobody withdraws is
+      // not overwritten by the next attempt; it lingers its full fifteen minutes. Reading the pin
+      // is a request concern and clearing it a response one, so the comparison still works.
       loginPin.clear(call, state)
-      val pending = loginStateStore.consume(state)
-        ?: return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
-
-      // Login-CSRF / session-fixation: the callback must be completed in the SAME browser that
-      // started `/authorize` (which holds the one-time nonce cookie). A login URL captured by an
-      // attacker and opened in a victim's browser carries no matching cookie → reject. Clear the
-      // cookie regardless (one-time), before branching on error/token.
-      val pinPresented = loginPin.isPresent(call, state)
-      val pinMatches = loginPin.matches(call, state, pending.browserNonce)
-      if (!pinMatches) {
-        logger.warn {
-          "login callback rejected: browser nonce ${if (!pinPresented) "absent" else "mismatch"} " +
-            "(profile=${pending.profile}, client=${forLog(pending.clientId)})"
-        }
-        return@get call.respondText("login session not recognised for this browser — please restart the sign-in from your AI client", status = HttpStatusCode.BadRequest)
+      val relyingParty = try {
+        identityProvider.relyingPartyFor(OIDC_CALLBACK_PATH)
+      } catch (e: Exception) {
+        logger.warn(e) { "identity provider discovery failed" }
+        return@get call.respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
       }
+      val callback = BrowserSignIn.Callback(
+        state = state, presentedPin = loginPin.presented(call, state), iss = q["iss"],
+        code = q["code"], error = q["error"], errorDescription = q["error_description"],
+      )
+      fun flowOf(pending: LoginStateStore.PendingAuthorize) =
+        "profile=${pending.profile}, client=${forLog(pending.clientId)}"
 
       // Each of these re-proves the address before using it. The parked request was checked at
       // `/authorize`, but a client can be deleted between the two, and the type says an error may
       // only travel to an address that belongs to a client this server currently knows — so a
       // vanished client is answered here rather than at its former callback.
-      val policy = redirectPolicyFor(dcrClientDao, pending.profile)
-      suspend fun refuseLogin(description: String) = call.respondOAuthError(
-        policy, pending.clientId, pending.redirectUri, OAuthErrorCode.ACCESS_DENIED, description, pending.clientState,
-        ProfilePath.baseUrlFor(base, pending.profile),
+      suspend fun refuseLogin(pending: LoginStateStore.PendingAuthorize, description: String) = call.respondOAuthError(
+        redirectPolicyFor(dcrClientDao, pending.profile), pending.clientId, pending.redirectUri,
+        OAuthErrorCode.ACCESS_DENIED, description, pending.clientState, ProfilePath.baseUrlFor(base, pending.profile),
       )
-      if (error != null) {
-        // The id-server's own `error` value is a stranger's string reaching an AI client's URL
-        // bar; it goes to the log, and the client gets the one thing it can act on.
-        logger.info {
-          "id-server refused the login (profile=${pending.profile}, client=${forLog(pending.clientId)}): ${forLog(error)}"
+
+      // The first three are no answer to the AI client's request — nothing ties the callback to a
+      // request it made, to this browser, or to the id-server — so they are refused here and never
+      // redirected. The rest are the id-server's answer, and the client hears it.
+      val signedIn = when (val done = signIn.complete(relyingParty, callback)) {
+        BrowserSignIn.Completion.UnknownState ->
+          return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
+
+        is BrowserSignIn.Completion.OtherBrowser -> {
+          logger.warn {
+            "login callback rejected: browser nonce ${if (done.pinPresented) "mismatch" else "absent"} (${flowOf(done.payload)})"
+          }
+          return@get call.respondText(
+            "login session not recognised for this browser — please restart the sign-in from your AI client",
+            status = HttpStatusCode.BadRequest,
+          )
         }
-        return@get refuseLogin("login was refused or failed")
+
+        is BrowserSignIn.Completion.WrongIssuer -> {
+          logger.warn {
+            "login callback rejected: iss '${forLog(done.presentedIssuer)}' is not the id-server (${flowOf(done.payload)})"
+          }
+          return@get call.respondText(
+            "this sign-in answer did not come from the id-server — please restart the sign-in from your AI client",
+            status = HttpStatusCode.BadRequest,
+          )
+        }
+
+        is BrowserSignIn.Completion.ProviderError -> {
+          // The id-server's own `error` value is a stranger's string reaching an AI client's URL
+          // bar; it goes to the log, and the client gets the one thing it can act on.
+          logger.info { "id-server refused the login (${flowOf(done.payload)}): ${forLog(done.error)}" }
+          return@get refuseLogin(done.payload, "login was refused or failed")
+        }
+
+        is BrowserSignIn.Completion.NoCode -> return@get refuseLogin(done.payload, "no authorization code")
+
+        is BrowserSignIn.Completion.ExchangeFailed -> {
+          logger.warn(done.cause) { "id-server token exchange failed (${flowOf(done.payload)})" }
+          return@get refuseLogin(done.payload, "login failed")
+        }
+
+        is BrowserSignIn.Completion.SignedIn -> done
       }
-      if (code == null) {
-        return@get refuseLogin("no authorization code")
-      }
-      // The token is fetched here, over a back channel, using a verifier that never travelled
-      // through the browser — and checked against the nonce this flow sent. What arrived in the
-      // browser was a code that is worth nothing without both.
-      val identity = try {
-        identityProvider.relyingPartyFor(OIDC_CALLBACK_PATH).completeAuthorization(code, pending.oidcCodeVerifier, pending.oidcNonce)
-      } catch (e: Exception) {
-        logger.warn(e) { "id-server token exchange failed (profile=${pending.profile}, client=${forLog(pending.clientId)})" }
-        return@get refuseLogin("login failed")
-      }
+      val pending = signedIn.payload
+      val identity = signedIn.identity
 
       val client = dcrClientDao.findByClientId(pending.profile, pending.clientId)
         ?: return@get call.respondText("invalid_client", status = HttpStatusCode.BadRequest)

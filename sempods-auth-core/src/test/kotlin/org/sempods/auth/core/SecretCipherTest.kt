@@ -1,4 +1,4 @@
-package org.sempods.mcp.crypto
+package org.sempods.auth.core
 
 import java.util.Base64
 import kotlin.test.Test
@@ -10,6 +10,15 @@ import kotlin.test.assertTrue
 class SecretCipherTest {
 
   private val cipher = SecretCipher(ByteArray(32) { (it + 1).toByte() })
+
+  @Test
+  fun `reads a value the cipher wrote before it moved out of sempods-mcp`() {
+    // Written by `org.sempods.mcp.crypto.SecretCipher` under this test's key. Rows in a deployed
+    // vault were written by that class, and moving it must not make one of them unreadable.
+    val writtenBeforeTheMove = "v1:kAnZ8I5-jjew3PyDmNg0uCKHilivhIfGRv7PHDgN7JTcfxtrfrpaa2--wU4skDNgtJGsogBb"
+
+    assertEquals("written-by-sempods-mcp-0.2", cipher.decrypt(writtenBeforeTheMove))
+  }
 
   @Test
   fun `round-trips plaintext`() {

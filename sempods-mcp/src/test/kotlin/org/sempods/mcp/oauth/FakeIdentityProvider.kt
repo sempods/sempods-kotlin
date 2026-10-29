@@ -47,7 +47,8 @@ class FakeIdentityProvider(
     override fun get(url: String): String = when (url) {
       "$issuer/.well-known/openid-configuration" -> """
         {"issuer":"$issuer","authorization_endpoint":"$issuer/authorize",
-         "token_endpoint":"$issuer/token","jwks_uri":"$issuer/.well-known/jwks.json"}
+         "token_endpoint":"$issuer/token","jwks_uri":"$issuer/.well-known/jwks.json",
+         "authorization_response_iss_parameter_supported":true}
       """.trimIndent()
 
       "$issuer/.well-known/jwks.json" -> JWKSet(key.toPublicJWK()).toString()

@@ -12,7 +12,7 @@ import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
