@@ -17,9 +17,11 @@ import java.time.Duration
  * The parked row holds the code verifier encrypted under [cipher] and the pin as its SHA-256. A row
  * this instance cannot decrypt, or one an older node parked, reads as an unknown `state`.
  *
- * [complete] checks, each before the next: the `state` (spent first, on every callback); the
- * redirect address it was begun for; the pin; `iss` ([OidcRelyingParty.acceptsResponseIssuer]); the
- * provider's error; the code and the token's nonce.
+ * [complete] first finds the sign-in parked under the `state` at the callback's redirect address,
+ * and asks for the provider. Nothing is spent before both succeed, so a callback at another address,
+ * or one whose provider cannot be reached, leaves the sign-in parked for a retry. Then it spends the
+ * `state` and checks, each before the next: the pin; `iss`
+ * ([OidcRelyingParty.acceptsResponseIssuer]); the provider's error; the code and the token's nonce.
  *
  * @param collectionName flows may share one: a callback at a redirect address other than its own
  *   is an unknown `state` there.
