@@ -1,6 +1,6 @@
 package org.sempods.api.pod.system.auth
 
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
@@ -527,7 +527,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     assertEquals(307, parked.statusCode, parked.responseBody)
     val query = UrlUtil.queryParams(URI(checkNotNull(parked.getHeader("Location"))).rawQuery, decodeParams = true)
     val pin = checkNotNull(parked.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
-    return "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}&iss=${enc(FakeIdServerTransport.ISSUER)}" to pin
+    return "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}&iss=${enc(IdServerObserver.ISSUER)}" to pin
   }
 
   private fun stored(owned: Owned, service: Service) =

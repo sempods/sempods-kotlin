@@ -7,7 +7,7 @@ import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import org.junit.jupiter.api.Test
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.auth.core.SigningKeys
@@ -143,7 +143,7 @@ class PodIssuerHttpTest : SempodsIntegrationTest() {
 
       assertEquals(307, response.statusCode, issuer)
       assertTrue(
-        checkNotNull(response.getHeader("Location")).startsWith(FakeIdServerTransport.ISSUER),
+        checkNotNull(response.getHeader("Location")).startsWith(IdServerObserver.ISSUER),
         "a session on one pod is not a session on another (SPS-AUTH-054): $issuer",
       )
     }

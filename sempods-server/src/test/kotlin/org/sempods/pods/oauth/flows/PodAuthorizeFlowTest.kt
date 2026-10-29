@@ -1,7 +1,8 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
@@ -54,7 +55,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
   private lateinit var identityProvider: PodIdentityProvider
 
   @Inject
-  private lateinit var fakeIdServer: FakeIdServerTransport
+  private lateinit var fakeIdServer: FakeOidcProvider
 
   /** Completes the sign-in [login] parked, as its callback would, and answers what it came to. */
   private fun completeSignIn(owned: Owned, login: PodAuthorizeResult.Login): BrowserSignIn.Completion<PendingLogin> {
@@ -62,7 +63,7 @@ internal class PodAuthorizeFlowTest : PodBrowserFlowTest() {
     val code = fakeIdServer.expect(webId = owned.webId, nonce = nonce)
     return loginStateStore.signIn.complete(
       identityProvider.relyingParty(owned.pod.name),
-      BrowserSignIn.Callback(login.state, login.browserPin, FakeIdServerTransport.ISSUER, code, error = null),
+      BrowserSignIn.Callback(login.state, login.browserPin, IdServerObserver.ISSUER, code, error = null),
     )
   }
 

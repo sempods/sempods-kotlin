@@ -1,7 +1,8 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
@@ -28,7 +29,7 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
   private lateinit var loginStateStore: PodLoginStateStore
 
   @Inject
-  private lateinit var fakeIdServer: FakeIdServerTransport
+  private lateinit var fakeIdServer: FakeOidcProvider
 
   @Inject
   private lateinit var podTokenIssuer: PodTokenIssuer
@@ -61,7 +62,7 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
       error: String? = null,
       errorDescription: String? = null,
       pin: String? = this.pin,
-      iss: String? = FakeIdServerTransport.ISSUER,
+      iss: String? = IdServerObserver.ISSUER,
     ) = BrowserSignIn.Callback(
       state = state, presentedPin = pin, iss = iss, code = code, error = error, errorDescription = errorDescription,
     )
@@ -109,7 +110,7 @@ internal class PodSignInCompletionTest : PodBrowserFlowTest() {
   @Test
   fun `an answer that does not name the id-server is refused before anything in it is used, and the sign-in is spent`() {
     val owned = Owned()
-    for (iss in listOf("https://attacker.example", "${FakeIdServerTransport.ISSUER}/", null)) {
+    for (iss in listOf("https://attacker.example", "${IdServerObserver.ISSUER}/", null)) {
       for (answer in listOf("code", "error")) {
         val parked = Parked(owned)
         val code = fakeIdServer.expect(webId = owned.webId, nonce = parked.nonce)

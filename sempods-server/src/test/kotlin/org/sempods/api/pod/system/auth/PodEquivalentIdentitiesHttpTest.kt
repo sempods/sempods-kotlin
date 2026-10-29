@@ -3,7 +3,7 @@ package org.sempods.api.pod.system.auth
 import com.google.inject.Inject
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.auth.core.EquivalentIdentities
@@ -116,7 +116,7 @@ class PodEquivalentIdentitiesHttpTest : SempodsIntegrationTest() {
   fun `a malformed claim refuses the sign-in and leaves no session`() {
     val pod = sempodsTestFactory.newPod()
     val signedInAs = oidcWebId()
-    val valid = "${FakeIdServerTransport.ISSUER}/e/${TestUtil.randomId()}"
+    val valid = "${IdServerObserver.ISSUER}/e/${TestUtil.randomId()}"
 
     for (value in listOf(null, valid, 42L, mapOf("id" to valid), listOf(valid, "urn:example:alice"), listOf("/alice"), listOf(""))) {
       val response = authorize(pod).executeSignedInAs(signedInAs, claims = claim(value))
@@ -195,7 +195,7 @@ class PodEquivalentIdentitiesHttpTest : SempodsIntegrationTest() {
   private fun claim(value: Any?): Map<String, Any?> = mapOf(EquivalentIdentities.CLAIM to value)
 
   private fun oidcWebId(): String =
-    "${FakeIdServerTransport.ISSUER}/oidc/${WebIdUriDeriver.sha256Hex(TestUtil.randomId())}"
+    "${IdServerObserver.ISSUER}/oidc/${WebIdUriDeriver.sha256Hex(TestUtil.randomId())}"
 
   private fun ownedPod(): Pair<PodDbo, String> {
     val ownerUser = sempodsTestFactory.newOwner()

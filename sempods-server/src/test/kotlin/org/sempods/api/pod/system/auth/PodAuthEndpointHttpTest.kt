@@ -14,7 +14,7 @@ import org.sempods.SempodsModule
 import org.sempods.SempodsTestSetup
 import org.sempods.client.SempodsPodAuthorization
 import org.sempods.client.SempodsPodServiceClients
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.RefreshTokenStore
@@ -30,6 +30,8 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.commons.tests.TestUtil
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.commons.net.UrlUtil
+import org.sempods.commons.okhttp.TestHttpRequest
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.okhttp.getAll
 import com.mongodb.client.MongoDatabase
@@ -353,7 +355,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("state", "test-state")
       // A token answering some other request: still signed by the id-server, still unexpired, and
       // rejected because its nonce is not the one this flow sent.
-      .executeSignedInAs("${FakeIdServerTransport.ISSUER}/e/somebody", nonce = "the-nonce-of-another-login")
+      .executeSignedInAs("${IdServerObserver.ISSUER}/e/somebody", nonce = "the-nonce-of-another-login")
 
     // Must redirect to the app with an OAuth error — not back into a login.
     assertEquals(303, response.statusCode)
@@ -363,6 +365,42 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // A token that fails verification is an unexpected condition, not a refusal: the id-server
     // answered and the answer was unusable. RFC 6749 §4.1.2.1 calls that `server_error`.
     assertTrue(location.contains("error=server_error"), "Should contain server_error: $location")
+  }
+
+  /** `/authorize` for [podName], answered without following it. */
+  private fun startAuthorize(podName: String): TestHttpResponse =
+    http.prepareGet(authorizeUrl(podName))
+      .addQueryParam("response_type", "code")
+      .addQueryParam("client_id", testClientId)
+      .addQueryParam("redirect_uri", testRedirectUri)
+      .addQueryParam("state", "test-state")
+      .setFollowRedirect(false).execute()
+
+  /** The callback the browser that got [started] brings back, signed in as [webId]. */
+  private fun SempodsTestSetup.callbackFor(started: TestHttpResponse, webId: String): TestHttpRequest {
+    val query = UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
+    val pin = checkNotNull(started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") })
+      .substringBefore(';')
+    val code = idServer.expect(webId, checkNotNull(query["nonce"]))
+    return http.prepareGet(
+      "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}" +
+        "&iss=${enc(IdServerObserver.ISSUER)}&code=$code",
+    ).addHeader("Cookie", pin).setFollowRedirect(false)
+  }
+
+  @Test
+  fun `a token endpoint that cannot be reached ends the sign-in as temporarily_unavailable`() = withSetup {
+    val ownerUser = sempodsTestFactory.newOwner()
+    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
+    val callback = callbackFor(startAuthorize(pod.name), webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email)))
+    idServer.reachable = false
+
+    val response = callback.execute()
+
+    assertEquals(303, response.statusCode)
+    val location = checkNotNull(response.getHeader("Location"))
+    assertTrue(location.startsWith(testRedirectUri), location)
+    assertTrue("error=temporarily_unavailable" in location, location)
   }
 
   @Test
@@ -848,7 +886,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       return http.prepareGet(
         "${checkNotNull(query["redirect_uri"])}?${callbackQuery(checkNotNull(query["state"]), code)}" +
-          "&iss=${enc(FakeIdServerTransport.ISSUER)}",
+          "&iss=${enc(IdServerObserver.ISSUER)}",
       )
         .addHeader("Cookie", pin).setFollowRedirect(false).execute()
     }
@@ -897,7 +935,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       ).substringBefore(';')
       val answer = http.prepareGet(
         "${checkNotNull(query["redirect_uri"])}?${extraQuery(checkNotNull(query["state"]))}" +
-          "&iss=${enc(FakeIdServerTransport.ISSUER)}",
+          "&iss=${enc(IdServerObserver.ISSUER)}",
       ).addHeader("Cookie", pin).setFollowRedirect(false).execute()
       val location = checkNotNull(answer.getHeader("Location")) { "expected a redirect back to the client" }
       val params = org.sempods.commons.net.UrlUtil.queryParams(URI(location).rawQuery, decodeParams = true)
@@ -985,7 +1023,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       ).substringBefore(';')
       val callback = http.prepareGet(checkNotNull(login["redirect_uri"]))
         .addQueryParam("state", checkNotNull(login["state"]))
-        .addQueryParam("iss", FakeIdServerTransport.ISSUER)
+        .addQueryParam("iss", IdServerObserver.ISSUER)
         .addQueryParam("error", error)
       description?.let { callback.addQueryParam("error_description", it) }
       val answer = callback.addHeader("Cookie", pin).setFollowRedirect(false).execute()
@@ -1033,11 +1071,11 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .addQueryParam("state", "fixation")
       .setFollowRedirect(false).execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-    val code = fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
+    val code = fakeIdServerExpect("${IdServerObserver.ISSUER}/e/the-attacker", checkNotNull(query["nonce"]))
 
     // The victim's browser holds no pin for this flow.
     val victim = http.prepareGet(
-      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(FakeIdServerTransport.ISSUER)}&code=$code",
+      "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(IdServerObserver.ISSUER)}&code=$code",
     ).setFollowRedirect(false).execute()
 
     assertEquals(400, victim.statusCode, "body=${victim.responseBody}")
@@ -1059,7 +1097,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
         .setFollowRedirect(false).execute()
       val pin = checkNotNull(started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
       val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
-      val code = fakeIdServerExpect("${FakeIdServerTransport.ISSUER}/e/someone", checkNotNull(query["nonce"]))
+      val code = fakeIdServerExpect("${IdServerObserver.ISSUER}/e/someone", checkNotNull(query["nonce"]))
 
       val callback = http.prepareGet("${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}$iss&code=$code")
         .addHeader("Cookie", pin)
@@ -2126,7 +2164,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    val stranger = signIn(pod.name, "${FakeIdServerTransport.ISSUER}/e/somebody-else")
+    val stranger = signIn(pod.name, "${IdServerObserver.ISSUER}/e/somebody-else")
 
     val response = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
@@ -2176,7 +2214,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     fun complete(query: Map<String, String>): TestHttpResponse {
       val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
       return http.prepareGet(
-        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(FakeIdServerTransport.ISSUER)}&code=$code",
+        "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(IdServerObserver.ISSUER)}&code=$code",
       ).addHeader("Cookie", bothPins).setFollowRedirect(false).execute()
     }
 
@@ -2235,7 +2273,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       // Treated as no session at all: off to the id-server, exactly like a first visit.
       assertEquals(307, response.statusCode, "cookie='$cookie' body=${response.responseBody}")
       assertTrue(
-        checkNotNull(response.getHeader("Location")).startsWith(FakeIdServerTransport.ISSUER),
+        checkNotNull(response.getHeader("Location")).startsWith(IdServerObserver.ISSUER),
         "an unusable cookie must mean 'not signed in', not an error",
       )
     }
@@ -2471,7 +2509,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(307, response.statusCode)
     assertTrue(
-      checkNotNull(response.getHeader("Location")).startsWith("${FakeIdServerTransport.ISSUER}/authorize"),
+      checkNotNull(response.getHeader("Location")).startsWith("${IdServerObserver.ISSUER}/authorize"),
       "must go back to the id-server despite the session",
     )
   }
@@ -2482,7 +2520,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val browser = signIn(pod.name, ownerWebId)
-    val other = signIn(pod.name, "${FakeIdServerTransport.ISSUER}/e/somebody-else")
+    val other = signIn(pod.name, "${IdServerObserver.ISSUER}/e/somebody-else")
 
     fun post(csrf: String?) = http.preparePost("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/auth/authorize/consent")
       .addHeader("Content-Type", "application/x-www-form-urlencoded")
@@ -2570,7 +2608,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(checkNotNull(started.getHeader("Location"))).rawQuery, decodeParams = true)
     val code = fakeIdServerExpect(ownerWebId, checkNotNull(query["nonce"]))
-    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(FakeIdServerTransport.ISSUER)}&code=$code"
+    val callback = "${checkNotNull(query["redirect_uri"])}?state=${java.net.URLEncoder.encode(checkNotNull(query["state"]), "UTF-8")}&iss=${enc(IdServerObserver.ISSUER)}&code=$code"
     // The same browser throughout, pin included — the replay being tested is of the *state*, not
     // of a callback opened somewhere else, which the pin refuses for its own reason.
     val pin = checkNotNull(started.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
@@ -2598,7 +2636,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(307, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(location).rawQuery, decodeParams = true)
-    assertTrue(location.startsWith("${FakeIdServerTransport.ISSUER}/authorize"), "must go to the id-server's authorize endpoint: $location")
+    assertTrue(location.startsWith("${IdServerObserver.ISSUER}/authorize"), "must go to the id-server's authorize endpoint: $location")
     assertEquals("code", query["response_type"], "the implicit flow is gone")
     assertEquals("S256", query["code_challenge_method"], "PKCE is not optional")
     assertNotNull(query["nonce"], "the token must be bound to this request")
@@ -2686,7 +2724,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(307, response.statusCode)
     val location = checkNotNull(response.getHeader("Location"))
     val query = org.sempods.commons.net.UrlUtil.queryParams(URI(location).rawQuery, decodeParams = true)
-    assertTrue(location.startsWith("${FakeIdServerTransport.ISSUER}/authorize"), "must reach the id-server: $location")
+    assertTrue(location.startsWith("${IdServerObserver.ISSUER}/authorize"), "must reach the id-server: $location")
     assertEquals("login", query["prompt"], "prompt=login must reach the id-server: $location")
   }
 

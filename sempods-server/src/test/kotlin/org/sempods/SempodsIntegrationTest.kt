@@ -7,6 +7,7 @@ import com.google.inject.util.Modules
 import com.mongodb.client.MongoDatabase
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
@@ -101,6 +102,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   @Inject
   private lateinit var requestVerifierObserver: PodRequestVerifierObserver
 
+  @Inject
+  private lateinit var idServerObserver: IdServerObserver
+
   /**
    * Runs [block] in a fresh [SempodsTestSetup]. Each seam's test implementation is observed for the
    * block's trace, so what a test changes there reaches its own requests and no other class's.
@@ -110,7 +114,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    */
   protected fun withSetup(block: SempodsTestSetup.() -> Unit) {
     requestVerifierObserver.observeWithTestImpl { requestVerifier ->
-      SempodsTestSetup(requestVerifier = requestVerifier, podAccess = podAccess).block()
+      idServerObserver.observeWithTestImpl { idServer ->
+        SempodsTestSetup(requestVerifier = requestVerifier, idServer = idServer, podAccess = podAccess).block()
+      }
     }
   }
 
@@ -120,7 +126,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected lateinit var sempodsTestFactory: SempodsTestFactory
 
   @Inject
-  private lateinit var fakeIdServer: FakeIdServerTransport
+  private lateinit var fakeIdServer: FakeOidcProvider
 
   /**
    * A pod access token an app holds for the pod's owner, carrying no grants at all.
@@ -201,7 +207,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    *
    * @param signAs `null` means the id-server refuses. Use it where a test needs the login itself
    *   to fail rather than the request that started it.
-   * @param claims further claims of the id-server's token ([FakeIdServerTransport.expect]).
+   * @param claims further claims of the id-server's token ([FakeOidcProvider.expect]).
    */
   protected fun TestHttpRequest.executeSignedInAs(
     signAs: String?,
@@ -209,7 +215,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
     nonce: String? = null,
   ): TestHttpResponse {
     val started = setFollowRedirect(false).execute()
-    val authorizationRequest = started.getHeader("Location")?.takeIf { it.startsWith(FakeIdServerTransport.ISSUER) }
+    val authorizationRequest = started.getHeader("Location")?.takeIf { it.startsWith(IdServerObserver.ISSUER) }
       ?: return started
     // The login redirect sets the browser pin; the same browser has to present it back, so the
     // helper carries it the way a browser would.
@@ -225,7 +231,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
       nonce = nonce ?: checkNotNull(query["nonce"]) { "authorization request carries no nonce" },
       claims = claims,
     )
-    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&iss=${enc(FakeIdServerTransport.ISSUER)}&code=$code")
+    return http.prepareGet("$callback?state=${enc(checkNotNull(query["state"]))}&iss=${enc(IdServerObserver.ISSUER)}&code=$code")
       .addHeader("Cookie", pin)
       .setFollowRedirect(false).execute()
   }

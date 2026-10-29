@@ -5,6 +5,7 @@ import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.media.SempodsPodMedia
 import org.sempods.controlplane.SempodsControlPlaneClient
 import org.sempods.admin.AdminAuthorizerTestDouble
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.pods.oauth.PodRequestVerifierTestImpl
 
@@ -16,6 +17,11 @@ import org.sempods.pods.oauth.PodRequestVerifierTestImpl
 class SempodsTestSetup internal constructor(
   /** Decides who is calling; the real verifier until a test calls `answerWith`. */
   val requestVerifier: PodRequestVerifierTestImpl,
+  /**
+   * The id-server this block's token exchanges reach. It answers like the suite's until a test
+   * changes it, and sign-ins armed on either complete on both.
+   */
+  val idServer: FakeOidcProvider,
   private val podAccess: SempodsTestPodAccess,
 ) {
 

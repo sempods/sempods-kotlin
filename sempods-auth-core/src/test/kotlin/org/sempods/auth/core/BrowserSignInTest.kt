@@ -2,24 +2,11 @@ package org.sempods.auth.core
 
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
-import com.nimbusds.jose.JWSAlgorithm
-import com.nimbusds.jose.JWSHeader
-import com.nimbusds.jose.crypto.RSASSASigner
-import com.nimbusds.jose.jwk.JWKSet
-import com.nimbusds.jose.jwk.RSAKey
-import com.nimbusds.jwt.JWTClaimsSet
-import com.nimbusds.jwt.SignedJWT
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
-import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.utils.HashUtil.sha256Hex
-import java.net.URI
-import java.security.KeyPairGenerator
-import java.security.interfaces.RSAPrivateKey
-import java.security.interfaces.RSAPublicKey
 import java.time.Duration
-import java.util.Date
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,48 +26,9 @@ class BrowserSignInTest {
   /** What a flow parks: where the person was going. */
   private data class Next(val next: String)
 
-  /**
-   * A provider that remembers the nonce of each authorization request it was sent and answers the
-   * code it hands out with a token for it — which is what a real one does.
-   */
-  private class FakeProvider(advertisesIss: Boolean = true) : HttpTransport {
-    private val nonceByCode = mutableMapOf<String, String>()
+  private val provider = FakeOidcProvider(ISSUER)
 
-    val discoveryDocument = """
-      {"issuer":"$ISSUER","authorization_endpoint":"$ISSUER/authorize",
-       "token_endpoint":"$ISSUER/token","jwks_uri":"$ISSUER/jwks",
-       "authorization_response_iss_parameter_supported":$advertisesIss}
-    """.trimIndent()
-
-    /** The code the provider redirects back with, for the authorization request at [authorizationUrl]. */
-    fun codeFor(authorizationUrl: String, nonce: String = nonceOf(authorizationUrl)): String =
-      "code-${UUID.randomUUID()}".also { nonceByCode[it] = nonce }
-
-    override fun get(url: String): String = when (url) {
-      "$ISSUER/.well-known/openid-configuration" -> discoveryDocument
-      "$ISSUER/jwks" -> JWKSet(RSAKey.Builder(keyPair.public as RSAPublicKey).keyID(KEY_ID).build()).toString()
-      else -> error("unexpected GET: $url")
-    }
-
-    override fun postForm(url: String, form: Map<String, String>): String {
-      val nonce = nonceByCode[form["code"]] ?: return """{"error":"invalid_grant"}"""
-      val claims = JWTClaimsSet.Builder()
-        .issuer(ISSUER).subject(WEB_ID).audience(CLIENT_ID).claim("nonce", nonce)
-        .issueTime(Date()).expirationTime(Date(System.currentTimeMillis() + 300_000))
-        .build()
-      val idToken = SignedJWT(JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY_ID).build(), claims)
-        .apply { sign(RSASSASigner(keyPair.private as RSAPrivateKey)) }
-        .serialize()
-      return """{"access_token":"at","token_type":"Bearer","expires_in":900,"id_token":"$idToken"}"""
-    }
-
-    private fun nonceOf(authorizationUrl: String): String =
-      checkNotNull(UrlUtil.queryParams(URI(authorizationUrl).rawQuery, decodeParams = true)["nonce"])
-  }
-
-  private val provider = FakeProvider()
-
-  private fun relyingParty(provider: FakeProvider = this.provider, redirectUri: String = REDIRECT_URI) =
+  private fun relyingParty(provider: FakeOidcProvider = this.provider, redirectUri: String = REDIRECT_URI) =
     OidcRelyingParty.discover(ISSUER, CLIENT_ID, redirectUri, provider)
 
   private val collection = "test.browserSignIn." + UUID.randomUUID()
@@ -101,7 +49,7 @@ class BrowserSignInTest {
   /** The callback a browser that started [started] carries back, everything in order. */
   private fun callbackFor(
     started: BrowserSignIn.Started,
-    code: String? = provider.codeFor(started.authorizationUrl),
+    code: String? = provider.expectFor(started.authorizationUrl, WEB_ID),
     pin: String? = started.browserPin,
     iss: String? = ISSUER,
     error: String? = null,
@@ -244,12 +192,12 @@ class BrowserSignInTest {
   @Test
   fun `a provider that does not promise iss may leave it out, but may not name another`() {
     // RFC 9207 §2.4: only a provider's metadata turns a missing `iss` into a refusal.
-    val silent = FakeProvider(advertisesIss = false)
+    val silent = FakeOidcProvider(ISSUER).apply { advertisesIss = false }
     val rp = relyingParty(silent)
     val signIn = signIn()
 
     val started = signIn.begin(rp, parked)
-    val callback = callbackFor(started, code = silent.codeFor(started.authorizationUrl), iss = null)
+    val callback = callbackFor(started, code = silent.expectFor(started.authorizationUrl, WEB_ID), iss = null)
     assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(rp, callback))
 
     val misnamed = signIn.begin(rp, parked)
@@ -280,7 +228,7 @@ class BrowserSignInTest {
     val rp = relyingParty()
     val started = signIn.begin(rp, parked)
     // Still signed, still unexpired, for the same person — only the nonce says it is not this one.
-    val code = provider.codeFor(started.authorizationUrl, nonce = "another-sign-ins-nonce")
+    val code = provider.expect(WEB_ID, nonce = "another-sign-ins-nonce")
 
     val failed = assertIs<BrowserSignIn.Completion.Failed<Next>>(signIn.complete(rp, callbackFor(started, code = code)))
     assertNotNull(failed.cause, "the exchange is what failed")
@@ -332,9 +280,6 @@ class BrowserSignInTest {
     private const val CLIENT_ID = "did:web:app.example.invalid"
     private const val REDIRECT_URI = "https://app.example.invalid/cb"
     private const val WEB_ID = "$ISSUER/e/abc"
-    private const val KEY_ID = "browser-sign-in-test"
-
-    private val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
 
     private var db: MongoDatabase? = null
 

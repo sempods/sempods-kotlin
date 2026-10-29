@@ -15,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import io.ktor.http.Url
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.auth.core.BrowserSignIn
 import org.sempods.mcp.crypto.testSecretCipher
 
@@ -49,16 +50,17 @@ class LoginStateStoreTest {
   }
 
   private val store = LoginStateStore(db!!, testSecretCipher())
-  private val idServer = FakeIdentityProvider(audience = "did:web:mcp.test")
-  private val relyingParty = idServer.identityProvider("https://mcp.test").relyingPartyFor("/oidc/callback")
+  private val idServer = FakeOidcProvider("https://id.test")
+  private val relyingParty = IdentityProvider(issuer = idServer.issuer, serviceBaseUrl = "https://mcp.test", transport = idServer)
+    .relyingPartyFor("/oidc/callback")
 
   /** Parks [pending], signs in, and answers what came back out. */
   private fun roundTrip(pending: LoginStateStore.PendingAuthorize): LoginStateStore.PendingAuthorize {
     val started = store.signIn.begin(relyingParty, pending)
-    idServer.expect(webId = "https://id.test/e/abc", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
+    val code = idServer.expect(webId = "https://id.test/e/abc", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
     val done = store.signIn.complete(
       relyingParty,
-      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = "c", error = null),
+      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = code, error = null),
     )
     return assertIs<BrowserSignIn.Completion.SignedIn<LoginStateStore.PendingAuthorize>>(done).payload
   }

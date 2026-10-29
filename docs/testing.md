@@ -26,7 +26,7 @@ Nothing here is convention: a suite composes as much as its subject forces it to
   that assemble what each needs, and they do not need the same things.
   `ReadToolsIntegrationTest` and `WriteToolsIntegrationTest` call the tool objects directly against
   a class-local `ClientAndServer` standing in for the pods; `OAuthFlowIntegrationTest` runs the
-  routes through `testApplication` with an in-process `FakeIdentityProvider` for the identity leg
+  routes through `testApplication` with an in-process `FakeOidcProvider` for the identity leg
   and starts no stub server at all. All three open their own MongoDB database in a `@BeforeAll`
   companion, named for a fresh `UUID`, with `assumeTrue` skipping the class when none is reachable.
   Nothing is shared between classes, so nothing has to be reset between them — which is the trade
@@ -164,7 +164,8 @@ fun `a verifier that rejects is answered with the pod's bearer challenge`() = wi
 ```
 
 The block's requests reach the rejecting verifier; every other class still reaches the real one.
-A new seam's test implementation joins the setup as one more nested `observe`.
+A new seam's test implementation joins the setup as one more nested `observe`. The id-server is
+the second: `idServer` in the setup, a variant of the suite's `FakeOidcProvider` (`IdServerObserver`).
 
 `podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
 implementations. Seeding (`SempodsTestPodAccess.podFor`, `seedEvent`) carries none: a fixture always

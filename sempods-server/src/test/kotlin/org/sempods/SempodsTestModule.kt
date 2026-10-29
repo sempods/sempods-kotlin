@@ -15,7 +15,6 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.api.pod.system.auth.DelegatedAccessFlow
 import org.sempods.api.pod.system.auth.ServiceAccessFlow
-import org.sempods.auth.core.HttpTransport
 import org.sempods.auth.core.SecretCipher
 import org.sempods.pods.media.LoopbackOnlyAddressGuard
 import org.sempods.pods.media.PodMediaConfig
@@ -53,6 +52,10 @@ data class SempodsTestModule(
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
 
     PodRequestVerifierObserver.bindTestProxy(binder())
+
+    // Sign-ins complete against an in-process id-server, over the transport port, so the OIDC
+    // round trip is genuinely exercised and no test opens a socket to do it.
+    IdServerObserver.bindTestProxy(binder())
 
     // `SempodsModule` binds the AI routes only for a configured `AI_PROVIDER`, and the suite
     // configures none. So it binds them here, with a provider that refuses every call: enough to
@@ -116,27 +119,14 @@ data class SempodsTestModule(
   fun provideSecretCipher(): SecretCipher = SecretCipher(ByteArray(SecretCipher.KEY_BYTES) { (it + 1).toByte() })
 
   /**
-   * Pin the identity issuer so the fake below and the WebID namespace agree on it. Without this
+   * Pin the identity issuer so the fake id-server and the WebID namespace agree on it. Without this
    * it comes from the environment, and the relying party refuses a provider whose advertised
    * issuer differs from the one it was configured with — correctly, and unhelpfully in a test.
    */
   @Provides
   @Singleton
   @Named("idBaseUrl")
-  fun provideIdBaseUrl(): String = FakeIdServerTransport.ISSUER
-
-  /**
-   * Sign-ins complete against an in-process id-server: it signs real tokens with a real key and
-   * serves a real JWKS, all over the transport port, so the OIDC round trip is genuinely
-   * exercised and no test opens a socket to do it.
-   */
-  @Provides
-  @Singleton
-  fun provideHttpTransport(fake: FakeIdServerTransport): HttpTransport = fake
-
-  @Provides
-  @Singleton
-  fun provideFakeIdServer(): FakeIdServerTransport = FakeIdServerTransport()
+  fun provideIdBaseUrl(): String = IdServerObserver.ISSUER
 
   companion object {
 

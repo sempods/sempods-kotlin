@@ -377,9 +377,9 @@ was designed as API. Exporting it to make a probe pass would turn an accident in
 open work is [narrowing it in #15](https://github.com/sempods/sempods-kotlin/issues/15); whatever survives as public is
 what the two probe files should name.
 
-**And a consumer's classpath carries nothing that only the tests need.** Three modules apply
-`java-test-fixtures` — `sempods-commons`, `sempods-commons-okhttp` and `sempods-server`, the last publishing the
-media seam's conformance suite so that `sempods-media-s3` runs the same assertions against the
+**And a consumer's classpath carries nothing that only the tests need.** Five modules apply
+`java-test-fixtures` — `sempods-auth-core`, `sempods-client`, `sempods-commons`,
+`sempods-commons-okhttp` and `sempods-server`, the last publishing the media seam's conformance suite so that `sempods-media-s3` runs the same assertions against the
 other implementation ([`../media.md`](../media.md) §"The seam"). A POM has one flat dependency list and
 no notion of a variant, so `from(components["java"])` folds the test-fixtures variants into it,
 and a `testFixturesImplementation` reads as a `runtime` dependency of the module itself: for a

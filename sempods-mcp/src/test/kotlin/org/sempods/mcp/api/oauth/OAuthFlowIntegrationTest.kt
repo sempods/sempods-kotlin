@@ -10,6 +10,7 @@ import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Updates
 import io.mockk.every
 import io.mockk.spyk
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.mcp.SempodsMcpCollections
 import org.sempods.mcp.SempodsMcpConfig
@@ -20,9 +21,9 @@ import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.RedirectUri
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.mcp.oauth.ConsentTransactionStore
-import org.sempods.mcp.oauth.FakeIdentityProvider
 import org.sempods.mcp.oauth.LoginStateStore
 import org.sempods.mcp.oauth.McpRefreshTokenStore
+import org.sempods.mcp.oauth.IdentityProvider
 import org.sempods.mcp.oauth.TokenIssuer
 import org.sempods.mcp.crypto.testSecretCipher
 import org.sempods.mcp.persist.AuditEventType
@@ -83,7 +84,7 @@ import kotlin.test.assertTrue
  * real local MongoDB (the repo convention); if Mongo is unreachable the whole class is skipped
  * rather than failed, so the build stays green where Mongo is absent.
  *
- * The id.sempods.org leg is a [FakeIdentityProvider]: a real OIDC round trip — authorization
+ * The id.sempods.org leg is a [FakeOidcProvider]: a real OIDC round trip — authorization
  * request, code, back-channel token exchange, signed id_token validated against the provider's
  * JWKS — with every document served over the transport port instead of a socket. The browser only
  * ever carries a code, and the consent page carries only an opaque transaction id.
@@ -133,7 +134,7 @@ class OAuthFlowIntegrationTest {
   private lateinit var refreshTokens: McpRefreshTokenStore
 
   /** The id-server under test. `startAuthorize` tells it which nonce the next token must carry. */
-  private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
+  private val idServer = FakeOidcProvider(ISSUER)
 
   // PKCE pair for the whole flow.
   private val codeVerifier = "test-verifier-${UUID.randomUUID()}"
@@ -161,7 +162,7 @@ class OAuthFlowIntegrationTest {
         dcrClientDao = DcrClientDao(database),
         authorizationCodeStore = AuthorizationCodeStore(database, SempodsMcpCollections.OAUTH_AUTH_CODES),
         loginStateStore = LoginStateStore(database, testSecretCipher()),
-        identityProvider = idServer.identityProvider(BASE),
+        identityProvider = IdentityProvider(issuer = ISSUER, serviceBaseUrl = BASE, transport = idServer),
         consentTransactionStore = ConsentTransactionStore(database),
         refreshTokenStore = refreshTokens,
         tokenIssuer = tokenIssuer,
@@ -198,13 +199,13 @@ class OAuthFlowIntegrationTest {
     assertEquals("$ISSUER/authorize", "${loginLocation.protocol.name}://${loginLocation.host}${loginLocation.encodedPath}")
     assertEquals("S256", loginLocation.parameters["code_challenge_method"], "PKCE towards the id-server too")
     val loginState = loginLocation.parameters["state"]!!
-    idServer.expect(webId = WEB_ID, nonce = loginLocation.parameters["nonce"]!!)
+    val loginCode = idServer.expect(webId = WEB_ID, nonce = loginLocation.parameters["nonce"]!!)
     // The login redirect sets the login-CSRF nonce cookie; the same browser must present it back.
     val nonceCookie = authResp.headers[HttpHeaders.SetCookie]!!.substringBefore(';')
 
     // 3. The id-server sends the browser back with a code; the token is fetched over the back
     //    channel with the verifier that never left this process.
-    val callbackResp = client.get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=an-auth-code") {
+    val callbackResp = client.get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=$loginCode") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
     assertEquals(HttpStatusCode.OK, callbackResp.status)
@@ -1311,15 +1312,19 @@ class OAuthFlowIntegrationTest {
         (scope?.let { "&scope=${enc(it)}" } ?: ""),
     )
     val authorizationRequest = Url(resp.headers[HttpHeaders.Location]!!)
-    idServer.expect(webId = WEB_ID, nonce = authorizationRequest.parameters["nonce"]!!)
+    armedCodes[authorizationRequest.parameters["state"]!!] =
+      idServer.expect(webId = WEB_ID, nonce = authorizationRequest.parameters["nonce"]!!)
     // Set-Cookie "mcp_login_<state>=<value>; Path=/oidc; …" → the bare pair for the Cookie header.
     val nonceCookie = resp.headers[HttpHeaders.SetCookie]!!.substringBefore(';')
     return authorizationRequest.parameters["state"]!! to nonceCookie
   }
 
+  /** The code the id-server answers each sign-in [startAuthorize] began with, by its `state`. */
+  private val armedCodes = mutableMapOf<String, String>()
+
   /** Completes the id-server round-trip at `/oidc/callback`, presenting the browser nonce cookie. */
   private suspend fun HttpClient.oidcCallback(loginState: String, nonceCookie: String): HttpResponse =
-    get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=an-auth-code") {
+    get("/oidc/callback?state=${enc(loginState)}&iss=${enc(ISSUER)}&code=${armedCodes.getValue(loginState)}") {
       header(HttpHeaders.Cookie, nonceCookie)
     }
 }

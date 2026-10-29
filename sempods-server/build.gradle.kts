@@ -101,6 +101,8 @@ dependencies {
 
   // dependent test projects
   testImplementation(testFixtures(project(":sempods-commons")))
+  // `FakeOidcProvider`, the id-server the sign-in tests run against.
+  testImplementation(testFixtures(project(":sempods-auth-core")))
   // The HTTP client the suite drives a running server with — see `TestHttpClient`. A fixture of
   // the module that owns the engine, so the two cannot end up on different OkHttp versions.
   testImplementation(testFixtures(project(":sempods-commons-okhttp")))

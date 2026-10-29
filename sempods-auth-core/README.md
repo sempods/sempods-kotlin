@@ -31,4 +31,6 @@ supplies configuration, persistence and transport. Exact contracts belong to the
 
 [Tests](src/test/kotlin/org/sempods/auth/core/) cover redirect policy, PKCE, token validation,
 one-time redemption, refresh rotation, the browser sign-in and encryption at rest. The services'
-HTTP tests cover their endpoint wiring.
+HTTP tests cover their endpoint wiring. The test fixtures carry
+[FakeOidcProvider](src/testFixtures/kotlin/org/sempods/auth/core/FakeOidcProvider.kt), an OpenID
+Provider over `HttpTransport` for a relying party's own tests.

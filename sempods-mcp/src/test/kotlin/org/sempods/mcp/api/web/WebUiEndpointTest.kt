@@ -1,5 +1,6 @@
 package org.sempods.mcp.api.web
 
+import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.client.net.SempodsOutboundGuard
 import com.mongodb.ConnectionString
 import com.mongodb.MongoClientSettings
@@ -16,7 +17,7 @@ import org.sempods.mcp.auth.ServiceBearerVerifier
 import org.sempods.mcp.auth.WebLoginStateStore
 import org.sempods.mcp.auth.WebSession
 import org.sempods.mcp.auth.JwtTestSupport
-import org.sempods.mcp.oauth.FakeIdentityProvider
+import org.sempods.mcp.oauth.IdentityProvider
 import org.sempods.mcp.oauth.TokenIssuer
 import org.sempods.auth.core.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
@@ -116,7 +117,7 @@ class WebUiEndpointTest {
   private lateinit var auditLogDao: AuditLogDao
 
   /** The id-server under test, so a test can read back the nonce it must answer with. */
-  private val idServer = FakeIdentityProvider(issuer = ISSUER, audience = "did:web:mcp.test")
+  private val idServer = FakeOidcProvider(ISSUER)
 
   /** A token row: these tests write only the connection otherwise. */
   private fun seedTokens(
@@ -148,7 +149,7 @@ class WebUiEndpointTest {
         config = config,
         webSession = WebSession(config, tokenIssuer, ServiceBearerVerifier.using(BASE, signingKeys)),
         webLoginStateStore = WebLoginStateStore(database, testSecretCipher()),
-        identityProvider = idServer.identityProvider(BASE),
+        identityProvider = IdentityProvider(issuer = ISSUER, serviceBaseUrl = BASE, transport = idServer),
         podOAuthClient = PodOAuthClient(testPodCalls(), jacksonObjectMapper(), PodUrlPolicy(allowLocal = true)),
         podConnectStateStore = podConnectStateStore,
         podUrlPolicy = PodUrlPolicy(allowLocal = true),
@@ -231,9 +232,9 @@ class WebUiEndpointTest {
     installWebUi()
     val client = createClient { followRedirects = false }
     val (started, pin) = client.startUiLogin()
-    idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
+    val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
 
-    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=an-auth-code") {
+    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code") {
       header(HttpHeaders.Cookie, pin)
     }
     assertEquals(HttpStatusCode.Found, resp.status)
@@ -254,8 +255,8 @@ class WebUiEndpointTest {
     val bothPins = "$firstPin; $secondPin"
 
     suspend fun complete(started: Url): HttpStatusCode {
-      idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
-      return client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=c") {
+      val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
+      return client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code") {
         header(HttpHeaders.Cookie, bothPins)
       }.status
     }
@@ -287,8 +288,8 @@ class WebUiEndpointTest {
     val attacker = createClient { followRedirects = false }
     val victim = createClient { followRedirects = false }
     val (started, _) = attacker.startUiLogin()
-    idServer.expect(webId = "https://id.test/e/the-attacker", nonce = started.parameters["nonce"]!!)
-    val callback = "/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=an-auth-code"
+    val code = idServer.expect(webId = "https://id.test/e/the-attacker", nonce = started.parameters["nonce"]!!)
+    val callback = "/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code"
 
     // The victim's browser holds no pin for this flow.
     val resp = victim.get(callback)
@@ -303,10 +304,10 @@ class WebUiEndpointTest {
     val client = createClient { followRedirects = false }
     val (started, _) = client.startUiLogin()
     val (_, otherPin) = client.startUiLogin()
-    idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
+    val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
 
     // A pin from a different flow is as good as none: the value is compared, not its presence.
-    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=c") {
+    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code") {
       header(HttpHeaders.Cookie, otherPin)
     }
     assertEquals(HttpStatusCode.BadRequest, resp.status)
@@ -320,9 +321,9 @@ class WebUiEndpointTest {
     val client = createClient { followRedirects = false }
     for (iss in listOf("&iss=${enc("https://attacker.test")}", "")) {
       val (started, pin) = client.startUiLogin()
-      idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
+      val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
 
-      val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}$iss&code=c") {
+      val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}$iss&code=$code") {
         header(HttpHeaders.Cookie, pin)
       }
       assertEquals(HttpStatusCode.BadRequest, resp.status, "iss '$iss'")
@@ -335,8 +336,8 @@ class WebUiEndpointTest {
     installWebUi()
     val client = createClient { followRedirects = false }
     val (started, pin) = client.startUiLogin()
-    idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
-    val callback = "/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=c"
+    val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = started.parameters["nonce"]!!)
+    val callback = "/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code"
 
     assertEquals(HttpStatusCode.Found, client.get(callback) { header(HttpHeaders.Cookie, pin) }.status)
     // The state is one-time: a captured callback URL replayed later must not mint a second session.
@@ -352,9 +353,9 @@ class WebUiEndpointTest {
     val (started, pin) = client.startUiLogin()
     // The id-server answers with a token minted for a *different* login of the same person — still
     // signed, still unexpired. Only the nonce says it does not belong to this request.
-    idServer.expect(webId = "https://id.test/e/web-user", nonce = "some-other-logins-nonce")
+    val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = "some-other-logins-nonce")
 
-    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=c") {
+    val resp = client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code") {
       header(HttpHeaders.Cookie, pin)
     }
     assertEquals(HttpStatusCode.Unauthorized, resp.status)
@@ -369,12 +370,12 @@ class WebUiEndpointTest {
     val client = createClient { followRedirects = false }
     suspend fun signIn(value: Any?): io.ktor.client.statement.HttpResponse {
       val (started, pin) = client.startUiLogin()
-      idServer.expect(
+      val code = idServer.expect(
         webId = "https://id.test/e/web-user",
         nonce = started.parameters["nonce"]!!,
         claims = mapOf(EquivalentIdentities.CLAIM to value),
       )
-      return client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=c") {
+      return client.get("/_system/ui/login/callback?state=${enc(started.parameters["state"]!!)}&iss=${enc(ISSUER)}&code=$code") {
         header(HttpHeaders.Cookie, pin)
       }
     }
