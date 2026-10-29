@@ -2,23 +2,34 @@ package org.sempods.retrieval
 
 import com.google.inject.Inject
 import org.eclipse.rdf4j.model.IRI
+import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
+import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Values
+import org.sempods.commons.net.SempodsVocabulary
+import java.math.BigInteger
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
  * Central `find` orchestration. Fans out to every registered [FindAdapter] in parallel, merges
- * the returned models, and enriches the hits with the fixed expansion set
- * (`rdf:type` / `rdfs:label` / `schema:name`).
+ * the returned models, caps the hits to the limit, and enriches the kept hits with the fixed
+ * expansion set (`rdf:type` / `rdfs:label` / `schema:name`).
  *
  * - **No post-filter:** each adapter self-scopes to the sandbox (Eigen-Scoping); the service
  *   trusts adapter output and does not re-filter by context.
- * - **Hits = IRI subjects** of the merged model. The expansion runs only over those, via the
- *   [ResourceExpander] (itself sandboxed), so this orchestrator stays free of any store/query
- *   specifics.
+ * - **Hits = IRI subjects** of the merged model. A blank node is never a hit: it is whatever an
+ *   adapter hung off a hit, such as a node behind `sps:findResult`. The expansion runs only over
+ *   the hits, via the [ResourceExpander] (itself sandboxed), so this orchestrator stays free of
+ *   any store/query specifics.
+ * - **The cap keeps the best-ranked hits.** A hit's rank is the lowest integer `schema:position`
+ *   on any node its `sps:findResult` links to. Ranked hits come before unranked ones, and the IRI
+ *   breaks ties, so a hit no adapter ranked is kept in IRI order.
+ * - **A kept hit keeps what hangs off it:** the result holds the kept hits' statements and every
+ *   blank node reachable from them. A dropped hit's statements and its blank nodes go.
  *
- * Merge + expansion are central logic, never the adapters'.
+ * Merge + cap + expansion are central logic, never the adapters'.
  */
 class FindService @Inject constructor(
   private val adapters: Set<@JvmSuppressWildcards FindAdapter>,
@@ -39,9 +50,9 @@ class FindService @Inject constructor(
    *   [FindSandbox.podUri] (its global URI); [FindSandbox.effectiveScope] (the optional caller
    *   context downscope, else the readable ceiling) is the sandbox both the adapters and the
    *   expansion stay within.
-   * @return a context-sandboxed RDF [Model]: the merged adapter hits plus the fixed
-   *   `rdf:type` / `rdfs:label` / `schema:name` expansion over the hit resources. Empty when
-   *   nothing matched.
+   * @return a context-sandboxed RDF [Model]: at most [FindRequest.limit] hits with the blank nodes
+   *   reachable from them, plus the fixed `rdf:type` / `rdfs:label` / `schema:name` expansion
+   *   over those hits. Empty when nothing matched.
    */
   fun find(request: FindRequest, sandbox: FindSandbox): Model {
     val merged = LinkedHashModel()
@@ -56,22 +67,59 @@ class FindService @Inject constructor(
     futures.forEach { future -> merged.addAll(future.get()) }
 
     val hits: List<IRI> = merged.subjects().filterIsInstance<IRI>()
-    if (hits.isEmpty()) return merged
+    if (hits.isEmpty()) return LinkedHashModel()
 
-    // Common case (single adapter, whose SELECT already applied LIMIT): nothing to cap.
-    if (hits.size <= request.limit) {
-      merged.addAll(expander.expand(hits, sandbox))
-      return merged
+    val keep: Set<IRI> = hits
+      .sortedWith(byRank(merged).thenBy { it.stringValue() })
+      .take(request.limit)
+      .toSet()
+    val result = reachableFrom(merged, keep)
+    result.addAll(expander.expand(keep, sandbox))
+    return result
+  }
+
+  private companion object {
+
+    private val FIND_RESULT: IRI = Values.iri(SempodsVocabulary.FIND_RESULT)
+    private val POSITION: IRI = Values.iri("https://schema.org/position")
+
+    /** Ranked hits first, lower position first; unranked hits compare equal to each other. */
+    private fun byRank(model: Model): Comparator<IRI> {
+      val ranks = HashMap<IRI, BigInteger?>()
+      return Comparator { a, b ->
+        val rankA = ranks.getOrPut(a) { rankOf(model, a) }
+        val rankB = ranks.getOrPut(b) { rankOf(model, b) }
+        when {
+          rankA != null && rankB != null -> rankA.compareTo(rankB)
+          rankA != null -> -1
+          rankB != null -> 1
+          else -> 0
+        }
+      }
     }
 
-    // Several adapters together overflowed the limit. Cap deterministically by IRI (consistent
-    // with each adapter's `ORDER BY STR(?s)`) and prune the dropped hits' edges from the result.
-    // TODO: replace the IRI-order truncation with cross-adapter rank fusion once engines
-    // return relevance scores — a flat union has no ranking to merge on yet.
-    val keep = hits.sortedBy { it.stringValue() }.take(request.limit).toSet()
-    val capped = LinkedHashModel()
-    merged.forEach { statement -> if (statement.subject in keep) capped.add(statement) }
-    capped.addAll(expander.expand(keep, sandbox))
-    return capped
+    /** The lowest integer `schema:position` behind [hit]'s `sps:findResult` links, or `null`. */
+    private fun rankOf(model: Model, hit: IRI): BigInteger? =
+      model.filter(hit, FIND_RESULT, null).objects().asSequence()
+        .filterIsInstance<Resource>()
+        .flatMap { node -> model.filter(node, POSITION, null).objects() }
+        .filterIsInstance<Literal>()
+        .mapNotNull { runCatching { it.integerValue() }.getOrNull() }
+        .minOrNull()
+
+    /** The statements of [roots] and of every blank node reachable from them through objects. */
+    private fun reachableFrom(model: Model, roots: Set<IRI>): Model {
+      val subjects: MutableSet<Resource> = LinkedHashSet(roots)
+      val frontier = ArrayDeque<Resource>(roots)
+      while (frontier.isNotEmpty()) {
+        model.filter(frontier.removeFirst(), null, null).objects()
+          .filterIsInstance<Resource>()
+          .filter { it.isBNode && subjects.add(it) }
+          .forEach(frontier::addLast)
+      }
+      val result = LinkedHashModel()
+      subjects.forEach { subject -> result.addAll(model.filter(subject, null, null)) }
+      return result
+    }
   }
 }
