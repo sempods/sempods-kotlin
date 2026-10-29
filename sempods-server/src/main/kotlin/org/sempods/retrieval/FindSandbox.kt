@@ -29,9 +29,10 @@ import java.net.URI
  *   to set as a concrete `context IN (…)` index clause, and conflating the two would erase the
  *   distinction between the security ceiling and a functional narrowing.
  *
- * Each adapter (and the expander) is solely responsible for self-scoping to [effectiveScope] — the
- * endpoint does not post-filter adapter output. Because [contextFilter] is pre-intersected with the
- * ceiling, an adapter that scopes to it alone can never leak.
+ * The adapters and the [ResourceExpander] scope to [effectiveScope]. [FindService] keeps the hits of
+ * a [self-scoped][FindAdapter.selfScoped] adapter as returned and verifies every other hit against
+ * the expansion, which a conforming expander keeps inside [effectiveScope]. Because [contextFilter]
+ * is pre-intersected with the ceiling, an engine that scopes to it alone can never leak.
  */
 class FindSandbox(
   val podUri: URI,
@@ -41,7 +42,7 @@ class FindSandbox(
 ) {
 
   /**
-   * The single context set adapters and the [ResourceExpander] must scope to: the requested
+   * The single context set adapters and the [ResourceExpander] scope to: the requested
    * [contextFilter] when present, otherwise the full [visibleContexts] ceiling. The *one* place
    * that encodes the "filter else ceiling" fallback, so no engine implementation forgets it.
    */
