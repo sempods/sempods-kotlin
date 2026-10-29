@@ -30,4 +30,5 @@ application. Guice is optional; Mongo-backed stores require the caller's databas
 supplies configuration, persistence and transport. Exact contracts belong to the linked KDoc.
 
 [Tests](src/test/kotlin/org/sempods/auth/core/) cover redirect policy, PKCE, token validation,
-one-time redemption, refresh rotation, the browser sign-in and encryption at rest. The services' HTTP tests cover their endpoint wiring.
+one-time redemption, refresh rotation, the browser sign-in and encryption at rest. The services'
+HTTP tests cover their endpoint wiring.

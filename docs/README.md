@@ -71,7 +71,8 @@ These pages describe the current implementation.
 ## Moving between versions
 
 - [Migration to 0.2](migration/0.2.md) — changes a 0.1 client needs to make.
-- [Migration to 0.3](migration/0.3.md) — the pod server's new required key, and the moved auth types.
+- [Migration to 0.3](migration/0.3.md) — the pod server's new required key, and the moved auth
+  types.
 
 ## Instructions for contributors, human and AI
 

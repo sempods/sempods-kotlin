@@ -148,8 +148,8 @@ connect pods into the selected profile). `/mcp` is not an alias for the root.
 `crypto/McpSecretKey`, **mandatory when https or `PRODUCTION=true`**, with a deterministic dev key
 only on genuine local dev) encrypts the secrets the service must keep recoverable: the pod
 access/refresh tokens (`TokenVaultDao`), the private OAuth signing-key JWK (`SigningKeyDao`) and
-the PKCE verifiers of the flows in the next section. Reads expect ciphertext, always — there is **no legacy-plaintext tolerance and
-no startup migration** (see [Deployment stance](../AGENTS.md#deployment-stance-poc--no-migrations)). Decrypt-failure semantics are
+the PKCE verifiers of the flows in the next section. Reads expect ciphertext, always — there is
+**no legacy-plaintext tolerance and no startup migration** (see [Deployment stance](../AGENTS.md#deployment-stance-poc--no-migrations)). Decrypt-failure semantics are
 **asymmetric**: an undecryptable pod-token row is treated as unreadable (`find` → null → "reconnect
 this pod"; the refresh sweep skips it), while an undecryptable **signing key is fatal** (`findAll`
 throws an actionable error naming `MCP_SECRET_KEY`, rather than silently minting a replacement).
