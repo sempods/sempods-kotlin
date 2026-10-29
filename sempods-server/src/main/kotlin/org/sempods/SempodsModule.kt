@@ -567,15 +567,13 @@ class SempodsModule : BaseModule() {
       fallbackRequested: Boolean,
       isDevelopment: Boolean,
     ): Map<String, String> {
-      val fallback = Env.checkDevelopmentFallback(
-        DEV_ADMIN_FALLBACK_ENV_VARIABLE,
-        arms = "the published development admin credential ($DEVELOPMENT_ADMIN_SECRET)",
-        instead = "configure SEMPODS_ADMIN_CLIENTS instead",
-        requested = fallbackRequested,
-        isDevelopment = isDevelopment,
-      )
+      check(!(fallbackRequested && !isDevelopment)) {
+        "$DEV_ADMIN_FALLBACK_ENV_VARIABLE arms the published development admin credential " +
+            "($DEVELOPMENT_ADMIN_SECRET) and must not be set in production — configure " +
+            "SEMPODS_ADMIN_CLIENTS instead"
+      }
       if (configured.isNotEmpty()) return configured
-      if (!fallback) return emptyMap()
+      if (!fallbackRequested) return emptyMap()
       logger.warn {
         "$DEV_ADMIN_FALLBACK_ENV_VARIABLE is set — the admin surface accepts the development " +
             "credential, which is published with the source. Development only."

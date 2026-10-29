@@ -82,7 +82,7 @@ standalone `docker-compose` or `podman-compose` can be substituted.
 # 1. the only infrastructure a pod server needs
 docker compose -f deployments/local/compose.yaml up -d
 
-# 2. local configuration — two active lines, which arm the development admin credential and key
+# 2. local configuration — two active lines: the development admin credential and key
 cp deployments/local/env/local.example.env deployments/local/env/local.env
 
 # 3. the pod server            → http://localhost:8090

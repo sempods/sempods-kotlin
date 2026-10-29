@@ -108,8 +108,8 @@ data class SempodsTestModule(
   }
 
   /**
-   * The suite sets neither `SEMPODS_SECRET_KEY` nor its development fallback, so it brings its own
-   * key. How a deployment resolves one is `PodSecretKeyTest`'s.
+   * The suite does not set `SEMPODS_SECRET_KEY`, so it brings its own key. How a deployment
+   * resolves one is `PodSecretKeyTest`'s.
    */
   @Provides
   @Singleton

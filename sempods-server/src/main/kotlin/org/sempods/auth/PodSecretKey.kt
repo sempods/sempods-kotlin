@@ -1,60 +1,26 @@
 package org.sempods.auth
 
-import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.SecretCipher
 import org.sempods.commons.config.Env
-import java.security.MessageDigest
 
 /**
  * Where this server's [SecretCipher] key comes from. It encrypts the PKCE verifier of every
  * sign-in in flight ([PodLoginStateStore]), so every replica of a deployment needs the same one,
- * and changing it fails only the sign-ins in flight — fifteen minutes' worth.
- *
- * | [ENV_VARIABLE] | [DEV_FALLBACK_ENV_VARIABLE] | Boot |
- * |---|---|---|
- * | set | unset | uses the key |
- * | unset | unset | fails: no key |
- * | unset | `true`, in development | uses the development key, with a warning |
- * | either | `true`, with `PRODUCTION=true` | fails: the fallback is development only |
+ * and changing it fails only the sign-ins in flight — fifteen minutes' worth. Without it the server
+ * does not start; a local run takes the one in `local.example.env`.
  */
 object PodSecretKey {
-
-  private val logger = KotlinLogging.logger {}
 
   /** Base64 or base64url, [SecretCipher.KEY_BYTES] bytes: `openssl rand -base64 32`. */
   const val ENV_VARIABLE = "SEMPODS_SECRET_KEY"
 
-  /**
-   * Arms the development key, which is derived from a seed published with the source. Asked for
-   * rather than inferred, as [org.sempods.SempodsModule]'s admin fallback is: a deployment served
-   * over plain HTTP, or with `PRODUCTION` unset, is still a deployment.
-   */
-  const val DEV_FALLBACK_ENV_VARIABLE = "SEMPODS_DEV_SECRET_KEY_FALLBACK"
+  fun cipherFromEnv(): SecretCipher = resolve(Env.get(ENV_VARIABLE))
 
-  fun cipherFromEnv(): SecretCipher = resolve(
-    configured = Env.get(ENV_VARIABLE),
-    fallbackRequested = Env.get(DEV_FALLBACK_ENV_VARIABLE)?.toBooleanStrictOrNull() == true,
-    isDevelopment = Env.isDevelopment,
-  )
-
-  internal fun resolve(configured: String?, fallbackRequested: Boolean, isDevelopment: Boolean): SecretCipher {
-    val fallback = Env.checkDevelopmentFallback(
-      DEV_FALLBACK_ENV_VARIABLE,
-      arms = "a key derived from a published seed",
-      instead = "configure $ENV_VARIABLE instead",
-      requested = fallbackRequested,
-      isDevelopment = isDevelopment,
-    )
-    if (configured != null) return SecretCipher.fromBase64(configured)
-    check(fallback) {
+  internal fun resolve(configured: String?): SecretCipher {
+    checkNotNull(configured) {
       "$ENV_VARIABLE must be set (base64, ${SecretCipher.KEY_BYTES} bytes: openssl rand -base64 32) — it " +
-        "encrypts sign-ins in flight, and replicas must agree on it. Set $DEV_FALLBACK_ENV_VARIABLE=true " +
-        "for a local run."
+        "encrypts sign-ins in flight, and replicas must agree on it"
     }
-    logger.warn {
-      "$DEV_FALLBACK_ENV_VARIABLE is set — sign-ins are encrypted under a key derived from a seed " +
-        "published with the source. Development only."
-    }
-    return SecretCipher(MessageDigest.getInstance("SHA-256").digest("sempods-server-dev-secret-key".toByteArray(Charsets.UTF_8)))
+    return SecretCipher.fromBase64(configured)
   }
 }

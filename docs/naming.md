@@ -105,7 +105,7 @@ name is not the contract. The one real coupling in the other direction is a Kotl
 
 **Configuration** — every `SEMPODS_*` environment variable (`SEMPODS_BASE_URL`,
 `SEMPODS_PUBLIC_BASE_URL`, `SEMPODS_HTTP_PORT`, `SEMPODS_ADMIN_CLIENTS`, `SEMPODS_ADMIN_SECRET`,
-`SEMPODS_DEV_ADMIN_FALLBACK`, `SEMPODS_SECRET_KEY`, `SEMPODS_DEV_SECRET_KEY_FALLBACK`,
+`SEMPODS_DEV_ADMIN_FALLBACK`, `SEMPODS_SECRET_KEY`,
 `SEMPODS_AUTH_ISSUERS`, the `SEMPODS_MEDIA_*` family). They are set
 in the env files under `deployments/` and in every operator's own environment. Deliberately not
 counted: what this section asserts is that the names are frozen, not how many there are.

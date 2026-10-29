@@ -84,23 +84,6 @@ object Env {
   }
 
   /**
-   * Whether [name] asks for a development stand-in: only when it is `true`, never inferred from the
-   * environment. Asking for one in production fails the boot rather than being ignored, so a
-   * variable that looks set cannot quietly do nothing.
-   *
-   * @param arms what the stand-in is, completing "[name] arms …".
-   * @param instead what a deployment configures in its place.
-   */
-  fun developmentFallbackRequested(name: String, arms: String, instead: String): Boolean =
-    checkDevelopmentFallback(name, arms, instead, get(name)?.toBooleanStrictOrNull() == true, isDevelopment)
-
-  /** [developmentFallbackRequested] with the environment passed in, for a rule tested without one. */
-  fun checkDevelopmentFallback(name: String, arms: String, instead: String, requested: Boolean, isDevelopment: Boolean): Boolean {
-    check(!(requested && !isDevelopment)) { "$name arms $arms and must not be set in production — $instead" }
-    return requested
-  }
-
-  /**
    * A set of settings that only makes sense complete — a client id with its secret, or the four
    * values of an Apple signing key.
    *
