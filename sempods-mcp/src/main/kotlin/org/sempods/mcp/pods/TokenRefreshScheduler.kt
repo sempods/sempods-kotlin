@@ -126,7 +126,8 @@ class TokenRefreshScheduler(
    * drops is only ever *pre*-warming — the connection still gets its token from
    * [PodTokenProvider.validAccessToken] on the next call, one rotation later than it would have.
    * That is why the rows it does not reach need no attempt marker, where preservation's do: there
-   * is no second path holding a refresh-token family open.
+   * is no second path holding a refresh-token family open. Its first row runs however late, as
+   * preservation's does.
    */
   private suspend fun warmDueTokens() {
     val warmIdleSeconds = config.podTokenWarmIdleSeconds
@@ -140,7 +141,7 @@ class TokenRefreshScheduler(
     )
     val deadline = now + tierBudgetMs
     for ((index, tokens) in due.withIndex()) {
-      if (System.currentTimeMillis() >= deadline) {
+      if (index > 0 && System.currentTimeMillis() >= deadline) {
         logger.info { "warm pass out of budget after $index of ${due.size} — the rest refreshes on demand" }
         return
       }
@@ -171,6 +172,10 @@ class TokenRefreshScheduler(
    * warm tier runs first, and a warm pass that spent its own budget would otherwise hand this one a
    * deadline already in the past — zero rows attempted, no marker written, and the guarantee this
    * tier exists for quietly not held because the latency tier had a bad tick.
+   *
+   * The same holds inside the tier, so the first row is attempted however late it comes up: the
+   * budget also covers the selection, and a read that came back slowly would otherwise spend it
+   * before a single row was marked.
    */
   private suspend fun preserveDueFamilies() {
     val preserveSeconds = config.podTokenFamilyPreserveSeconds
@@ -186,7 +191,7 @@ class TokenRefreshScheduler(
     val trigger = RefreshTrigger.Preserving(notRotatedSince)
     val deadline = now + tierBudgetMs
     for ((index, tokens) in due.rows.withIndex()) {
-      if (System.currentTimeMillis() >= deadline) {
+      if (index > 0 && System.currentTimeMillis() >= deadline) {
         // Said out loud: a pass that stops early otherwise reads, from every signal at this level,
         // exactly like one that covered everything.
         logger.info { "preservation pass out of budget after $index of ${due.rows.size} — the rest is next tick's" }

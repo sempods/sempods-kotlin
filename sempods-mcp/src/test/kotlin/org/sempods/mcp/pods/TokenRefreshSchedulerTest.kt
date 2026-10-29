@@ -6,8 +6,10 @@ import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.spyk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.bson.Document
@@ -277,6 +279,24 @@ class TokenRefreshSchedulerTest {
     repeat(5) { scheduler.refreshDueTokens() }
 
     assertEquals((wedged + behind).map { it.pod }, swept, "every row once, oldest deadline first, none twice")
+  }
+
+  @Test
+  fun `a selection that comes back after the budget is spent still has its first row attempted`() = runBlocking {
+    // The budget covers the read as well. A tick whose read alone outlasted it used to attempt
+    // nothing and mark nothing — which is how a loaded CI runner once stalled the backlog above.
+    val used = seed("used", expiresAt = Date(System.currentTimeMillis() + 60_000), usedAt = Date())
+    val stale = seed("stale", rotatedAt = Date(System.currentTimeMillis() - 40 * DAY_MS), usedAt = null)
+    val slowVault = spyk(vault)
+    every { slowVault.findExpiringBefore(any(), any(), any()) } answers { Thread.sleep(100); callOriginal() }
+    every { slowVault.findNotRotatedSince(any(), any()) } answers { Thread.sleep(100); callOriginal() }
+
+    val (warm, preserved) = recordSweptPods()
+    TokenRefreshScheduler(config(), slowVault, provider, leases, InstanceId("replica-a"), tierBudgetMs = 50)
+      .refreshDueTokens()
+
+    assertEquals(listOf(used.pod), warm, "a late warm read still renews the connection at its head")
+    assertEquals(listOf(stale.pod), preserved, "and a late preservation read still moves its queue")
   }
 
   @Test

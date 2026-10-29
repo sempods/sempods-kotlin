@@ -44,7 +44,8 @@ warm tier's traffic therefore follows **use**; preservation walks live refreshab
 Both selections exclude connections marked dead, which remain visible as needing reconnect. Each tier is
 time-budgeted per tick (half a tick each), and the preservation budget is anchored where
 preservation *starts* rather than where the sweep did, so a slow warm pass cannot hand it a
-deadline already spent. Within the tier, each row is marked as attempted *before* it is
+deadline already spent. The budget also covers the tier's read, so each tier attempts its first
+row however late the read returned. Within the tier, each row is marked as attempted *before* it is
 attempted and the selection is ordered by that mark (never-attempted first, then
 least-recently-attempted, ties by oldest rotation), so an attempted row goes to the back and the
 backlog is traversed once through before any row is retried. That ordering is load-bearing, not
