@@ -28,14 +28,8 @@ internal object ControlPlaneJson {
   fun podOwnerWebId(ownerWebId: URI): String =
     mapper.writeValueAsString(mapper.createObjectNode().put("ownerWebId", ownerWebId.toString()))
 
-  /** The answer of `GET {server}/_system/admin/pods/{pod}`. */
-  fun hostedPod(json: String): HostedPodInfo {
-    val root = objectOf(json)
-    return HostedPodInfo(
-      name = text(root, "pod"),
-      owner = uri(text(root, "owner"), "owner"),
-    )
-  }
+  /** The answer of `GET {server}/_system/admin/pods/{pod}`, with its `pod` and `owner`. */
+  fun hostedPod(json: String): OwnedPod = ownedPod(objectOf(json))
 
   /**
    * The body of `POST …/service-clients/{clientId}`.
@@ -78,6 +72,21 @@ internal object ControlPlaneJson {
       secret = secret,
     )
   }
+
+  /** The answer of `GET {server}/_system/admin/pods?owner=…`, every pod with its `pod` and `owner`. */
+  fun ownedPods(json: String): List<OwnedPod> {
+    val root = objectOf(json)
+    val pods = root["pods"]
+    require(pods != null && pods.isArray) { "the answer has no array member 'pods'" }
+    return (0 until pods.size()).map { index ->
+      val pod = pods.get(index)
+      require(pod is ObjectNode) { "the answer's 'pods' holds a value that is not an object" }
+      ownedPod(pod)
+    }
+  }
+
+  private fun ownedPod(pod: ObjectNode): OwnedPod =
+    OwnedPod(pod = text(pod, "pod"), displayName = optionalText(pod, "displayName"), owner = text(pod, "owner"))
 
   private const val PROVISIONED = "provisioned"
 

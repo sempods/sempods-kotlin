@@ -38,8 +38,8 @@ no email cannot own one yet. [`CreatePodRequest`](../src/main/kotlin/org/sempods
 lists what is refused with a `400`.
 
 A repeated `PUT` answers `alreadyExists` and keeps the stored owner. `GET` on the same address
-answers `{pod, exists, owner}`, so a caller can confirm the owner before it records the pod for a
-person.
+answers the pod as [listing an owner's pods](#listing-an-owners-pods) does, plus `exists`, so a
+caller can confirm the owner before it records the pod for a person.
 
 ## Sandbox via manage-root
 
@@ -76,3 +76,21 @@ The [endpoint contract](../src/main/kotlin/org/sempods/api/system/admin/pods/Adm
 owns validation, concurrency and response fields. Credential storage in the calling application
 is the application's responsibility. Never use an internal user ID as a pod identity; the pod
 identifies people by WebID.
+
+## Listing an owner's pods
+
+An owner console asks the host which pods a signed-in person owns, so it needs no registry of its
+own:
+
+```
+GET https://pods.example/_system/admin/pods?owner=https://id.sempods.org/e/<hash>&owner=https://id.sempods.org/oidc/<hash>
+```
+
+Pass every identity the person's verified sign-in produced, such as the equivalent identities in
+the `id_token`. The host answers the pods stored under any of them, and names the owning identity
+for each pod. It keeps no mapping between identities: a link the identity service drops stops
+showing pods at the next sign-in.
+
+The [control-plane client](../../sempods-control-plane-client/README.md) calls it as
+`podsOwnedBy`. How many identities one call takes, and the response fields, are on the
+[endpoint](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt).

@@ -14,7 +14,7 @@ import java.net.URI
 
 /**
  * HTTP client for a sempods server's **host-level admin surface** — `{server}/_system/admin/pods/…`:
- * pod lifecycle and app provisioning.
+ * pod lifecycle, the pods of an owner, and app provisioning.
  *
  * **This surface is not part of the pod specification and is not meant to become part of it.** A
  * pod's contract is what `:sempods-client` speaks: a graph, an addressing scheme and a
@@ -152,12 +152,30 @@ class SempodsControlPlaneClient(
    * confirm who owns an existing pod before it records that pod for a user.
    *
    * Answers as [podExists] does: a `404` is an answer with a null body, a refusal stays an exception.
-   * An answer without its `pod` or with an `owner` that is not a URI is a `SempodsDecodingException`.
+   * An answer without its `pod` or `owner` is a `SempodsDecodingException`.
    */
   @Throws(IOException::class)
-  fun pod(podName: String): SempodsResponse<HostedPodInfo> =
+  fun pod(podName: String): SempodsResponse<OwnedPod> =
     exchange.text(pods("GET", podName).header("Accept", APPLICATION_JSON).build(), 200, 404)
       .map { ControlPlaneJson.hostedPod(it) }
+
+  /**
+   * `GET {server}/_system/admin/pods?owner=…` — the pods owned under any of [owners], by pod name.
+   *
+   * [owners] is the identity set the caller's own verified sign-in produced for one person; the
+   * server's `sempods-server/docs/host-provisioning.md` §"Listing an owner's pods" says why. How
+   * many values one call may carry is the server's limit, and more is a `400`.
+   *
+   * @throws IllegalArgumentException for an empty [owners]; nothing is sent.
+   */
+  @Throws(IOException::class)
+  fun podsOwnedBy(owners: Collection<String>): SempodsResponse<List<OwnedPod>> {
+    require(owners.isNotEmpty()) { "owners must name at least one WebID." }
+    val built = pods("GET").header("Accept", APPLICATION_JSON).build()
+    val url = built.url.newBuilder().apply { owners.forEach { addQueryParameter(OWNER, it) } }.build()
+
+    return exchange.text(built.newBuilder().url(url).build(), 200).map { ControlPlaneJson.ownedPods(it) }
+  }
 
   /**
    * `POST {server}/_system/admin/pods/{pod}/service-clients/{clientId}` — registers [clientId] as a
@@ -213,21 +231,25 @@ class SempodsControlPlaneClient(
 
     const val SERVICE_CLIENTS = "service-clients"
 
+    const val OWNER = "owner"
+
     const val APPLICATION_JSON = "application/json"
   }
 }
 
+/**
+ * A pod as [SempodsControlPlaneClient.pod] and [SempodsControlPlaneClient.podsOwnedBy] read it.
+ * [displayName] is null for a pod without a label; [owner] is the WebID the pod is stored under, in
+ * its stored `https` form also when the call named the URN twin. A later `PUT` never changes it.
+ */
+data class OwnedPod(
+  val pod: String,
+  val displayName: String?,
+  val owner: String,
+)
+
 /** Outcome of [SempodsControlPlaneClient.createPod] — `PUT` answers 201 for a fresh pod and 200 for one that was already there. */
 enum class CreatePodResult { created, alreadyExists }
-
-/**
- * A pod as [SempodsControlPlaneClient.pod] reads it: its [name] and the [owner] WebID the creating
- * `PUT` stored, which a later `PUT` never changes.
- */
-data class HostedPodInfo(
-  val name: String,
-  val owner: URI,
-)
 
 /**
  * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.

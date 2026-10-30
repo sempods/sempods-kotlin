@@ -243,7 +243,7 @@ class SempodsControlPlaneClientHttpTest {
       .respond(response().withStatusCode(404))
 
     val known = client.pod("alice")
-    assertEquals(HostedPodInfo(name = "alice", owner = URI(OWNER_WEB_ID)), known.body)
+    assertEquals(OwnedPod(pod = "alice", displayName = null, owner = OWNER_WEB_ID), known.body)
     assertEquals("Bearer $ADMIN_SECRET", sent("GET").getFirstHeader("Authorization"))
 
     val unknown = client.pod("nobody")
@@ -272,6 +272,64 @@ class SempodsControlPlaneClientHttpTest {
       .respond(response().withStatusCode(401).withBody("bad credential"))
 
     assertEquals(401, assertThrows<SempodsStatusException> { client.pod("alice") }.status)
+  }
+
+  // ─── podsOwnedBy ──────────────────────────────────────────────────────────────
+
+  @Test
+  fun `podsOwnedBy sends one owner parameter per WebID and reads the pods`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods"))
+      .respond(
+        response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON).withBody(
+          """{"pods":[{"pod":"alice","displayName":"Alice","owner":"https://id.example/e/1"}]}""",
+        ),
+      )
+    val owners = listOf("https://id.example/e/1", "urn:sempods:oidc:2", "https://id.example/e/a b?c&d")
+
+    val answer = client.podsOwnedBy(owners)
+
+    assertEquals(200, answer.status)
+    assertEquals(listOf(OwnedPod(pod = "alice", displayName = "Alice", owner = "https://id.example/e/1")), answer.body)
+
+    val sent = sent("GET")
+    assertEquals("/_system/admin/pods", sent.path.value)
+    assertEquals("Bearer $ADMIN_SECRET", sent.getFirstHeader("Authorization"))
+    assertEquals("application/json", sent.getFirstHeader("Accept"))
+    assertEquals(
+      owners,
+      sent.queryStringParameterList.filter { it.name.value == "owner" }.flatMap { it.values.map { value -> value.value } },
+      "every value arrives as its own parameter, decoded back to what was passed",
+    )
+  }
+
+  @Test
+  fun `podsOwnedBy refuses an empty set and sends nothing`() {
+    mockServer.`when`(request()).respond(response().withStatusCode(200))
+
+    assertThrows<IllegalArgumentException> { client.podsOwnedBy(emptyList()) }
+
+    assertEquals(0, mockServer.retrieveRecordedRequests(request()).size, "nothing left this client")
+  }
+
+  @Test
+  fun `podsOwnedBy throws a 400 with its status`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods"))
+      .respond(response().withStatusCode(400).withBody("""{"error":"at most 20 owner values are accepted"}"""))
+
+    val refused = assertThrows<SempodsStatusException> { client.podsOwnedBy(listOf("https://id.example/e/1")) }
+
+    assertEquals(400, refused.status)
+  }
+
+  @Test
+  fun `podsOwnedBy reports an answer without its pods as a decoding failure`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods"))
+      .respond(response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON).withBody("{}"))
+
+    assertThrows<SempodsDecodingException> { client.podsOwnedBy(listOf("https://id.example/e/1")) }
   }
 
   // ─── provisionServiceClient ───────────────────────────────────────────────────

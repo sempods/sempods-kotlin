@@ -31,7 +31,7 @@ import org.sempods.client.SempodsResponse;
 import org.sempods.client.SempodsSession;
 import org.sempods.client.SempodsStatusException;
 import org.sempods.controlplane.CreatePodResult;
-import org.sempods.controlplane.HostedPodInfo;
+import org.sempods.controlplane.OwnedPod;
 import org.sempods.controlplane.ProvisionServiceClientResult;
 import org.sempods.controlplane.SempodsControlPlaneClient;
 
@@ -134,12 +134,12 @@ class ControlPlaneFromJavaTest {
     body = "{\"pod\":\"alice\",\"exists\":true,\"owner\":\"" + ownerWebId + "\"}";
 
     // doc-example:start read-owner
-    HostedPodInfo pod = admin.pod("alice").getBody();
-    boolean ours = pod != null && pod.getOwner().equals(ownerWebId);
+    OwnedPod pod = admin.pod("alice").getBody();
+    boolean ours = pod != null && pod.getOwner().equals(ownerWebId.toString());
     // doc-example:end read-owner
 
     assertTrue(ours);
-    assertEquals("alice", pod.getName());
+    assertEquals("alice", pod.getPod());
     assertEquals("GET /_system/admin/pods/alice", paths.get(1));
   }
 
@@ -160,6 +160,22 @@ class ControlPlaneFromJavaTest {
 
     assertEquals(204, admin.deletePod("alice").getStatus());
     assertEquals("DELETE /_system/admin/pods/alice", paths.get(0));
+  }
+
+  @Test
+  void listsThePodsOfAnOwnersIdentities() throws IOException {
+    status = 200;
+    body = "{\"pods\":[{\"pod\":\"alice\",\"displayName\":\"Alice\",\"owner\":\"https://id.example/e/1\"}]}";
+
+    // doc-example:start pods-owned-by
+    List<OwnedPod> pods =
+        admin.podsOwnedBy(List.of("https://id.example/e/1", "https://id.example/oidc/2")).getBody();
+    // doc-example:end pods-owned-by
+
+    assertEquals(List.of(new OwnedPod("alice", "Alice", "https://id.example/e/1")), pods);
+    assertEquals(
+        "GET /_system/admin/pods?owner=https%3A%2F%2Fid.example%2Fe%2F1&owner=https%3A%2F%2Fid.example%2Foidc%2F2",
+        paths.get(0));
   }
 
   @Test
