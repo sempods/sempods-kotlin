@@ -1,14 +1,9 @@
 package org.sempods.auth.core
 
-import com.mongodb.ConnectionString
-import com.mongodb.MongoClientSettings
-import com.mongodb.client.MongoClient
-import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.sempods.commons.mongo.getStringSet
 import org.sempods.commons.mongo.putNotNull
@@ -17,7 +12,6 @@ import org.sempods.commons.utils.HashUtil.sha256Hex
 import java.time.Duration
 import java.util.Date
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -165,32 +159,17 @@ class OneTimeStoreTest {
     checkNotNull(raw().find(Filters.eq("_id", sha256Hex(key))).firstOrNull()).getDate("expiresAt")
 
   companion object {
-    private const val MONGO_URL = "mongodb://localhost:27018"
     private const val COLLECTION = "test.oneTimeStore"
-    private val dbName = "sempods-auth-core-test-" + UUID.randomUUID().toString().replace("-", "").take(10)
-
-    private var mongoClient: MongoClient? = null
     private var db: MongoDatabase? = null
 
     @BeforeAll @JvmStatic
     fun setup() {
-      assumeTrue(mongoReachable(), "local MongoDB at $MONGO_URL not reachable — skipping")
-      mongoClient = MongoClients.create(MONGO_URL).also { db = it.getDatabase(dbName) }
+      db = TestMongo.database()
     }
 
     @AfterAll @JvmStatic
     fun teardown() {
       db?.drop()
-      mongoClient?.close()
     }
-
-    private fun mongoReachable(): Boolean = runCatching {
-      val settings = MongoClientSettings.builder()
-        .applyConnectionString(ConnectionString(MONGO_URL))
-        .applyToClusterSettings { it.serverSelectionTimeout(1, TimeUnit.SECONDS) }
-        .build()
-      MongoClients.create(settings).use { it.getDatabase("admin").runCommand(Document("ping", 1)) }
-      true
-    }.getOrDefault(false)
   }
 }

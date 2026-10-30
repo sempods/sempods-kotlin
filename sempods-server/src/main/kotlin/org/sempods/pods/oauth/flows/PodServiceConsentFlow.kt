@@ -207,9 +207,10 @@ class PodServiceConsentFlow @Inject internal constructor(
     redirectUri: String?,
     state: String?,
   ): PodServiceConsentResult {
-    val parked = signIn.park(pod, prompt = null) { codeVerifier, nonce, browserPin ->
-      PendingLogin(
-        pod = pod.name,
+    val parked = signIn.park(
+      pod,
+      prompt = null,
+      pending = PendingLogin(
         clientId = clientId,
         redirectUri = redirectUri,
         clientState = state,
@@ -217,12 +218,9 @@ class PodServiceConsentFlow @Inject internal constructor(
         prompt = null,
         codeChallenge = null,
         codeChallengeMethod = null,
-        codeVerifier = codeVerifier,
-        nonce = nonce,
-        browserPin = browserPin,
         serviceConsent = true,
-      )
-    } ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
+      ),
+    ) ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
     logger.info { "[service-clients/consent] Redirecting to login: pod='${pod.name}', serviceClient='$clientId'" }
     return PodServiceConsentResult.Login(parked.authorizationUrl, parked.state, parked.browserPin)
   }

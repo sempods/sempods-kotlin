@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.Response
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.auth.PodBrowserCookies
+import org.sempods.auth.PodLoginStateStore
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrorDelivery
 import org.sempods.commons.net.UrlUtil
@@ -349,11 +350,7 @@ internal object PodAuthorizeResponses {
 
   private fun counted(count: Long, unit: String): String = if (count == 1L) "1 $unit" else "$count ${unit}s"
 
-  /**
-   * How long the browser keeps the login pin. Must outlive the parked request it guards
-   * (`PodLoginStateStore`, 15 min) or the round trip times out at the shorter of the two.
-   */
-  private const val LOGIN_PIN_TTL_SECONDS = 15 * 60
+  private val LOGIN_PIN_TTL_SECONDS = PodLoginStateStore.TTL.toSeconds().toInt()
 
   /**
    * What a well-formed `dyn:` client_id with no registration behind it is answered with.

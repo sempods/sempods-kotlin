@@ -57,13 +57,16 @@ internal object PodOAuthErrorResponses {
    *
    * This stays beside [OAuthErrorDelivery] on purpose. A [Redirectable] can only be minted by
    * validating now, and a parked record is proof of a validation made when it was parked.
+   *
+   * @param podName the pod whose callback completed the sign-in, which is the pod that parked it.
    */
   fun renderToParked(
     pending: PendingLogin,
+    podName: String,
     error: OAuthErrorCode,
     description: String,
     config: SempodsConfig,
-  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, pending.pod, config)
+  ): Response = render(pending.errorRedirectUri, error, description, pending.clientState, podName, config)
 
   private fun render(
     redirectUri: String?,

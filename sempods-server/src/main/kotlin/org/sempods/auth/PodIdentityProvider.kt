@@ -2,6 +2,7 @@ package org.sempods.auth
 
 import com.google.inject.Inject
 import com.google.inject.name.Named
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.SempodsConfig
 import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.HttpTransport
@@ -55,6 +56,14 @@ class PodIdentityProvider @Inject constructor(
    */
   fun relyingParty(pod: String): OidcRelyingParty = relyingParties.forRedirectUri(callbackUri(pod))
 
+  /** [relyingParty], or `null` — logged — where discovery failed. */
+  fun relyingPartyOrNull(pod: String): OidcRelyingParty? = try {
+    relyingParty(pod)
+  } catch (e: Exception) {
+    logger.warn(e) { "[oauth/sign-in] identity provider discovery failed: pod='$pod'" }
+    null
+  }
+
   /**
    * Every other URI the pod knows [verified]'s person by: the equivalent identities the id-server
    * asserted, and the URN twin of each of them and of the WebID
@@ -75,6 +84,8 @@ class PodIdentityProvider @Inject constructor(
       .filter { it != verified.webId }
 
   companion object {
+    private val logger = KotlinLogging.logger {}
+
     /** Appended to `{apiBaseUrl}/{pod}`. Matches the JAX-RS route on `PodAuthEndpoint`. */
     const val CALLBACK_SUFFIX = "/_system/auth/oidc/callback"
   }

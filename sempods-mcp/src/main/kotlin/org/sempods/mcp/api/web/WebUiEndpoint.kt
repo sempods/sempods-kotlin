@@ -5,7 +5,6 @@ import org.sempods.mcp.SempodsMcpConfig
 import org.sempods.mcp.SempodsMcpVersion
 import org.sempods.mcp.audit.AuditLog
 import org.sempods.mcp.auth.ServiceBearerVerifier
-import org.sempods.mcp.auth.LoginCsrfPin
 import org.sempods.mcp.auth.WebLoginStateStore
 import org.sempods.mcp.auth.WebSession
 import org.sempods.mcp.forLog
@@ -19,6 +18,8 @@ import org.sempods.mcp.persist.ProfileDao
 import org.sempods.mcp.persist.ProfileKey
 import org.sempods.mcp.persist.ProfilePath
 import org.sempods.mcp.persist.TokenVaultDao
+import org.sempods.mcp.api.completeSignIn
+import org.sempods.mcp.api.relyingPartyOrUnavailable
 import org.sempods.mcp.api.resolveProfileOr404
 import org.sempods.mcp.pods.PodAuthorizationAnswer
 import org.sempods.mcp.pods.PodClientIdentity
@@ -44,8 +45,9 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Date
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.auth.core.Secrets
+import org.sempods.commons.ktor.auth.BrowserPinCookie
 import org.sempods.commons.utils.appendEscapedHtml
 
 private val logger = KotlinLogging.logger("org.sempods.mcp.api.web")
@@ -249,81 +251,49 @@ fun Application.webUiEndpoint(
     // --- Browser login via id.sempods.org → web-session cookie ---
     // Scoped to the callback path alone, and under its own name: the AI-client flow at
     // `/oidc/callback` runs the same defence, and one browser may be in both at once.
-    val loginPin = LoginCsrfPin(
-      cookieNamePrefix = UI_LOGIN_PIN_COOKIE_PREFIX,
-      cookiePath = UI_CALLBACK_PATH,
+    val signIn = webLoginStateStore.signIn
+    val loginPin = BrowserPinCookie(
+      namePrefix = UI_LOGIN_PIN_COOKIE_PREFIX,
+      path = UI_CALLBACK_PATH,
       secure = config.isSecure,
+      maxAge = signIn.ttl,
     )
 
     get("/_system/ui/login") {
-      val relyingParty = try {
-        identityProvider.relyingPartyFor(UI_CALLBACK_PATH)
-      } catch (e: Exception) {
-        logger.warn(e) { "identity provider discovery failed" }
-        return@get call.respondText("identity provider unavailable", status = HttpStatusCode.ServiceUnavailable)
-      }
-      // A standard OIDC round trip: what comes back through the browser is a single-use code, and
-      // the token is fetched over a back channel. The id-server's `state` doubles as the key this
-      // flow is stored under.
-      val started = relyingParty.beginAuthorization(state = webLoginStateStore.newState())
-      // …and a second factor pinning the callback to *this* browser. Without it an attacker starts
-      // a login, gets the callback link opened in someone else's browser, and that browser holds a
-      // session for the attacker's identity — under which the UI would then save pod connections.
-      val browserNonce = loginPin.mint()
-      webLoginStateStore.create(
-        started.state,
-        WebLoginStateStore.Pending(
-          next = "$base/_system/ui",
-          codeVerifier = started.codeVerifier,
-          nonce = started.nonce,
-          browserNonce = browserNonce,
-        ),
-      )
-      loginPin.set(call, started.state, browserNonce)
+      val relyingParty = call.relyingPartyOrUnavailable(identityProvider, UI_CALLBACK_PATH) ?: return@get
+      // The pin pins the callback to *this* browser: without it an attacker starts a login, gets
+      // the callback link opened in someone else's browser, and that browser holds a session for
+      // the attacker's identity — under which the UI would then save pod connections.
+      val started = signIn.begin(relyingParty, WebLoginStateStore.Pending(next = "$base/_system/ui"))
+      loginPin.set(call, started.state, started.browserPin)
       call.respondRedirect(started.authorizationUrl)
     }
 
     get("/_system/ui/login/callback") {
-      val q = call.request.queryParameters
-      val state = q["state"] ?: return@get call.respondText("missing state", status = HttpStatusCode.BadRequest)
-      // The state reaches a cookie *name* below, and it arrived from a stranger. A value that
-      // cannot be one is refused here rather than further down: it could never match a parked
-      // request anyway, and rendering `Set-Cookie` with it throws — turning this 400 into a 500.
-      if (!Secrets.isWellFormed(state)) {
-        return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
-      }
-      // Withdrawn as soon as the flow it belongs to is named, so *every* answer below expires it
-      // — including "unknown state". Cookie names carry the state now, so a pin nobody withdraws
-      // is not overwritten by the next attempt; it lingers its full fifteen minutes. Reading the
-      // pin is a request concern and clearing it a response one, so the comparison still works.
-      loginPin.clear(call, state)
-      val pending = webLoginStateStore.consume(state)
-        ?: return@get call.respondText("invalid or expired login state", status = HttpStatusCode.BadRequest)
+      when (val done = call.completeSignIn(signIn, loginPin, identityProvider, UI_CALLBACK_PATH) ?: return@get) {
+        is BrowserSignIn.Completion.Refused -> {
+          if (done.reason != BrowserSignIn.Refusal.UNKNOWN_STATE) logger.warn { "ui login callback rejected: ${done.reason}" }
+          call.respondText(
+            when (done.reason) {
+              BrowserSignIn.Refusal.UNKNOWN_STATE -> "invalid or expired login state"
+              BrowserSignIn.Refusal.OTHER_BROWSER -> "this sign-in was not started in this browser — please sign in again"
+              BrowserSignIn.Refusal.WRONG_ISSUER -> "this sign-in answer did not come from the id-server"
+            },
+            status = HttpStatusCode.BadRequest,
+          )
+        }
 
-      // The callback must be completed in the SAME browser that started the sign-in. Checked
-      // before the code is exchanged — an attacker's callback link opened here must cost nothing
-      // and establish nothing. The cookie is cleared either way; it is one-time.
-      val pinPresented = loginPin.isPresent(call, state)
-      val pinMatches = loginPin.matches(call, state, pending.browserNonce)
-      if (!pinMatches) {
-        logger.warn { "ui login callback rejected: browser pin ${if (!pinPresented) "absent" else "mismatch"}" }
-        return@get call.respondText(
-          "this sign-in was not started in this browser — please sign in again",
-          status = HttpStatusCode.BadRequest,
-        )
-      }
+        is BrowserSignIn.Completion.Failed -> {
+          logger.warn(done.cause) { "ui login failed: id-server error '${forLog(done.providerError)}'" }
+          call.respondText("login failed", status = HttpStatusCode.Unauthorized)
+        }
 
-      val code = q["code"]
-        ?: return@get call.respondText("login failed", status = HttpStatusCode.Unauthorized)
-      val identity = try {
-        identityProvider.relyingPartyFor(UI_CALLBACK_PATH).completeAuthorization(code, pending.codeVerifier, pending.nonce)
-      } catch (e: Exception) {
-        logger.warn(e) { "id-server token exchange failed" }
-        return@get call.respondText("login failed", status = HttpStatusCode.Unauthorized)
+        is BrowserSignIn.Completion.SignedIn -> {
+          // The web session binds only the user; profile selection is request-scoped per the UI.
+          webSession.establish(call, done.identity.webId)
+          call.respondRedirect(done.payload.next)
+        }
       }
-      // The web session binds only the user; profile selection is request-scoped per the UI.
-      webSession.establish(call, identity.webId)
-      call.respondRedirect(pending.next)
     }
 
     get("/_system/ui/logout") {

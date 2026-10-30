@@ -82,7 +82,7 @@ standalone `docker-compose` or `podman-compose` can be substituted.
 # 1. the only infrastructure a pod server needs
 docker compose -f deployments/local/compose.yaml up -d
 
-# 2. local configuration — one active line, which arms the development admin credential
+# 2. local configuration — two active lines: the development admin credential and key
 cp deployments/local/env/local.example.env deployments/local/env/local.env
 
 # 3. the pod server            → http://localhost:8090
@@ -91,7 +91,8 @@ cp deployments/local/env/local.example.env deployments/local/env/local.env
 
 Create a pod using the local host-admin API. Copying `local.example.env` enables the published
 development credential below. A deployment supplies its own `SEMPODS_ADMIN_CLIENTS`; without
-configured authority, admin routes return 503. The owner email is stored as a derived WebID.
+configured authority, admin routes return 503. It also supplies `SEMPODS_SECRET_KEY`, or the server
+does not start. The owner email is stored as a derived WebID.
 
 <!-- doc-example: illustrative; admin routes checked against AdminPodsEndpointHttpTest and local development credential configuration -->
 ```bash

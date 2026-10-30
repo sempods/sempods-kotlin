@@ -7,7 +7,7 @@ import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.sempods.mcp.crypto.testSecretCipher
 import org.bson.Document

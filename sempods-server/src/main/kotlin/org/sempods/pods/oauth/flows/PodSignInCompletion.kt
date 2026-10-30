@@ -5,10 +5,10 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodIdentityProvider
 import org.sempods.auth.PodLoginStateStore
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.core.OAuthSyntax
-import org.sempods.auth.core.Secrets
 import org.sempods.pods.HostedPod
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.SessionPrincipal
@@ -19,13 +19,9 @@ import java.time.Instant
  * Completes a sign-in [PodSignIn] parked: the id-server's answer at `oidc/callback`, turned into a
  * session and the request it resumes.
  *
- * Everything of substance is server-side: `state` names the parked request, and the identity is
- * fetched from the id-server's token endpoint with a verifier that never travelled through the
- * browser and checked against the nonce the sign-in sent. What arrived at the callback is a code,
- * which is worth nothing without both.
- *
- * The parked request is then re-entered, and re-validated from scratch — it may have waited fifteen
- * minutes, and the pod's clients and grants can have moved in that time.
+ * What a callback is refused for is `BrowserSignIn`'s; how a failure reaches the client and the
+ * session are the pod's. The parked request is then re-entered, and re-validated from scratch — it
+ * may have waited fifteen minutes, and the pod's clients and grants can have moved in that time.
  */
 class PodSignInCompletion @Inject internal constructor(
   private val loginStateStore: PodLoginStateStore,
@@ -35,58 +31,23 @@ class PodSignInCompletion @Inject internal constructor(
   private val podServiceConsentFlow: PodServiceConsentFlow,
 ) {
 
-  internal fun complete(pod: HostedPod, callback: PodSignInCallback): PodSignInResult {
-    // Consumed first and unconditionally: a replayed callback must find nothing, whether it
-    // carries a code, an error, or neither.
-    val pending = callback.state?.trim()?.takeIf { it.isNotBlank() }?.let { loginStateStore.consume(it) }
-    if (pending == null || pending.pod != pod.name) return PodSignInResult.Refused(PodSignInRefusal.UNKNOWN_STATE)
-
-    // Login-CSRF / session fixation: this callback must complete in the SAME browser that started
-    // the sign-in, because it is about to establish a session here. Without it an attacker starts
-    // their own login, gets the callback URL opened in somebody else's browser, and that browser
-    // comes away signed in as the attacker. Checked before the code is exchanged — a callback
-    // opened in the wrong browser must cost nothing.
-    if (!Secrets.matches(callback.presentedPin, pending.browserPin)) {
-      logger.warn {
-        "[oauth/authorize] login callback rejected: browser pin ${if (callback.presentedPin == null) "absent" else "mismatch"} " +
-            "(pod='${pod.name}', clientId='${pending.clientId}')"
+  internal fun complete(pod: HostedPod, callback: BrowserSignIn.Callback): PodSignInResult {
+    val done = loginStateStore.signIn.complete(identityProvider.callbackUri(pod.name), callback) {
+      identityProvider.relyingPartyOrNull(pod.name)
+    } ?: return PodSignInResult.IdentityProviderUnavailable
+    val (pending, verified) = when (done) {
+      is BrowserSignIn.Completion.Refused -> {
+        if (done.reason != BrowserSignIn.Refusal.UNKNOWN_STATE) {
+          logger.warn {
+            "[oauth/authorize] login callback rejected: ${done.reason} (pod='${pod.name}', clientId='${done.payload?.clientId}')"
+          }
+        }
+        return PodSignInResult.Refused(done.reason)
       }
-      return PodSignInResult.Refused(PodSignInRefusal.OTHER_BROWSER)
-    }
 
-    val error = callback.error
-    if (error != null) {
-      logger.info {
-        "[oauth/authorize-audit] outcome=login_failed pod='${pod.name}' " +
-            "client_id='${pending.clientId}' error='$error'"
-      }
-      // The upstream provider's own verdict, translated for this pod's client.
-      val upstream = OAuthErrors.fromUpstream(error, callback.errorDescription)
-      return PodSignInResult.Failed(pending, upstream.code, upstream.description)
+      is BrowserSignIn.Completion.Failed -> return failed(pod, done)
+      is BrowserSignIn.Completion.SignedIn -> done
     }
-    // Neither an error nor a code: nobody refused anything, the callback is malformed. `server_error`
-    // rather than `access_denied`, so a client does not record a decision that was never made.
-    val authorizationCode = callback.code?.trim()?.takeIf { it.isNotBlank() }
-      ?: return PodSignInResult.Failed(pending, OAuthErrorCode.SERVER_ERROR, "no authorization code")
-
-    val verified = try {
-      identityProvider.relyingParty(pod.name)
-        .completeAuthorization(authorizationCode, pending.codeVerifier, pending.nonce)
-    } catch (e: Exception) {
-      // Transient by evidence rather than by guess: an `IOException` anywhere in the cause chain is
-      // the transport saying it could not reach the identity service — a connect or read failure,
-      // not a verdict. That is `temporarily_unavailable`, which a client may retry. Anything else
-      // reaching here is this server's own fault and says so.
-      val unreachable = generateSequence(e as Throwable?) { it.cause }.any { it is IOException }
-      val failureClass =
-        if (unreachable) OAuthErrorCode.TEMPORARILY_UNAVAILABLE else OAuthErrorCode.SERVER_ERROR
-      logger.warn(e) {
-        "[oauth/authorize] id-server token exchange failed: pod='${pod.name}', " +
-            "clientId='${pending.clientId}', answered='${failureClass.code}'"
-      }
-      return PodSignInResult.Failed(pending, failureClass, "login failed")
-    }
-
     logger.info {
       "[oauth/authorize] login completed: pod='${pod.name}', clientId='${pending.clientId}', " +
           "webId='${verified.webId}'"
@@ -102,6 +63,27 @@ class PodSignInCompletion @Inject internal constructor(
     )
     val principal = SessionPrincipal(verified.webId, aliases, authTime)
     return PodSignInResult.SignedIn(sessionToken, resume(pod, pending, principal))
+  }
+
+  /**
+   * The provider's own verdict, translated for this pod's client; a callback with nothing in it as
+   * `server_error`, so a client does not record a decision that was never made; an `IOException`
+   * anywhere in the cause chain as `temporarily_unavailable`, which a client may retry.
+   */
+  private fun failed(pod: HostedPod, done: BrowserSignIn.Completion.Failed<PendingLogin>): PodSignInResult.Failed {
+    val providerError = done.providerError
+    val (error, description) = when {
+      providerError != null -> OAuthErrors.fromUpstream(providerError, done.providerErrorDescription).let { it.code to it.description }
+      done.cause == null -> OAuthErrorCode.SERVER_ERROR to "no authorization code"
+      generateSequence(done.cause as Throwable?) { it.cause }.any { it is IOException } ->
+        OAuthErrorCode.TEMPORARILY_UNAVAILABLE to "login failed"
+      else -> OAuthErrorCode.SERVER_ERROR to "login failed"
+    }
+    logger.warn(done.cause) {
+      "[oauth/authorize-audit] outcome=login_failed pod='${pod.name}' client_id='${done.payload.clientId}' " +
+          "error='${providerError ?: "(none)"}' answered='${error.code}'"
+    }
+    return PodSignInResult.Failed(done.payload, error, description)
   }
 
   private fun resume(pod: HostedPod, pending: PendingLogin, session: SessionPrincipal): PodSignInResumed =
@@ -144,23 +126,14 @@ class PodSignInCompletion @Inject internal constructor(
   }
 }
 
-/**
- * What the id-server sent the browser back with, and the login pin the browser presented beside it
- * — `null` where it presented none.
- */
-internal data class PodSignInCallback(
-  val state: String?,
-  val code: String?,
-  val error: String?,
-  val errorDescription: String?,
-  val presentedPin: String?,
-)
-
 /** What a callback came to. */
 internal sealed interface PodSignInResult {
 
-  /** The callback cannot be tied to a sign-in this browser started. Nothing was exchanged. */
-  data class Refused(val refusal: PodSignInRefusal) : PodSignInResult
+  /** The callback is not this pod's sign-in's answer. Nothing was exchanged. */
+  data class Refused(val refusal: BrowserSignIn.Refusal) : PodSignInResult
+
+  /** The id-server could not be discovered. The sign-in and its pin are left in place for a retry. */
+  data object IdentityProviderUnavailable : PodSignInResult
 
   /**
    * The sign-in failed, to be reported where [pending] was validated. [description] may carry the
@@ -170,14 +143,6 @@ internal sealed interface PodSignInResult {
 
   /** Signed in: the session token to remember, and what the resumed request answered. */
   data class SignedIn(val sessionToken: String, val resumed: PodSignInResumed) : PodSignInResult
-}
-
-internal enum class PodSignInRefusal {
-  /** No parked sign-in under that `state` on this pod: unknown, expired, or already used. */
-  UNKNOWN_STATE,
-
-  /** The browser did not present the pin the sign-in was parked with. */
-  OTHER_BROWSER,
 }
 
 /** The request a sign-in resumed, as its own flow answered it. */

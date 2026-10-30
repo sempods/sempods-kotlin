@@ -105,7 +105,8 @@ name is not the contract. The one real coupling in the other direction is a Kotl
 
 **Configuration** — every `SEMPODS_*` environment variable (`SEMPODS_BASE_URL`,
 `SEMPODS_PUBLIC_BASE_URL`, `SEMPODS_HTTP_PORT`, `SEMPODS_ADMIN_CLIENTS`, `SEMPODS_ADMIN_SECRET`,
-`SEMPODS_DEV_ADMIN_FALLBACK`, `SEMPODS_AUTH_ISSUERS`, the `SEMPODS_MEDIA_*` family). They are set
+`SEMPODS_DEV_ADMIN_FALLBACK`, `SEMPODS_SECRET_KEY`,
+`SEMPODS_AUTH_ISSUERS`, the `SEMPODS_MEDIA_*` family). They are set
 in the env files under `deployments/` and in every operator's own environment. Deliberately not
 counted: what this section asserts is that the names are frozen, not how many there are.
 
@@ -141,7 +142,7 @@ across the three services — one concept, one spelling.
 - `application/vnd.sempods.media-source+json` — the media-source media type.
 - MCP: `serverInfo.name` `sempods-mcp`, the DCR `CLIENT_NAME` registered at remote pods, and the
   `Bearer realm="sempods-mcp"` challenge.
-- The dev-mode key seed in `SecretCipher`. The cookie `sempods_return_to` was here too, until
+- The dev-mode key seed in `McpSecretKey`. The cookie `sempods_return_to` was here too, until
   `GET /login` — the only thing that set it — was removed. Freezing forbids renaming a name, not
   retiring the thing it named.
 

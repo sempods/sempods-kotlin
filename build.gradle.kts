@@ -369,7 +369,7 @@ subprojects {
     "sempods-media-s3" to "it implements one of those seams",
     "sempods-commons" to "the helpers that scope work take a Kotlin lambda, `TraceContextHolder.with` " +
       "and `LoggingCtx.withLabels` among them",
-    "sempods-auth-core" to "`OneTimeStore` and `RefreshTokenStore` take a Kotlin lambda",
+    "sempods-auth-core" to "`OneTimeStore`, `RefreshTokenStore` and `BrowserSignIn` take a Kotlin lambda",
     "sempods-mcp-core" to "`PodToolPlan.Call` and `ReauthorizeChallengeStore` take a Kotlin lambda",
     "sempods-commons-ktor" to "its surface is a `kotlin.coroutines.CoroutineContext.Element`, whose " +
       "inherited `fold` is a Kotlin function type",

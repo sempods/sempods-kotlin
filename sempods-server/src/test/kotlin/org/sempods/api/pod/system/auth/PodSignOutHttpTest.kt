@@ -1,7 +1,7 @@
 package org.sempods.api.pod.system.auth
 
 import com.google.inject.Inject
-import org.sempods.FakeIdServerTransport
+import org.sempods.IdServerObserver
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsModule
 import org.sempods.auth.ConsentTransactionStore
@@ -154,7 +154,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
   @Test
   fun `another person's token and a service client's token keep working`() {
     val (pod, person) = podWithOwner()
-    val somebodyElse = mintScopedToken(pod.name, emptyList(), webId = "${FakeIdServerTransport.ISSUER}/e/somebody-else")
+    val somebodyElse = mintScopedToken(pod.name, emptyList(), webId = "${IdServerObserver.ISSUER}/e/somebody-else")
     val service = mintServiceToken(pod)
 
     signOut(pod, person)
@@ -240,7 +240,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
     val tokens = flow.connect(pod, person, appA, signIn(pod.name, person).cookie)
 
     assertEquals(403, signOut(pod, person, csrf = null).statusCode, "no token")
-    val strangers = consentTransactionStore.issue(pod.name, "${FakeIdServerTransport.ISSUER}/e/somebody-else")
+    val strangers = consentTransactionStore.issue(pod.name, "${IdServerObserver.ISSUER}/e/somebody-else")
     assertEquals(403, signOut(pod, person, csrf = strangers).statusCode, "somebody else's token")
 
     assertEquals(200, dateModified(pod, tokens.accessToken).statusCode)
@@ -354,7 +354,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
       .setFollowRedirect(false).execute()
 
   private fun isLoginRedirect(response: TestHttpResponse): Boolean =
-    response.getHeader("Location")?.startsWith(FakeIdServerTransport.ISSUER) == true
+    response.getHeader("Location")?.startsWith(IdServerObserver.ISSUER) == true
 
   private fun signOut(
     pod: PodDbo,

@@ -6,7 +6,7 @@ import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import org.sempods.auth.core.Secrets
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.bson.Document
 import io.github.oshai.kotlinlogging.KotlinLogging

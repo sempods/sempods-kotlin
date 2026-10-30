@@ -6,7 +6,7 @@ import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import org.sempods.mcp.SempodsMcpCollections
-import org.sempods.mcp.crypto.SecretCipher
+import org.sempods.auth.core.SecretCipher
 import org.sempods.mcp.crypto.testSecretCipher
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll

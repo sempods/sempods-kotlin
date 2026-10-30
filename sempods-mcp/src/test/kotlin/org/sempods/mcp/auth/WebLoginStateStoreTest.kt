@@ -5,20 +5,20 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
-import com.mongodb.client.model.Filters
-import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
-import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import org.sempods.mcp.SempodsMcpCollections
+import kotlin.test.assertIs
+import io.ktor.http.Url
+import org.sempods.mcp.oauth.IdentityProvider
+import org.sempods.auth.core.FakeOidcProvider
+import org.sempods.auth.core.BrowserSignIn
+import org.sempods.mcp.crypto.testSecretCipher
 
 /** Mongo-backed; skipped when Mongo is unreachable so the build stays green where it is absent. */
 class WebLoginStateStoreTest {
@@ -50,28 +50,21 @@ class WebLoginStateStoreTest {
     }.getOrDefault(false)
   }
 
-  private val store = WebLoginStateStore(db!!)
-  private val raw = db!!.getCollection(SempodsMcpCollections.OAUTH_WEB_LOGIN_STATES)
+  private val store = WebLoginStateStore(db!!, testSecretCipher())
+  private val idServer = FakeOidcProvider("https://id.test")
+  private val relyingParty = IdentityProvider(issuer = idServer.issuer, serviceBaseUrl = "https://mcp.test", transport = idServer)
+    .relyingPartyFor("/_system/ui/login/callback")
 
   @Test
-  fun `the whole pending login round-trips, and is spent once`() {
-    val state = store.newState()
-    store.create(
-      state,
-      WebLoginStateStore.Pending(
-        next = "/_system/ui?profile=work",
-        codeVerifier = "v",
-        nonce = "n",
-        browserNonce = "pin",
-      ),
+  fun `where the person was going survives the round trip`() {
+    val started = store.signIn.begin(relyingParty, WebLoginStateStore.Pending(next = "/_system/ui?profile=work"))
+    val code = idServer.expect(webId = "https://id.test/e/web-user", nonce = Url(started.authorizationUrl).parameters["nonce"]!!)
+
+    val done = store.signIn.complete(
+      relyingParty,
+      BrowserSignIn.Callback(started.state, started.browserPin, idServer.issuer, code = code, error = null),
     )
 
-    val pending = assertNotNull(store.consume(state))
-    assertEquals("/_system/ui?profile=work", pending.next)
-    assertEquals("v", pending.codeVerifier)
-    assertEquals("n", pending.nonce)
-    // Without this the callback could not be tied to the browser that started the sign-in.
-    assertEquals("pin", pending.browserNonce)
-    assertNull(store.consume(state), "second consume must lose (one-time use)")
+    assertEquals("/_system/ui?profile=work", assertIs<BrowserSignIn.Completion.SignedIn<WebLoginStateStore.Pending>>(done).payload.next)
   }
 }

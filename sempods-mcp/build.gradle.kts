@@ -79,6 +79,8 @@ dependencies {
   // Tests (CIO only for test clients outside the hardened pod-fetch path)
   // `LoggingAssertions`, for the configuration test every artifact with a `main` runs.
   testImplementation(testFixtures(project(":sempods-commons")))
+  // `FakeOidcProvider`, the id-server the sign-in tests run against.
+  testImplementation(testFixtures(project(":sempods-auth-core")))
   testImplementation(libs.ktorServerTestHost)
   testImplementation(libs.ktorClientCore)
   testImplementation(libs.ktorClientCio)

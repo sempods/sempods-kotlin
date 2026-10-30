@@ -12,6 +12,7 @@ import jakarta.ws.rs.core.UriInfo
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
+import org.sempods.auth.core.BrowserSignIn
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
@@ -30,9 +31,7 @@ import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodServiceConsentForm
 import org.sempods.pods.oauth.flows.PodServiceConsentRequest
 import org.sempods.pods.oauth.flows.PodServiceConsentResult
-import org.sempods.pods.oauth.flows.PodSignInCallback
 import org.sempods.pods.oauth.flows.PodSignInCompletion
-import org.sempods.pods.oauth.flows.PodSignInRefusal
 import org.sempods.pods.oauth.flows.PodSignInResult
 import org.sempods.pods.oauth.flows.PodSignInResumed
 import org.sempods.pods.oauth.flows.PodConsentForm
@@ -344,6 +343,7 @@ class PodAuthEndpoint @Inject constructor(
   fun oidcCallback(
     @PathParam("pod") pod: String,
     @QueryParam("state") state: String?,
+    @QueryParam("iss") iss: List<String>?,
     @QueryParam("code") code: String?,
     @QueryParam("error") error: String?,
     @QueryParam("error_description") errorDescription: String?,
@@ -354,8 +354,19 @@ class PodAuthEndpoint @Inject constructor(
     // flow's `state`, so a pin left behind is not overwritten by the next attempt — it lingers for
     // its full fifteen minutes, and a handful of cancelled sign-ins would pile up on the callback
     // path until the browser starts evicting cookies, the session among them. Attached here rather
-    // than at each `return`, because there are six of them and one will be missed.
-    return withPinCleared(podDbo.name, state, completeLogin(podDbo, state, code, error, errorDescription, httpHeaders))
+    // than at each `return`, because there are six of them and one will be missed. Kept only where
+    // nothing was checked, so the browser can retry.
+    val callback = BrowserSignIn.Callback(
+      state = state,
+      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
+      iss = BrowserSignIn.responseIssuer(iss),
+      code = code,
+      error = error,
+      errorDescription = errorDescription,
+    )
+    val result = podSignInCompletion.complete(podDbo.hosted, callback)
+    val answer = answer(podDbo, result)
+    return if (result == PodSignInResult.IdentityProviderUnavailable) answer else withPinCleared(podDbo.name, state, answer)
   }
 
   /**
@@ -372,35 +383,27 @@ class PodAuthEndpoint @Inject constructor(
     return Response.fromResponse(response).cookie(cookies.clearLoginPin(pod, checkNotNull(state))).build()
   }
 
-  private fun completeLogin(
-    podDbo: PodDbo,
-    state: String?,
-    code: String?,
-    error: String?,
-    errorDescription: String?,
-    httpHeaders: HttpHeaders,
-  ): Response {
-    val callback = PodSignInCallback(
-      state = state,
-      code = code,
-      error = error,
-      errorDescription = errorDescription,
-      presentedPin = state?.let { httpHeaders.cookies[cookies.loginPinName(it)]?.value },
-    )
-    return when (val result = podSignInCompletion.complete(podDbo.hosted, callback)) {
+  private fun answer(podDbo: PodDbo, result: PodSignInResult): Response =
+    when (result) {
       is PodSignInResult.Refused -> when (result.refusal) {
-        PodSignInRefusal.UNKNOWN_STATE ->
+        BrowserSignIn.Refusal.UNKNOWN_STATE ->
           Response.status(400).entity("invalid or expired login state").type("text/plain").build()
 
-        PodSignInRefusal.OTHER_BROWSER -> Response.status(400)
+        BrowserSignIn.Refusal.OTHER_BROWSER -> Response.status(400)
           .entity("this sign-in was not started in this browser — please start it again")
           // The charset is stated because the sentence carries a dash — see [PodAuthorizeResponses].
           .type("text/plain;charset=UTF-8")
           .build()
+
+        BrowserSignIn.Refusal.WRONG_ISSUER ->
+          Response.status(400).entity("this sign-in answer did not come from the identity server").type("text/plain").build()
       }
 
+      PodSignInResult.IdentityProviderUnavailable ->
+        Response.status(503).entity("identity provider unavailable").type("text/plain").build()
+
       is PodSignInResult.Failed ->
-        oauthErrorToParked(result.pending, result.error, result.description)
+        oauthErrorToParked(result.pending, podDbo.name, result.error, result.description)
 
       is PodSignInResult.SignedIn -> {
         val answer = when (val resumed = result.resumed) {
@@ -415,7 +418,6 @@ class PodAuthEndpoint @Inject constructor(
           .build()
       }
     }
-  }
 
   @GET
   @Path("jwks.json")
@@ -471,10 +473,11 @@ class PodAuthEndpoint @Inject constructor(
    */
   private fun oauthErrorToParked(
     pending: PendingLogin,
+    podName: String,
     error: OAuthErrorCode,
     errorDescription: String,
   ): Response =
-    PodOAuthErrorResponses.renderToParked(pending, error, errorDescription, config)
+    PodOAuthErrorResponses.renderToParked(pending, podName, error, errorDescription, config)
 
   companion object {
     private val logger = KotlinLogging.logger {}

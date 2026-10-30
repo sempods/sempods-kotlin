@@ -1,5 +1,6 @@
 package org.sempods.api.pod.system.auth
 
+import org.sempods.IdServerObserver
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
@@ -237,13 +238,15 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a grant consent an older node parked reads as expired`() {
+  fun `a sign-in an older node parked reads as expired`() {
+    // An older node kept the verifier in the clear, under another name. Its rows cannot be
+    // completed here, and the TTL clears them.
     val owned = ownedPod()
     val service = services.register(owned.pod, redirectUris = listOf(loopback))
     val (callback, pin) = parkedSignIn(owned, service)
     db.getCollection(SempodsCollections.OAUTH_LOGIN_STATES).updateMany(
-      Filters.eq("pod", owned.pod.name),
-      Updates.combine(Updates.set("serviceClient", service.clientId), Updates.unset("serviceConsent")),
+      Filters.eq("payload.clientId", service.clientId),
+      Updates.rename("encryptedCodeVerifier", "codeVerifier"),
     )
 
     val resumed = http.prepareGet("$callback&code=unused").addHeader("Cookie", pin).setFollowRedirect(false).execute()
@@ -524,7 +527,7 @@ class ServiceConsentHttpTest : SempodsIntegrationTest() {
     assertEquals(307, parked.statusCode, parked.responseBody)
     val query = UrlUtil.queryParams(URI(checkNotNull(parked.getHeader("Location"))).rawQuery, decodeParams = true)
     val pin = checkNotNull(parked.headers.getAll("Set-Cookie").firstOrNull { it.startsWith("sempods_pod_login_") }).substringBefore(';')
-    return "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}" to pin
+    return "${checkNotNull(query["redirect_uri"])}?state=${enc(checkNotNull(query["state"]))}&iss=${enc(IdServerObserver.ISSUER)}" to pin
   }
 
   private fun stored(owned: Owned, service: Service) =
