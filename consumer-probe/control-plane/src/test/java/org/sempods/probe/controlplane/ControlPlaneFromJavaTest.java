@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -116,6 +117,30 @@ class ControlPlaneFromJavaTest {
     status = 200;
 
     assertEquals(CreatePodResult.alreadyExists, admin.createPod("alice", "alice@example.com").getBody());
+  }
+
+  @Test
+  void createsAPodForASignedInWebIdAndReadsItsOwner() throws IOException {
+    URI ownerWebId = URI.create("https://id.example/e/" + "0".repeat(64));
+
+    // doc-example:start create-for-webid
+    SempodsResponse<CreatePodResult> created = admin.createPod("alice", ownerWebId);
+    // doc-example:end create-for-webid
+
+    assertEquals(CreatePodResult.created, created.getBody());
+    assertEquals("PUT /_system/admin/pods/alice", paths.get(0));
+
+    status = 200;
+    body = "{\"pod\":\"alice\",\"exists\":true,\"owner\":\"" + ownerWebId + "\"}";
+
+    // doc-example:start read-owner
+    OwnedPod pod = admin.pod("alice").getBody();
+    boolean ours = pod != null && pod.getOwner().equals(ownerWebId.toString());
+    // doc-example:end read-owner
+
+    assertTrue(ours);
+    assertEquals("alice", pod.getPod());
+    assertEquals("GET /_system/admin/pods/alice", paths.get(1));
   }
 
   @Test

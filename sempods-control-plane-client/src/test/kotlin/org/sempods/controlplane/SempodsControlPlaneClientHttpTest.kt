@@ -90,6 +90,18 @@ class SempodsControlPlaneClientHttpTest {
   }
 
   @Test
+  fun `createPod for a WebID PUTs the owner WebID`() {
+    mockServer
+      .`when`(request().withMethod("PUT").withPath("/_system/admin/pods/alice"))
+      .respond(response().withStatusCode(201))
+
+    val answer = client.createPod(podName = "alice", ownerWebId = URI(OWNER_WEB_ID))
+
+    assertEquals(CreatePodResult.created, answer.body)
+    assertEquals("""{"ownerWebId":"$OWNER_WEB_ID"}""", body(sent("PUT")))
+  }
+
+  @Test
   fun `createPod maps 200 to alreadyExists rather than throwing`() {
     mockServer
       .`when`(request().withMethod("PUT").withPath("/_system/admin/pods/alice"))
@@ -140,6 +152,7 @@ class SempodsControlPlaneClientHttpTest {
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.createPod(bad, "alice@example.com") }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.deletePod(bad) }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.podExists(bad) }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.pod(bad) }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.provisionServiceClient(bad, "app", null, null) }
       assertThrows<IllegalArgumentException>("client '$bad'") { client.provisionServiceClient("alice", bad, null, null) }
     }
@@ -211,6 +224,54 @@ class SempodsControlPlaneClientHttpTest {
     val refused = assertThrows<SempodsStatusException> { client.podExists("alice") }
 
     assertEquals(503, refused.status)
+  }
+
+  // ─── pod ──────────────────────────────────────────────────────────────────────
+
+  @Test
+  fun `pod reads the owner of a known pod and answers 404 with no body`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods/alice"))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.APPLICATION_JSON)
+          .withBody("""{"pod":"alice","exists":true,"owner":"$OWNER_WEB_ID"}"""),
+      )
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods/nobody"))
+      .respond(response().withStatusCode(404))
+
+    val known = client.pod("alice")
+    assertEquals(OwnedPod(pod = "alice", displayName = null, owner = OWNER_WEB_ID), known.body)
+    assertEquals("Bearer $ADMIN_SECRET", sent("GET").getFirstHeader("Authorization"))
+
+    val unknown = client.pod("nobody")
+    assertEquals(404, unknown.status)
+    assertNull(unknown.body, "a listed status outside 2xx answers with no body")
+  }
+
+  @Test
+  fun `pod refuses an answer without its owner`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods/alice"))
+      .respond(
+        response()
+          .withStatusCode(200)
+          .withContentType(MediaType.APPLICATION_JSON)
+          .withBody("""{"pod":"alice","exists":true}"""),
+      )
+
+    assertEquals(200, assertThrows<SempodsDecodingException> { client.pod("alice") }.status)
+  }
+
+  @Test
+  fun `pod throws on a refusal`() {
+    mockServer
+      .`when`(request().withMethod("GET").withPath("/_system/admin/pods/alice"))
+      .respond(response().withStatusCode(401).withBody("bad credential"))
+
+    assertEquals(401, assertThrows<SempodsStatusException> { client.pod("alice") }.status)
   }
 
   // ─── podsOwnedBy ──────────────────────────────────────────────────────────────
@@ -423,5 +484,7 @@ class SempodsControlPlaneClientHttpTest {
     const val ADMIN_SECRET = "sc_test-admin-secret"
 
     const val SERVICE_CLIENT_PATH = "/_system/admin/pods/alice/service-clients/notes-app"
+
+    const val OWNER_WEB_ID = "https://id.example/e/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   }
 }

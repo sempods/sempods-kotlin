@@ -101,7 +101,7 @@ curl -X PUT http://localhost:8090/_system/admin/pods/demo \
   -H "Content-Type: application/json" \
   -d '{"ownerEmail":"alice@example.org"}'
 
-# → 200 {"pod":"demo","exists":true}
+# → 200 {"pod":"demo","exists":true,"owner":"https://id.sempods.org/e/…"}
 curl http://localhost:8090/_system/admin/pods/demo \
   -H "Authorization: Bearer sc_development-admin-secret"
 

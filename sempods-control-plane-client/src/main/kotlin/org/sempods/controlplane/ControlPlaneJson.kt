@@ -8,7 +8,7 @@ import java.net.URI
 import java.net.URISyntaxException
 
 /**
- * The admin surface's JSON: the two documents this client sends, and the two it reads.
+ * The admin surface's JSON: the documents this client sends, and the ones it reads.
  *
  * A body that is not the document the route promises fails here, and the failure carries no part of
  * it: [org.sempods.client.SempodsResponse.map] turns what this throws into a decoding failure
@@ -20,9 +20,16 @@ internal object ControlPlaneJson {
 
   private val mapper = JsonMapper.builder().build()
 
-  /** The body of `PUT {server}/_system/admin/pods/{pod}`. */
-  fun podOwner(ownerEmail: String): String =
+  /** The body of `PUT {server}/_system/admin/pods/{pod}` naming the owner by email. */
+  fun podOwnerEmail(ownerEmail: String): String =
     mapper.writeValueAsString(mapper.createObjectNode().put("ownerEmail", ownerEmail))
+
+  /** The body of `PUT {server}/_system/admin/pods/{pod}` naming the owner by WebID. */
+  fun podOwnerWebId(ownerWebId: URI): String =
+    mapper.writeValueAsString(mapper.createObjectNode().put("ownerWebId", ownerWebId.toString()))
+
+  /** The answer of `GET {server}/_system/admin/pods/{pod}`, with its `pod` and `owner`. */
+  fun hostedPod(json: String): OwnedPod = ownedPod(objectOf(json))
 
   /**
    * The body of `POST …/service-clients/{clientId}`.
@@ -74,9 +81,12 @@ internal object ControlPlaneJson {
     return (0 until pods.size()).map { index ->
       val pod = pods.get(index)
       require(pod is ObjectNode) { "the answer's 'pods' holds a value that is not an object" }
-      OwnedPod(pod = text(pod, "pod"), displayName = optionalText(pod, "displayName"), owner = text(pod, "owner"))
+      ownedPod(pod)
     }
   }
+
+  private fun ownedPod(pod: ObjectNode): OwnedPod =
+    OwnedPod(pod = text(pod, "pod"), displayName = optionalText(pod, "displayName"), owner = text(pod, "owner"))
 
   private const val PROVISIONED = "provisioned"
 
