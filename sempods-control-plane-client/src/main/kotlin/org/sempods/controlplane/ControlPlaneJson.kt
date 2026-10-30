@@ -8,7 +8,7 @@ import java.net.URI
 import java.net.URISyntaxException
 
 /**
- * The admin surface's JSON: the two documents this client sends, and the one it reads.
+ * The admin surface's JSON: the documents this client sends, and the ones it reads.
  *
  * A body that is not the document the route promises fails here, and the failure carries no part of
  * it: [org.sempods.client.SempodsResponse.map] turns what this throws into a decoding failure
@@ -20,9 +20,22 @@ internal object ControlPlaneJson {
 
   private val mapper = JsonMapper.builder().build()
 
-  /** The body of `PUT {server}/_system/admin/pods/{pod}`. */
-  fun podOwner(ownerEmail: String): String =
+  /** The body of `PUT {server}/_system/admin/pods/{pod}` naming the owner by email. */
+  fun podOwnerEmail(ownerEmail: String): String =
     mapper.writeValueAsString(mapper.createObjectNode().put("ownerEmail", ownerEmail))
+
+  /** The body of `PUT {server}/_system/admin/pods/{pod}` naming the owner by WebID. */
+  fun podOwnerWebId(ownerWebId: URI): String =
+    mapper.writeValueAsString(mapper.createObjectNode().put("ownerWebId", ownerWebId.toString()))
+
+  /** The answer of `GET {server}/_system/admin/pods/{pod}`. */
+  fun hostedPod(json: String): HostedPodInfo {
+    val root = objectOf(json)
+    return HostedPodInfo(
+      name = text(root, "pod"),
+      owner = uri(text(root, "owner"), "owner"),
+    )
+  }
 
   /**
    * The body of `POST …/service-clients/{clientId}`.
@@ -46,13 +59,7 @@ internal object ControlPlaneJson {
    * Refuses the answers [SempodsControlPlaneClient.provisionServiceClient] does not accept.
    */
   fun provisioned(json: String, fallbackClientId: String): ProvisionServiceClientResult {
-    val root = try {
-      mapper.readTree(json)
-    } catch (_: JacksonException) {
-      throw IllegalArgumentException("the answer is not one JSON object")
-    }
-    if (root !is ObjectNode) throw IllegalArgumentException("the answer is not one JSON object")
-
+    val root = objectOf(json)
     val result = text(root, "result")
     require(result == PROVISIONED || result == ALREADY_PROVISIONED) {
       "the answer's 'result' is neither '$PROVISIONED' nor '$ALREADY_PROVISIONED'"
@@ -75,6 +82,15 @@ internal object ControlPlaneJson {
   private const val PROVISIONED = "provisioned"
 
   private const val ALREADY_PROVISIONED = "alreadyProvisioned"
+
+  private fun objectOf(json: String): ObjectNode {
+    val root = try {
+      mapper.readTree(json)
+    } catch (_: JacksonException) {
+      throw IllegalArgumentException("the answer is not one JSON object")
+    }
+    return root as? ObjectNode ?: throw IllegalArgumentException("the answer is not one JSON object")
+  }
 
   /** A member the route guarantees. A missing one is a broken contract rather than an empty value. */
   private fun text(root: ObjectNode, member: String): String =

@@ -42,7 +42,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * Routes (all gated by [requireAdminOrThrow], see [AdminAuthorizedEndpoint]):
  *
  * ```
- * PUT    /_system/admin/pods/{pod}                             {ownerEmail}
+ * PUT    /_system/admin/pods/{pod}                             {ownerEmail | ownerWebId}
  * DELETE /_system/admin/pods/{pod}
  * GET    /_system/admin/pods/{pod}
  * POST   /_system/admin/pods/{pod}/service-clients/{clientId}   {expectedRegistrationId?, expectedSecretId?}
@@ -73,8 +73,12 @@ class AdminPodsEndpoint @Inject constructor(
 ) : AdminAuthorizedEndpoint(adminAuthorizer) {
 
   /**
-   * Creates the pod for `ownerEmail`. The owner is stored as the WebID derived from the email —
-   * sempods knows persons only as WebID URIs, and the caller's own user ids must not be sent here.
+   * Creates the pod for the owner named by exactly one of `ownerEmail` and `ownerWebId`. The owner is
+   * stored as a WebID — sempods knows persons only as WebID URIs, and the caller's own user ids must
+   * not be sent here.
+   *
+   * The owner is checked before the pod is looked up, so a request naming an owner no pod can have
+   * is a 400 whether or not the pod exists.
    *
    * Idempotent, like every `PUT` in this codebase (cf.
    * [org.sempods.api.pod.system.contexts.PodContextsEndpoint.put]): an existing pod yields
@@ -92,20 +96,14 @@ class AdminPodsEndpoint @Inject constructor(
     val adminClientId = requireAdminOrThrow(authorization)
     val request = parseBody(body, CreatePodRequest::class.java)
       ?: throw badRequest("missing JSON request body")
-    val ownerEmail = request.ownerEmail?.trim()?.takeIf { it.isNotEmpty() }
-      ?: throw badRequest("ownerEmail must not be blank")
+    val ownerWebId = ownerWebIdOf(request)
 
     if (sempodsFacade.existsPod(pod)) {
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     }
 
-    val ownerWebId = try {
-      // sempods knows persons only as WebID URIs: the email is derived and then dropped, never
-      // stored. Derivation sits inside the `try` because an address no WebID can be derived from
-      // fails the same way a rejected pod name does — see the second catch.
-      val webId = webIdUriDeriver.deriveFromEmail(ownerEmail)
-      podDao.insert(name = pod, owner = webId)
-      webId
+    try {
+      podDao.insert(name = pod, owner = ownerWebId)
     } catch (e: MongoWriteException) {
       // Unique index on the pod name — a concurrent create won the race. The post-condition the
       // caller asked for holds either way, so this stays idempotent rather than surfacing a 500.
@@ -114,9 +112,8 @@ class AdminPodsEndpoint @Inject constructor(
       if (!e.isDuplicateKey()) throw e
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     } catch (e: IllegalArgumentException) {
-      // Rejected pod name (`SempodsUriBuilder.checkPodName`) or an email no WebID can be derived from — both
-      // are bad input from the caller, not a server fault.
-      throw badRequest(e.message ?: "invalid pod name or ownerEmail")
+      // Rejected pod name (`SempodsUriBuilder.checkPodName`): bad input from the caller.
+      throw badRequest(e.message ?: "invalid pod name")
     }
 
     logger.info { "Admin '$adminClientId' created pod '$pod' for owner '$ownerWebId'" }
@@ -153,7 +150,7 @@ class AdminPodsEndpoint @Inject constructor(
     return Response.noContent().build()
   }
 
-  /** 200 with `{pod, exists:true}` if the pod exists, 404 otherwise. */
+  /** 200 with `{pod, exists:true, owner}` if the pod exists, 404 otherwise. */
   @GET
   @Path("{pod}")
   fun existsPod(
@@ -163,10 +160,29 @@ class AdminPodsEndpoint @Inject constructor(
 
     requireAdminOrThrow(authorization)
 
-    if (!sempodsFacade.existsPod(pod)) {
-      throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
+    val stored = podDao.fetchByName(pod)
+      ?: throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
+    return Response.ok(PodExistsResponse(pod = pod, exists = true, owner = stored.owner)).build()
+  }
+
+  /**
+   * The owner WebID a create request names. `ownerEmail` is derived and then dropped, never stored;
+   * `ownerWebId` is taken as it stands once it is one [PodDao.insert] accepts. A blank member counts
+   * as absent.
+   */
+  private fun ownerWebIdOf(request: CreatePodRequest): String {
+    val ownerEmail = request.ownerEmail?.trim()?.takeIf { it.isNotEmpty() }
+    val ownerWebId = request.ownerWebId?.trim()?.takeIf { it.isNotEmpty() }
+    return when {
+      ownerEmail != null && ownerWebId == null -> webIdUriDeriver.deriveFromEmail(ownerEmail)
+      ownerWebId != null && ownerEmail == null -> try {
+        webIdUriDeriver.requireEmailBasedWebId(ownerWebId)
+        ownerWebId
+      } catch (e: IllegalArgumentException) {
+        throw badRequest(e.message ?: "invalid ownerWebId")
+      }
+      else -> throw badRequest("exactly one of ownerEmail and ownerWebId must be given")
     }
-    return Response.ok(PodExistsResponse(pod = pod, exists = true)).build()
   }
 
   /**
@@ -325,7 +341,7 @@ class AdminPodsEndpoint @Inject constructor(
   }
 }
 
-/** Body of `PUT /_system/admin/pods/{pod}`. */
+/** Body of `PUT /_system/admin/pods/{pod}`: exactly one of the two members names the owner. */
 data class CreatePodRequest(
   /**
    * Email of the pod owner. The server derives the owner WebID from it
@@ -336,6 +352,17 @@ data class CreatePodRequest(
    * the address belongs to the person is the caller's job.
    */
   val ownerEmail: String? = null,
+
+  /**
+   * WebID of the pod owner, stored as sent — what a caller holds once it has signed its user in at
+   * the identity service, whose `id_token` names the WebID and carries no email.
+   *
+   * Only the email-based form `{idBaseUrl}/e/<sha256>` of this server's identity service is
+   * accepted, as [org.sempods.pods.mongo.persist.PodDao.insert] requires. An `oidc/` WebID, its URN
+   * twin, or a WebID under another identity service is a 400: a user whose provider gave no email
+   * cannot own a pod yet.
+   */
+  val ownerWebId: String? = null,
 )
 
 /** Response of `PUT /_system/admin/pods/{pod}`: `result` is `created` or `alreadyExists`. */
@@ -348,6 +375,9 @@ data class PodLifecycleResponse(
 data class PodExistsResponse(
   val pod: String,
   val exists: Boolean,
+
+  /** The stored owner WebID — the one the creating `PUT` named; a later `PUT` never changes it. */
+  val owner: String,
 )
 
 /** Body of `POST /_system/admin/pods/{pod}/service-clients/{clientId}`. */

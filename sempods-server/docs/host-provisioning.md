@@ -2,9 +2,9 @@
 
 [Control-plane client](../../sempods-control-plane-client/README.md) · [Service access](auth/service-clients.md)
 
-This is a **deployment-specific hosting API**. A host operator can create a service credential and
-a private app context for a hosted pod. An application connecting to an arbitrary pod uses
-[service registration and consent](auth/service-clients.md#registration-and-consent).
+This is a **deployment-specific hosting API**. A host operator can create a pod for its owner, and
+a service credential and a private app context for a hosted pod. An application connecting to an
+arbitrary pod uses [service registration and consent](auth/service-clients.md#registration-and-consent).
 
 ## Address and authority
 
@@ -22,6 +22,24 @@ For example, an operator provisions `notes-app` on Alice's hosted pod:
 [AdminPodsEndpoint](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt)
 is registered in [SempodsModule](../src/main/kotlin/org/sempods/SempodsModule.kt). Without
 configured admin authority, its requests return 503.
+
+## Creating a pod
+
+`PUT {hostUrl}/_system/admin/pods/{podName}` creates the pod. The body names the owner with exactly
+one of two members:
+
+| Member | Caller | Stored owner |
+|---|---|---|
+| `ownerEmail` | knows the person's email | the WebID derived from it; the email is dropped |
+| `ownerWebId` | signed the person in at the identity service | the WebID as sent |
+
+Only an email-based WebID `{idBaseUrl}/e/<sha256>` can own a pod, so a person whose provider gave
+no email cannot own one yet. [`CreatePodRequest`](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt)
+lists what is refused with a `400`.
+
+A repeated `PUT` answers `alreadyExists` and keeps the stored owner. `GET` on the same address
+answers `{pod, exists, owner}`, so a caller can confirm the owner before it records the pod for a
+person.
 
 ## Sandbox via manage-root
 

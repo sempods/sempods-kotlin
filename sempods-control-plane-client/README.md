@@ -10,6 +10,24 @@ Construct `SempodsControlPlaneClient` with a `SempodsSession` targeting the **se
 a host admin credential, plus an installed OkHttp client. A pod access token cannot authorize
 host administration. The [Java consumer test](../consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java) includes the complete setup.
 
+Create a pod for a person you signed in at the identity service. Its `id_token` names their WebID:
+
+<!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#create-for-webid -->
+```java
+SempodsResponse<CreatePodResult> created = admin.createPod("alice", ownerWebId);
+```
+
+`alreadyExists` means the pod was there before, and it keeps its owner. Check the owner before you
+record the pod for that person:
+
+<!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#read-owner -->
+```java
+HostedPodInfo pod = admin.pod("alice").getBody();
+boolean ours = pod != null && pod.getOwner().equals(ownerWebId);
+```
+
+Which WebIDs can own a pod is in [Creating a pod](../sempods-server/docs/host-provisioning.md#creating-a-pod).
+
 For an existing `alice` pod, provision a backend called `notes-app`:
 
 <!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#provision-service -->

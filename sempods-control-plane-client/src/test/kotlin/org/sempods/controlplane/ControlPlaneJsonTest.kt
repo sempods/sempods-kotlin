@@ -8,12 +8,37 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.net.URI
 
-/** The three documents the admin routes exchange, read and written without a server in the way. */
+/** The documents the admin routes exchange, read and written without a server in the way. */
 class ControlPlaneJsonTest {
 
   @Test
   fun `a pod is created for the owner the caller names`() {
-    assertEquals("""{"ownerEmail":"alice@example.com"}""", ControlPlaneJson.podOwner("alice@example.com"))
+    assertEquals("""{"ownerEmail":"alice@example.com"}""", ControlPlaneJson.podOwnerEmail("alice@example.com"))
+    assertEquals(
+      """{"ownerWebId":"https://id.example/e/abc"}""",
+      ControlPlaneJson.podOwnerWebId(URI("https://id.example/e/abc")),
+    )
+  }
+
+  @Test
+  fun `a pod is read with its owner`() {
+    val pod = ControlPlaneJson.hostedPod("""{"pod":"alice","exists":true,"owner":"https://id.example/e/abc","extra":1}""")
+
+    assertEquals(HostedPodInfo(name = "alice", owner = URI("https://id.example/e/abc")), pod)
+  }
+
+  @Test
+  fun `a pod answer without its name or owner is refused`() {
+    listOf(
+      """{"exists":true,"owner":"https://id.example/e/abc"}""" to "pod",
+      """{"pod":"alice","exists":true}""" to "owner",
+      """{"pod":"alice","exists":true,"owner":":"}""" to "owner",
+      """{"pod":"alice","exists":true,"owner":1}""" to "owner",
+    ).forEach { (body, member) ->
+      val refused = assertThrows<IllegalArgumentException>(body) { ControlPlaneJson.hostedPod(body) }
+      assertTrue(refused.message!!.contains(member), "for $body: ${refused.message}")
+    }
+    assertThrows<IllegalArgumentException> { ControlPlaneJson.hostedPod("[]") }
   }
 
   @Test

@@ -85,10 +85,25 @@ class SempodsControlPlaneClient(
    * else's pod.
    */
   @Throws(IOException::class)
-  fun createPod(podName: String, ownerEmail: String): SempodsResponse<CreatePodResult> {
+  fun createPod(podName: String, ownerEmail: String): SempodsResponse<CreatePodResult> =
+    create(podName, body = ControlPlaneJson.podOwnerEmail(ownerEmail))
+
+  /**
+   * `PUT {server}/_system/admin/pods/{pod}` — creates [podName] owned by [ownerWebId], for a caller
+   * that signed its user in at the identity service and holds a WebID and no email.
+   *
+   * A WebID the server does not accept as an owner is a `400`, arriving as a
+   * `SempodsStatusException`; which ones it accepts is the server's
+   * `sempods-server/docs/host-provisioning.md` §"Creating a pod". Idempotent as the email form is.
+   */
+  @Throws(IOException::class)
+  fun createPod(podName: String, ownerWebId: URI): SempodsResponse<CreatePodResult> =
+    create(podName, body = ControlPlaneJson.podOwnerWebId(ownerWebId))
+
+  private fun create(podName: String, body: String): SempodsResponse<CreatePodResult> {
     val request = pods("PUT", podName)
       .header("Accept", APPLICATION_JSON)
-      .put(json(ControlPlaneJson.podOwner(ownerEmail)))
+      .put(json(body))
       .build()
 
     // The outcome is the status rather than the body, and a decoder is handed only the body — so the
@@ -126,10 +141,23 @@ class SempodsControlPlaneClient(
    * A caller on the data path asks `SempodsPodMetadata.exists` instead, which needs no
    * credential. Both questions exist on purpose: the answer here carries host authority, and code
    * that only needs to know whether a pod is there must not acquire that authority to find out.
+   * [pod] asks the same route and reads the answer.
    */
   @Throws(IOException::class)
   fun podExists(podName: String): SempodsResponse<ByteArray> =
     exchange.bytes(pods("GET", podName).header("Accept", APPLICATION_JSON).build(), 200, 404)
+
+  /**
+   * `GET {server}/_system/admin/pods/{pod}` — the pod and its stored owner, so that a caller can
+   * confirm who owns an existing pod before it records that pod for a user.
+   *
+   * Answers as [podExists] does: a `404` is an answer with a null body, a refusal stays an exception.
+   * An answer without its `pod` or with an `owner` that is not a URI is a `SempodsDecodingException`.
+   */
+  @Throws(IOException::class)
+  fun pod(podName: String): SempodsResponse<HostedPodInfo> =
+    exchange.text(pods("GET", podName).header("Accept", APPLICATION_JSON).build(), 200, 404)
+      .map { ControlPlaneJson.hostedPod(it) }
 
   /**
    * `POST {server}/_system/admin/pods/{pod}/service-clients/{clientId}` — registers [clientId] as a
@@ -191,6 +219,15 @@ class SempodsControlPlaneClient(
 
 /** Outcome of [SempodsControlPlaneClient.createPod] — `PUT` answers 201 for a fresh pod and 200 for one that was already there. */
 enum class CreatePodResult { created, alreadyExists }
+
+/**
+ * A pod as [SempodsControlPlaneClient.pod] reads it: its [name] and the [owner] WebID the creating
+ * `PUT` stored, which a later `PUT` never changes.
+ */
+data class HostedPodInfo(
+  val name: String,
+  val owner: URI,
+)
 
 /**
  * Outcome of [SempodsControlPlaneClient.provisionServiceClient], the server's answer as it came.

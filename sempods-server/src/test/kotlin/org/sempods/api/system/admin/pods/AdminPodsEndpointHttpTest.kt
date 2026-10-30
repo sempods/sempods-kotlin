@@ -12,8 +12,10 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.controlplane.CreatePodResult
+import org.sempods.controlplane.HostedPodInfo
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.ObjectMapper
+import java.net.URI
 import java.net.URLEncoder
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,6 +52,9 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
   private fun podUrl(pod: String) = "${SempodsModule.config.apiBaseUrl}_system/admin/pods/$pod"
 
   private fun newPodName() = "pod-${randomId()}"
+
+  /** What the identity service's `id_token` names for a person who signed in with an email. */
+  private fun newOwnerWebId() = webIdUriDeriver.deriveFromEmail("owner-${randomId()}@test.com")
 
   private fun put(pod: String, body: String, authorization: String? = adminBearer): TestHttpResponse =
     http.preparePut(podUrl(pod))
@@ -126,6 +131,67 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `PUT creates the pod for an owner WebID and stores that WebID`() = withSetup {
+    val pod = newPodName()
+    val ownerWebId = newOwnerWebId()
+
+    val created = adminAs().createPod(pod, URI(ownerWebId))
+
+    assertEquals(201, created.status)
+    assertEquals(CreatePodResult.created, created.body)
+    assertEquals(ownerWebId, assertNotNull(podDao.fetchByName(pod), "pod row missing").owner)
+  }
+
+  @Test
+  fun `PUT with an owner WebID is idempotent and does not transfer ownership`() = withSetup {
+    val pod = newPodName()
+    val admin = adminAs()
+    val ownerWebId = newOwnerWebId()
+    assertEquals(CreatePodResult.created, admin.createPod(pod, URI(ownerWebId)).body)
+
+    val again = admin.createPod(pod, URI(newOwnerWebId()))
+
+    assertEquals(200, again.status)
+    assertEquals(CreatePodResult.alreadyExists, again.body)
+    assertEquals(ownerWebId, assertNotNull(podDao.fetchByName(pod)).owner, "owner must be untouched")
+  }
+
+  @Test
+  fun `PUT names its owner exactly once`() {
+    val pod = newPodName()
+    val email = "owner-${randomId()}@test.com"
+    val webId = newOwnerWebId()
+
+    val both = put(pod, """{"ownerEmail":"$email","ownerWebId":"$webId"}""")
+    assertEquals(400, both.statusCode, "body=${both.responseBody}")
+    assertTrue("exactly one" in both.responseBody, both.responseBody)
+    assertEquals(400, put(pod, """{"ownerEmail":" ","ownerWebId":" "}""").statusCode)
+    assertEquals(400, put(pod, """{"ownerWebId":"  "}""").statusCode)
+    assertNull(podDao.fetchByName(pod), "no pod may be created by a rejected request")
+  }
+
+  @Test
+  fun `PUT refuses an owner WebID no pod can have, whether or not the pod exists`() {
+    val hash = newOwnerWebId().substringAfterLast('/')
+    val oidcWebId = newOwnerWebId().replace("/e/", "/oidc/")
+    val refused = listOf(
+      oidcWebId,
+      "urn:sempods:e:$hash",
+      "https://elsewhere.example/e/$hash",
+      "not a uri",
+    )
+    val fresh = newPodName()
+    val existing = sempodsTestFactory.newPod()
+
+    refused.forEach { webId ->
+      val body = """{"ownerWebId":"$webId"}"""
+      assertEquals(400, put(fresh, body).statusCode, "fresh pod, ownerWebId=$webId")
+      assertEquals(400, put(existing.name, body).statusCode, "existing pod, ownerWebId=$webId")
+    }
+    assertNull(podDao.fetchByName(fresh), "no pod may be created by a rejected request")
+  }
+
+  @Test
   fun `a pod name the server cannot accept is a 400, not a 500`() {
     val validBody = """{"ownerEmail":"owner-${randomId()}@test.com"}"""
 
@@ -145,6 +211,25 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(objectMapper.readTree(checkNotNull(found.body)).path("exists").asBoolean())
 
     assertEquals(404, admin.podExists("pod-${randomId()}").status)
+  }
+
+  @Test
+  fun `GET reports the stored owner`() = withSetup {
+    val pod = newPodName()
+    val ownerEmail = "owner-${randomId()}@test.com"
+    val admin = adminAs()
+    assertEquals(CreatePodResult.created, admin.createPod(pod, ownerEmail).body)
+    val owner = webIdUriDeriver.deriveFromEmail(ownerEmail)
+
+    val raw = get(pod)
+    assertEquals(200, raw.statusCode, "body=${raw.responseBody}")
+    assertEquals(owner, raw.field("owner"))
+    assertEquals(pod, raw.field("pod"))
+
+    assertEquals(HostedPodInfo(name = pod, owner = URI(owner)), admin.pod(pod).body)
+    val unknown = admin.pod("pod-${randomId()}")
+    assertEquals(404, unknown.status)
+    assertNull(unknown.body)
   }
 
   @Test
