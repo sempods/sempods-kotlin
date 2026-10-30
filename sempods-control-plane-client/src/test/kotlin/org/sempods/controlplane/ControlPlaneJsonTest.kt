@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.net.URI
 
-/** The three documents the admin routes exchange, read and written without a server in the way. */
+/** The documents the admin routes exchange, read and written without a server in the way. */
 class ControlPlaneJsonTest {
 
   @Test
@@ -107,6 +107,44 @@ class ControlPlaneJsonTest {
       assertThrows<IllegalArgumentException>(body) {
         ControlPlaneJson.provisioned(body, fallbackClientId = "notes-app")
       }
+    }
+  }
+
+  @Test
+  fun `an owner's pods are read with their label and the owner each is stored under`() {
+    val pods = ControlPlaneJson.ownedPods(
+      """
+      {
+        "pods": [
+          {"pod": "alice", "displayName": "Alice", "owner": "https://id.example/e/1", "extra": 1},
+          {"pod": "notes", "owner": "https://id.example/e/2"}
+        ]
+      }
+      """.trimIndent(),
+    )
+
+    assertEquals(
+      listOf(
+        OwnedPod(pod = "alice", displayName = "Alice", owner = "https://id.example/e/1"),
+        OwnedPod(pod = "notes", displayName = null, owner = "https://id.example/e/2"),
+      ),
+      pods,
+    )
+    assertEquals(emptyList<OwnedPod>(), ControlPlaneJson.ownedPods("""{"pods":[]}"""))
+  }
+
+  @Test
+  fun `an owner listing that is not the route's document is refused`() {
+    listOf(
+      "{}" to "pods",
+      """{"pods":{}}""" to "pods",
+      """{"pods":["alice"]}""" to "pods",
+      """{"pods":[{"owner":"https://id.example/e/1"}]}""" to "pod",
+      """{"pods":[{"pod":"alice"}]}""" to "owner",
+      "[]" to "JSON object",
+    ).forEach { (body, named) ->
+      val refused = assertThrows<IllegalArgumentException>(body) { ControlPlaneJson.ownedPods(body) }
+      assertTrue(refused.message!!.contains(named), "for $body: ${refused.message}")
     }
   }
 

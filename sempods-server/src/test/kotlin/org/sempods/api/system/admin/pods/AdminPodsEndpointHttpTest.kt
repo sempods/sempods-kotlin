@@ -5,6 +5,7 @@ import org.sempods.commons.identity.WebIdUriDeriver
 import org.sempods.SempodsIntegrationTest
 import org.sempods.SempodsFacade
 import org.sempods.SempodsModule
+import org.sempods.SempodsTestSetup
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.pods.mongo.persist.PodDao
@@ -12,6 +13,7 @@ import org.sempods.commons.tests.TestUtil.randomId
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.controlplane.CreatePodResult
+import org.sempods.controlplane.OwnedPod
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.ObjectMapper
 import java.net.URLEncoder
@@ -23,7 +25,8 @@ import kotlin.test.assertTrue
 
 /**
  * Pod lifecycle over the host-level admin surface:
- * `PUT` / `GET` / `DELETE /_system/admin/pods/{pod}`.
+ * `PUT` / `GET` / `DELETE /_system/admin/pods/{pod}`, and the listing by owner,
+ * `GET /_system/admin/pods?owner=…`.
  *
  * Also the wire-level contract of the [org.sempods.admin.AdminAuthorizer] seam (A0) — 401 without
  * disclosure, 503 when the deployment configured no admin authority. This is the only root resource
@@ -68,8 +71,84 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       .apply { authorization?.let { addHeader("Authorization", it) } }
       .execute()
 
+  private fun list(owners: List<String>, authorization: String? = adminBearer): TestHttpResponse =
+    http.prepareGet("${SempodsModule.config.apiBaseUrl}_system/admin/pods")
+      .apply { owners.forEach { addQueryParam("owner", it) } }
+      .apply { authorization?.let { addHeader("Authorization", it) } }
+      .execute()
+
   private fun TestHttpResponse.field(name: String): String =
     objectMapper.readTree(responseBody).path(name).asString()
+
+  private fun newOwnerWebId() = webIdUriDeriver.deriveFromEmail("owner-${randomId()}@test.com")
+
+  private fun newPodOwnedBy(webId: String): String =
+    newPodName().also { podDao.insert(name = it, owner = webId) }
+
+  private fun SempodsTestSetup.podsOwnedBy(vararg owners: String): List<String> =
+    checkNotNull(adminAs().podsOwnedBy(owners.toList()).body).map { it.pod }
+
+  @Test
+  fun `the listing answers an owner's pods by name, and none for an owner without any`() = withSetup {
+    val owner = newOwnerWebId()
+    val other = newOwnerWebId()
+    val pods = listOf(newPodOwnedBy(owner), newPodOwnedBy(owner), newPodOwnedBy(owner)).sorted()
+    val othersPod = newPodOwnedBy(other)
+
+    assertEquals(pods, podsOwnedBy(owner))
+    assertEquals(listOf(othersPod), podsOwnedBy(other))
+    assertEquals(emptyList(), podsOwnedBy(newOwnerWebId()))
+  }
+
+  @Test
+  fun `the listing answers the pods of every owner it names, each once`() = withSetup {
+    val first = newOwnerWebId()
+    val second = newOwnerWebId()
+    val firstPod = newPodOwnedBy(first)
+    val secondPod = newPodOwnedBy(second)
+
+    assertEquals(listOf(firstPod, secondPod).sorted(), podsOwnedBy(first, second))
+    // The same owner twice, and once through its URN twin, still lists the pod once.
+    val twin = WebIdUriDeriver.URN_EMAIL_PREFIX + first.substringAfterLast('/')
+    assertEquals(listOf(firstPod), podsOwnedBy(first, first, twin))
+  }
+
+  @Test
+  fun `a pod found through the URN twin names the WebID it is stored under`() = withSetup {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+    podDao.setDisplayName(checkNotNull(podDao.fetchByName(pod)?.id), "Notes")
+
+    val listed = checkNotNull(adminAs().podsOwnedBy(listOf(WebIdUriDeriver.URN_EMAIL_PREFIX + owner.substringAfterLast('/'))).body)
+
+    assertEquals(listOf(OwnedPod(pod = pod, displayName = "Notes", owner = owner)), listed)
+  }
+
+  @Test
+  fun `the answer of the listing names each pod, its label and its owner`() {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+
+    val answer = list(listOf(owner))
+
+    assertEquals(200, answer.statusCode, "body=${answer.responseBody}")
+    val listed = objectMapper.readTree(answer.responseBody).path("pods").single()
+    assertEquals(pod, listed.path("pod").asString())
+    assertEquals(owner, listed.path("owner").asString())
+    assertFalse(listed.has("displayName"), "a pod without a label carries no displayName: $listed")
+  }
+
+  @Test
+  fun `a listing without a usable owner set is a 400`() {
+    val owner = newOwnerWebId()
+
+    assertEquals(400, list(emptyList()).statusCode)
+    assertEquals(400, list(listOf("")).statusCode)
+    assertEquals(400, list(listOf(owner, "not an iri")).statusCode)
+    assertEquals(400, list(listOf("relative/path")).statusCode)
+    assertEquals(400, list(List(21) { newOwnerWebId() }).statusCode)
+    assertEquals(200, list(List(20) { newOwnerWebId() }).statusCode)
+  }
 
   @Test
   fun `PUT creates the pod and stores the owner as the WebID derived from the email`() = withSetup {
@@ -201,6 +280,8 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(401, put(pod.name, body, authorization = "Bearer sc_wrong").statusCode)
     assertEquals(401, get(pod.name, authorization = null).statusCode)
     assertEquals(401, get(pod.name, authorization = "Bearer sc_wrong").statusCode)
+    assertEquals(401, list(listOf(pod.owner), authorization = null).statusCode)
+    assertEquals(401, list(listOf(pod.owner), authorization = "Bearer sc_wrong").statusCode)
     assertEquals(401, delete(pod.name, authorization = null).statusCode)
     val wrong = delete(pod.name, authorization = "Bearer sc_wrong")
     assertEquals(401, wrong.statusCode)
@@ -223,6 +304,7 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       assertEquals(503, put(pod.name, body, authorization = null).statusCode)
       assertEquals(503, put(pod.name, body).statusCode)
       assertEquals(503, get(pod.name).statusCode)
+      assertEquals(503, list(listOf(pod.owner)).statusCode)
       assertEquals(503, delete(pod.name).statusCode)
     }
 
