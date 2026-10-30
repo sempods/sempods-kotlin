@@ -6,6 +6,7 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Projections
+import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -47,6 +48,8 @@ class PodDao internal constructor(
     // against an existing index whose *options* differ, and that failure lands at boot rather than
     // at the first query.
     pods.createIndex(Indexes.ascending(PodDboFields.name), IndexOptions().unique(true))
+    // The admin listing reads by owner, once per sign-in at an owner console.
+    pods.createIndex(Indexes.ascending(PodDboFields.owner))
   }
 
   /**
@@ -108,6 +111,13 @@ class PodDao internal constructor(
       ?.getInstant(PodDboFields.lastModifiedAt)
 
   internal fun fetchAll(): List<PodDbo> = pods.find().map { it.toDbo() }.toList()
+
+  /** The pods whose stored owner is one of [owners], by name. Each pod once, however many match it. */
+  internal fun fetchByOwners(owners: Collection<String>): List<PodDbo> =
+    pods.find(Filters.`in`(PodDboFields.owner, owners))
+      .sort(Sorts.ascending(PodDboFields.name))
+      .map { it.toDbo() }
+      .toList()
 
   internal fun updateLastModifiedAt(name: String, lastModifiedAt: Instant = Instant.now()) {
     pods.updateOne(

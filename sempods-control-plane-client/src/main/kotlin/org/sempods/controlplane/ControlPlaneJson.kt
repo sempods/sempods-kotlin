@@ -8,7 +8,7 @@ import java.net.URI
 import java.net.URISyntaxException
 
 /**
- * The admin surface's JSON: the two documents this client sends, and the one it reads.
+ * The admin surface's JSON: the two documents this client sends, and the two it reads.
  *
  * A body that is not the document the route promises fails here, and the failure carries no part of
  * it: [org.sempods.client.SempodsResponse.map] turns what this throws into a decoding failure
@@ -46,13 +46,7 @@ internal object ControlPlaneJson {
    * Refuses the answers [SempodsControlPlaneClient.provisionServiceClient] does not accept.
    */
   fun provisioned(json: String, fallbackClientId: String): ProvisionServiceClientResult {
-    val root = try {
-      mapper.readTree(json)
-    } catch (_: JacksonException) {
-      throw IllegalArgumentException("the answer is not one JSON object")
-    }
-    if (root !is ObjectNode) throw IllegalArgumentException("the answer is not one JSON object")
-
+    val root = objectOf(json)
     val result = text(root, "result")
     require(result == PROVISIONED || result == ALREADY_PROVISIONED) {
       "the answer's 'result' is neither '$PROVISIONED' nor '$ALREADY_PROVISIONED'"
@@ -72,9 +66,30 @@ internal object ControlPlaneJson {
     )
   }
 
+  /** The answer of `GET {server}/_system/admin/pods?owner=…`, every pod with its `pod` and `owner`. */
+  fun ownedPods(json: String): List<OwnedPod> {
+    val root = objectOf(json)
+    val pods = root["pods"]
+    require(pods != null && pods.isArray) { "the answer has no array member 'pods'" }
+    return (0 until pods.size()).map { index ->
+      val pod = pods.get(index)
+      require(pod is ObjectNode) { "the answer's 'pods' holds a value that is not an object" }
+      OwnedPod(pod = text(pod, "pod"), displayName = optionalText(pod, "displayName"), owner = text(pod, "owner"))
+    }
+  }
+
   private const val PROVISIONED = "provisioned"
 
   private const val ALREADY_PROVISIONED = "alreadyProvisioned"
+
+  private fun objectOf(json: String): ObjectNode {
+    val root = try {
+      mapper.readTree(json)
+    } catch (_: JacksonException) {
+      throw IllegalArgumentException("the answer is not one JSON object")
+    }
+    return root as? ObjectNode ?: throw IllegalArgumentException("the answer is not one JSON object")
+  }
 
   /** A member the route guarantees. A missing one is a broken contract rather than an empty value. */
   private fun text(root: ObjectNode, member: String): String =

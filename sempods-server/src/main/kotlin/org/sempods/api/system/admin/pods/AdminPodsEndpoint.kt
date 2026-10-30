@@ -12,6 +12,7 @@ import org.sempods.SempodsFacade
 import org.sempods.SempodsUriBuilder
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.api.system.admin.AdminAuthorizedEndpoint
+import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
@@ -28,6 +29,7 @@ import jakarta.ws.rs.POST
 import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
+import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.MediaType
@@ -42,6 +44,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * Routes (all gated by [requireAdminOrThrow], see [AdminAuthorizedEndpoint]):
  *
  * ```
+ * GET    /_system/admin/pods?owner={webId}[&owner={webId}…]
  * PUT    /_system/admin/pods/{pod}                             {ownerEmail}
  * DELETE /_system/admin/pods/{pod}
  * GET    /_system/admin/pods/{pod}
@@ -71,6 +74,33 @@ class AdminPodsEndpoint @Inject constructor(
   private val sempodsUriBuilder: SempodsUriBuilder,
   adminAuthorizer: AdminAuthorizer,
 ) : AdminAuthorizedEndpoint(adminAuthorizer) {
+
+  /**
+   * The pods whose stored owner is one of the `owner` WebIDs, by pod name. Why `owner` repeats is
+   * `sempods-server/docs/host-provisioning.md` §"Listing an owner's pods". Each value is widened to
+   * its URN twin ([WebIdUriDeriver.derivableAliases]), as the owner check at sign-in is.
+   *
+   * 400 for no `owner`, more than [MAX_OWNERS] values, or a value that is not an absolute IRI. A
+   * well-formed WebID the host never stored as an owner is not an error; it matches nothing.
+   */
+  @GET
+  fun listPodsByOwner(
+    @HeaderParam("Authorization") authorization: String?,
+    @QueryParam("owner") owners: List<String>?,
+  ): Response {
+
+    requireAdminOrThrow(authorization)
+    val values = owners.orEmpty().map { it.trim() }
+    if (values.isEmpty()) throw badRequest("owner is required")
+    if (values.size > MAX_OWNERS) throw badRequest("at most $MAX_OWNERS owner values are accepted")
+    values.forEach { value ->
+      IriSyntax.rejectionReason(value)?.let { throw badRequest("invalid owner: $it") }
+    }
+
+    val pods = podDao.fetchByOwners(values.flatMap(webIdUriDeriver::derivableAliases).toSet())
+      .map { OwnedPod(pod = it.name, displayName = it.displayName?.takeIf(String::isNotBlank), owner = it.owner) }
+    return Response.ok(OwnedPodsResponse(pods = pods)).build()
+  }
 
   /**
    * Creates the pod for `ownerEmail`. The owner is stored as the WebID derived from the email —
@@ -315,6 +345,9 @@ class AdminPodsEndpoint @Inject constructor(
      */
     private const val APP_CONTEXT_ROOT_PREFIX = "apps/"
 
+    /** How many `owner` values one listing takes — more than one person's identities ever need. */
+    private const val MAX_OWNERS = 20
+
     /** Keeps the clientId a single, traversal-safe path segment. */
     private val CLIENT_ID_PATTERN = Regex("[A-Za-z0-9._-]+")
 
@@ -342,6 +375,26 @@ data class CreatePodRequest(
 data class PodLifecycleResponse(
   val pod: String,
   val result: String,
+)
+
+/** Response of `GET /_system/admin/pods?owner=…`: the matching pods by name, possibly none. */
+data class OwnedPodsResponse(
+  val pods: List<OwnedPod>,
+)
+
+/** One pod in [OwnedPodsResponse]. */
+data class OwnedPod(
+  val pod: String,
+
+  /** The pod's label, as its RFC 9728 metadata names it. Omitted when it has none or it was cleared. */
+  @field:[JsonProperty JsonInclude(JsonInclude.Include.NON_NULL)]
+  val displayName: String? = null,
+
+  /**
+   * The WebID the pod is stored under, which tells the caller which of the person's identities owns
+   * it. Always the stored `https` form, also when the request named its `urn:sempods:e:` twin.
+   */
+  val owner: String,
 )
 
 /** Response of `GET /_system/admin/pods/{pod}` (404 when the pod is unknown). */
