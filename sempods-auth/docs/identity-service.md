@@ -78,7 +78,8 @@ address", with Allow and Deny. Google's or Apple's consent screen named only thi
 is the first time the person sees which client asks.
 
 - The screen names the client by the host of its redirect address, which the redirect policy has
-  tied to the `client_id`. Nothing the client says about itself is shown.
+  tied to the `client_id`, plus the path of a path-scoped identifier: `did:web:apps.example:console`
+  shows as `apps.example/console`. Nothing the client says about itself is shown.
 - Allow is stored per WebID and `client_id`. A later request within the agreed scopes shows no
   screen; `prompt=consent` shows it anyway.
 - Deny completes the sign-in with `openid` alone and is not stored.
@@ -95,8 +96,9 @@ also the CSRF token: `POST /consent` without it is refused with `403`.
 login request. The caller validates signature, issuer, audience, nonce and expiry.
 
 With an agreed `profile` scope the token carries `name` and `picture`; with `email`, `email` and
-`email_verified: true`. Each is left out when the profile has no value: Apple supplies no picture,
-and an `/oidc/` WebID has no address. They are in the `id_token` because the service has no
+`email_verified: true`. The values are the profile's when the code is redeemed, and each is left
+out when the profile has none: a latest sign-in through Apple leaves no picture, and an `/oidc/`
+WebID has no address. They are in the `id_token` because the service has no
 UserInfo endpoint (OpenID Connect Core §2 allows that). Any other scope is refused with
 `invalid_scope`.
 

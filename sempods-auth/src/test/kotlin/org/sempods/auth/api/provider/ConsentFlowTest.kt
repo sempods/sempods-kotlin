@@ -114,11 +114,13 @@ class ConsentFlowTest : SempodsAuthIntegrationTest() {
     provider: OidcProviderClient,
     scope: String,
     promptConsent: Boolean = false,
+    clientId: String = this.clientId,
+    redirectUri: String = redirect,
   ): HttpResponse {
     val state = stateStore.generate(
       StateStore.PendingAuthorize(
         clientId = clientId,
-        redirectUri = redirect,
+        redirectUri = redirectUri,
         clientState = "client-state",
         nonce = "n",
         codeChallenge = Pkce.challengeFor(verifier),
@@ -179,6 +181,26 @@ class ConsentFlowTest : SempodsAuthIntegrationTest() {
       assertEquals("DENY", screen.headers["X-Frame-Options"])
       assertTrue("frame-ancestors 'none'" in screen.headers["Content-Security-Policy"].orEmpty())
       assertTrue("no-store" in screen.headers[HttpHeaders.CacheControl].orEmpty())
+    }
+  }
+
+  @Test
+  fun `a path-scoped client is named with its path, so two apps on one host stay apart`() {
+    val google = google()
+    withFlow(google) { http ->
+      val console = signIn(
+        http, google, "openid email",
+        clientId = "did:web:console.example.invalid:console",
+        redirectUri = "https://console.example.invalid/console/cb",
+      ).bodyAsText()
+      val reports = signIn(
+        http, google, "openid email",
+        clientId = "did:web:console.example.invalid:reports",
+        redirectUri = "https://console.example.invalid/reports/cb",
+      ).bodyAsText()
+
+      assertTrue("console.example.invalid/console asks for" in console, console)
+      assertTrue("console.example.invalid/reports asks for" in reports, reports)
     }
   }
 

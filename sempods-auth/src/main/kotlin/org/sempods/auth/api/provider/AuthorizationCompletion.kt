@@ -6,6 +6,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.core.DidWeb
 import org.sempods.auth.login.ConsentTransactionStore
 import org.sempods.auth.login.ConsentTransactionStore.PendingConsent
 import org.sempods.auth.login.StateStore.PendingAuthorize
@@ -19,7 +20,10 @@ import java.net.URI
  * §"Agreement".
  *
  * The scopes a code is issued with are the ones the token endpoint releases claims for, so they are
- * narrowed here, never later: what the person agreed to, plus `openid`.
+ * narrowed here, never later: what the person agreed to, plus `openid`. Every code issued here
+ * carries [AGREEMENT_TEXT] as its `consentText`, and the token endpoint releases claims about the
+ * person only for a code that does. A code from anywhere else — a node still running the release
+ * before this step existed, during a rolling deploy — names the WebID and nothing more.
  */
 class AuthorizationCompletion(
   private val issuer: String,
@@ -43,7 +47,7 @@ class AuthorizationCompletion(
     call.response.headers.append("Content-Security-Policy", "frame-ancestors 'none'")
     call.respondText(
       ConsentPage.render(
-        clientHost = hostOf(pending.redirectUri),
+        client = displayNameOf(pending.clientId, pending.redirectUri),
         asked = asked,
         signedInAs = webIdProfileDao.findByUri(webId)?.displayName?.takeIf { it.isNotBlank() } ?: webId,
         consentKey = key,
@@ -80,16 +84,32 @@ class AuthorizationCompletion(
       codeChallenge = pending.codeChallenge,
       codeChallengeMethod = pending.codeChallengeMethod,
       nonce = pending.nonce,
+      consentText = AGREEMENT_TEXT,
     )
     return AuthorizationResponses.code(pending.redirectUri, code, pending.clientState, issuer)
   }
 
-  private fun hostOf(redirectUri: String): String {
+  /**
+   * The client as the redirect policy verified it: the host of its redirect address, and for a
+   * path-scoped `did:web` identifier its path too. `did:web:apps.example:console` and
+   * `did:web:apps.example:reports` are different clients with different agreements, so the screen
+   * must not show both as `apps.example`.
+   */
+  private fun displayNameOf(clientId: String, redirectUri: String): String {
     val uri = URI(redirectUri)
-    return if (uri.port == -1) uri.host else "${uri.host}:${uri.port}"
+    val authority = if (uri.port == -1) uri.host else "${uri.host}:${uri.port}"
+    val path = DidWeb.targetOf(clientId)?.pathPrefix?.takeIf { it != "/" }.orEmpty()
+    return authority + path
   }
 
-  private companion object {
-    const val OPENID = "openid"
+  companion object {
+
+    /**
+     * The version of the agreement step a code passed through, recorded as the code's
+     * `consentText`. Raise it when the screen starts asking about something new.
+     */
+    const val AGREEMENT_TEXT = 1
+
+    private const val OPENID = "openid"
   }
 }

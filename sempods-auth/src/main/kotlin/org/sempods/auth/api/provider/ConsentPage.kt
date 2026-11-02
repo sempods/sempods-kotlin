@@ -18,11 +18,12 @@ internal object ConsentPage {
   )
 
   /**
-   * @param clientHost the host of the client's verified redirect address.
+   * @param client the client as verified: the host of its redirect address, with the path of a
+   *   path-scoped identifier.
    * @param asked the scopes beyond `openid` the client requested.
    * @param signedInAs the person's display name, or their WebID when they have none.
    */
-  fun render(clientHost: String, asked: Set<String>, signedInAs: String, consentKey: String): String =
+  fun render(client: String, asked: Set<String>, signedInAs: String, consentKey: String): String =
     buildString {
       append("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n")
       append("<meta charset=\"UTF-8\">\n")
@@ -41,7 +42,7 @@ internal object ConsentPage {
       append("button.allow{background:var(--accent);border-color:var(--accent);color:#fff}")
       append("</style>\n</head>\n<body>\n")
       append("<h1>")
-      appendEscapedHtml(clientHost)
+      appendEscapedHtml(client)
       append(" asks for</h1>\n<ul>\n")
       for ((scope, description) in DESCRIPTIONS) {
         if (scope in asked) append("<li>").append(description).append("</li>\n")

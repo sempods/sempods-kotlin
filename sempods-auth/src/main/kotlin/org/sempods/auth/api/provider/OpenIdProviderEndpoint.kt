@@ -24,6 +24,7 @@ import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RedirectUri
 import org.sempods.auth.login.JwtIssuer
 import org.sempods.auth.login.LoginService
+import org.sempods.auth.login.PersonClaims
 import org.sempods.auth.login.StateStore
 import org.sempods.auth.oidc.OidcProviderClient
 
@@ -190,7 +191,7 @@ fun Application.openIdProviderEndpoint(
       )
       val state = stateStore.generate(pending = pending)
       logger.info { "[authorize] client='$clientId' provider='${provider.name}'" }
-      call.respondRedirect(provider.authorizeUrl(state, OidcPrompt.parse(q["prompt"])))
+      call.respondRedirect(provider.authorizeUrl(state, upstreamPrompt(promptValues)))
     }
 
     post(OpenIdConfiguration.TOKEN_PATH) {
@@ -238,13 +239,19 @@ fun Application.openIdProviderEndpoint(
 
       // Server-derived, and only server-derived. A pod decides grants and ownership with the
       // equivalent identities, so nothing a client can influence may reach them. The person claims
-      // follow the code's scopes, which hold only what the person agreed to release to this client.
+      // follow the code's scopes, which hold only what the person agreed to release to this client —
+      // provided the code passed the agreement step at all (`AuthorizationCompletion.AGREEMENT_TEXT`).
+      val personClaims = if (entry.consentText != null) {
+        loginService.personClaimsFor(entry.subject, entry.scopes)
+      } else {
+        PersonClaims.NONE
+      }
       val idToken = jwtIssuer.issueIdToken(
         webIdUri = entry.subject,
         audience = entry.clientId,
         equivalentIdentities = loginService.equivalentIdentitiesFor(entry.subject),
         nonce = entry.nonce,
-        personClaims = loginService.personClaimsFor(entry.subject, entry.scopes),
+        personClaims = personClaims,
       )
       val accessToken = jwtIssuer.issueAccessToken(webIdUri = entry.subject, scopes = entry.scopes)
       logger.info { "[token] id_token issued: client='$clientId' sub='${entry.subject}'" }
@@ -269,6 +276,16 @@ fun Application.openIdProviderEndpoint(
 
 /** OIDC Core §3.1.2.1: ask about released claims again (`AuthorizationCompletion`). */
 private const val PROMPT_CONSENT = "consent"
+
+/**
+ * The value forwarded upstream from a space-separated `prompt`. `consent` is answered here, so
+ * `login consent` must still reach the provider as `login`. `select_account` implies a login at
+ * every provider that supports it, so it wins over `login`.
+ */
+private fun upstreamPrompt(values: Set<String>): OidcPrompt? {
+  val known = values.mapNotNull(OidcPrompt::parse).toSet()
+  return OidcPrompt.SELECT_ACCOUNT.takeIf { it in known } ?: OidcPrompt.LOGIN.takeIf { it in known }
+}
 
 /** Mirrors `JwtIssuer`'s access-token lifetime; `expires_in` describes that token, not the id_token. */
 private const val ACCESS_TOKEN_TTL_SECONDS = 15L * 60
