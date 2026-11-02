@@ -134,6 +134,11 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     val claimsSupported = OIDCProviderMetadata.parse(body).claims
     assertTrue(EquivalentIdentities.CLAIM in claimsSupported, "the claim a pod reads is advertised: $claimsSupported")
     assertTrue("also_known_as" !in claimsSupported, "OIDC's human pseudonym is not something this provider issues")
+    assertTrue(
+      claimsSupported.containsAll(listOf("name", "picture", "email", "email_verified")),
+      "the claims of OIDC Core §5.4's profile and email scopes: $claimsSupported",
+    )
+    assertEquals(listOf("openid", "profile", "email"), OIDCProviderMetadata.parse(body).scopes.toStringList())
 
     // Advertised is one thing; mounted is another. An endpoint named in the document and not
     // served is worse than one that is merely undocumented.
@@ -208,6 +213,19 @@ class OpenIdProviderEndpointTest : SempodsAuthIntegrationTest() {
     val location = http.get(authorizeUrl(extra = "&prompt=none")).headers["Location"].orEmpty()
 
     assertTrue("login_required" in location, location)
+  }
+
+  @Test
+  fun `prompt=consent is carried to the agreement step`() {
+    val stateStore = injector.getInstance(StateStore::class.java)
+    withProvider(google, stateStore = stateStore) { http ->
+      val location = http.get(authorizeUrl(scope = "openid email", extra = "&prompt=consent")).headers["Location"].orEmpty()
+
+      assertTrue(location.startsWith("https://google.example.invalid/authorize"), location)
+      val parked = assertNotNull(stateStore.consume(Url(location).parameters["state"]!!))
+      assertTrue(parked.promptConsent)
+      assertEquals(setOf("openid", "email"), parked.scopes)
+    }
   }
 
   // ─── provider selection ───────────────────────────────────────────────────

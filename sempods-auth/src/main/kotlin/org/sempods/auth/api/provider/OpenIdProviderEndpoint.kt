@@ -114,8 +114,8 @@ fun Application.openIdProviderEndpoint(
         return@get call.respondRedirect(fail(OAuth2Error.INVALID_SCOPE.setDescription("the 'openid' scope is required")))
       }
       // Refused rather than ignored. RFC 6749 §3.3 permits either, but the discovery document
-      // promises `scopes_supported: ["openid"]`, and ignoring means a value the client chose is
-      // carried into the authorization code and read by whatever comes next.
+      // promises `scopes_supported`, and ignoring means a value the client chose is carried into
+      // the authorization code and read by whatever comes next.
       (scopes - OpenIdConfiguration.SUPPORTED_SCOPES.toSet()).firstOrNull()?.let { unsupported ->
         return@get call.respondRedirect(fail(OAuth2Error.INVALID_SCOPE.setDescription(callerText("unsupported scope: $unsupported"))))
       }
@@ -186,6 +186,7 @@ fun Application.openIdProviderEndpoint(
         codeChallenge = codeChallenge.value,
         codeChallengeMethod = Pkce.METHOD_S256,
         scopes = scopes,
+        promptConsent = PROMPT_CONSENT in promptValues,
       )
       val state = stateStore.generate(pending = pending)
       logger.info { "[authorize] client='$clientId' provider='${provider.name}'" }
@@ -236,12 +237,14 @@ fun Application.openIdProviderEndpoint(
       }
 
       // Server-derived, and only server-derived. A pod decides grants and ownership with the
-      // equivalent identities, so nothing a client can influence may reach them.
+      // equivalent identities, so nothing a client can influence may reach them. The person claims
+      // follow the code's scopes, which hold only what the person agreed to release to this client.
       val idToken = jwtIssuer.issueIdToken(
         webIdUri = entry.subject,
         audience = entry.clientId,
         equivalentIdentities = loginService.equivalentIdentitiesFor(entry.subject),
         nonce = entry.nonce,
+        personClaims = loginService.personClaimsFor(entry.subject, entry.scopes),
       )
       val accessToken = jwtIssuer.issueAccessToken(webIdUri = entry.subject, scopes = entry.scopes)
       logger.info { "[token] id_token issued: client='$clientId' sub='${entry.subject}'" }
@@ -263,6 +266,9 @@ fun Application.openIdProviderEndpoint(
     }
   }
 }
+
+/** OIDC Core §3.1.2.1: ask about released claims again (`AuthorizationCompletion`). */
+private const val PROMPT_CONSENT = "consent"
 
 /** Mirrors `JwtIssuer`'s access-token lifetime; `expires_in` describes that token, not the id_token. */
 private const val ACCESS_TOKEN_TTL_SECONDS = 15L * 60

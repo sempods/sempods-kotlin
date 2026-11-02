@@ -2,6 +2,8 @@ package org.sempods.auth
 
 import org.sempods.auth.core.ClientRedirectPolicy
 import org.sempods.auth.core.AuthorizationCodeStore
+import org.sempods.auth.api.provider.AuthorizationCompletion
+import org.sempods.auth.api.provider.consentEndpoint
 import org.sempods.auth.api.provider.openIdProviderEndpoint
 import com.google.inject.Guice
 import org.sempods.commons.ktor.trace.installTraceContext
@@ -37,6 +39,7 @@ fun startSempodsAuth(config: SempodsAuthConfig) {
   val loginService = injector.getInstance(LoginService::class.java)
   val oidcRegistry = injector.getInstance(OidcRegistry::class.java)
   val authorizationCodeStore = injector.getInstance(AuthorizationCodeStore::class.java)
+  val completion = injector.getInstance(AuthorizationCompletion::class.java)
 
   logger.info { "Starting sempods-auth on port ${config.port}" }
   logger.info { "id base URL:    ${config.idBaseUrl}" }
@@ -51,9 +54,10 @@ fun startSempodsAuth(config: SempodsAuthConfig) {
       stateStore = stateStore,
       providers = oidcRegistry.providers,
       loginService = loginService,
-      authorizationCodeStore = authorizationCodeStore,
+      completion = completion,
       issuer = config.idBaseUrl,
     )
+    consentEndpoint(completion)
     openIdProviderEndpoint(
       issuer = config.idBaseUrl,
       providers = oidcRegistry.providers,

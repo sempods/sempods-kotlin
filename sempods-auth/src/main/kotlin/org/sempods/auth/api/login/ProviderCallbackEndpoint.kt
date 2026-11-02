@@ -1,8 +1,8 @@
 package org.sempods.auth.api.login
 
 import com.nimbusds.oauth2.sdk.ErrorObject
+import org.sempods.auth.api.provider.AuthorizationCompletion
 import org.sempods.auth.api.provider.AuthorizationResponses
-import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OAuthErrors
 import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
@@ -27,8 +27,10 @@ import io.ktor.server.routing.*
  *
  * The flow is `/authorize`'s (`api/provider/OpenIdProviderEndpoint.kt`). It parks the authorization
  * request under the `state` it sends upstream; this route consumes that state, exchanges the
- * provider's code for claims, and answers the parked request with a single-use authorization code.
- * Nothing that authenticates anyone travels back through the browser.
+ * provider's code for claims, and hands the parked request to [AuthorizationCompletion], which
+ * answers it with a single-use authorization code — after the agreement screen, when the client
+ * asks for claims about the person. Nothing that authenticates anyone travels back through the
+ * browser.
  *
  * id.sempods.org has no knowledge of pods or OAuth grants. It authenticates people and says who
  * they are.
@@ -37,13 +39,13 @@ fun Application.providerCallbackEndpoint(
   stateStore: StateStore,
   providers: Map<String, OidcProviderClient>,
   loginService: LoginService,
-  authorizationCodeStore: AuthorizationCodeStore,
+  completion: AuthorizationCompletion,
   issuer: String,
 ) {
   routing {
     route("/login/oidc/{provider}") {
-      get("/callback") { handleCallback(call, providers, stateStore, loginService, authorizationCodeStore, issuer) }
-      post("/callback") { handleCallback(call, providers, stateStore, loginService, authorizationCodeStore, issuer) }
+      get("/callback") { handleCallback(call, providers, stateStore, loginService, completion, issuer) }
+      post("/callback") { handleCallback(call, providers, stateStore, loginService, completion, issuer) }
     }
   }
 }
@@ -53,7 +55,7 @@ private suspend fun handleCallback(
   providers: Map<String, OidcProviderClient>,
   stateStore: StateStore,
   loginService: LoginService,
-  authorizationCodeStore: AuthorizationCodeStore,
+  completion: AuthorizationCompletion,
   issuer: String,
 ) {
   val name = call.parameters["provider"]
@@ -102,15 +104,5 @@ private suspend fun handleCallback(
   // The person is authenticated, so the authorization request that started this can now be
   // answered — with a single-use code, not with the token itself. The token is fetched by the
   // client over a back channel it alone can reach.
-  val authorizationCode = authorizationCodeStore.issue(
-      subject = webId,
-      realm = issuer,
-      clientId = pending.clientId,
-      scopes = pending.scopes,
-      redirectUri = pending.redirectUri,
-      codeChallenge = pending.codeChallenge,
-      codeChallengeMethod = pending.codeChallengeMethod,
-      nonce = pending.nonce,
-  )
-  call.respondRedirect(AuthorizationResponses.code(pending.redirectUri, authorizationCode, pending.clientState, issuer))
+  completion.afterSignIn(call, webId, pending)
 }

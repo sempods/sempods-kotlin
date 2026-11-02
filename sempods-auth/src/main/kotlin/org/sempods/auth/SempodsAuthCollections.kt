@@ -30,11 +30,22 @@ internal object SempodsAuthCollections {
   /** Authorization codes. Owned by `:sempods-auth-core`; named there so all three services agree. */
   const val OAUTH_AUTH_CODES = SempodsAuthCoreModule.AUTHORIZATION_CODES
 
+  /**
+   * What a person agreed to release to a client, one row per WebID and client. Spelled as the pod
+   * server spells its own consent decisions.
+   */
+  const val OAUTH_CONSENT_DECISIONS = "oauth.consentDecisions"
+
+  /** The authorization request parked while the agreement screen is shown. */
+  const val OAUTH_CONSENT_TRANSACTIONS = "oauth.consentTransactions"
+
   /** The whole set, for the test that pins it. */
   val ALL = listOf(
     WEB_ID_PROFILES,
     OAUTH_SIGNING_KEYS,
     OAUTH_LOGIN_STATES,
     OAUTH_AUTH_CODES,
+    OAUTH_CONSENT_DECISIONS,
+    OAUTH_CONSENT_TRANSACTIONS,
   )
 }

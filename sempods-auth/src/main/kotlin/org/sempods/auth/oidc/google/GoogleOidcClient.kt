@@ -6,6 +6,7 @@ import org.sempods.auth.oidc.OidcClaims
 import org.sempods.auth.core.OidcPrompt
 import org.sempods.auth.oidc.OidcProviderClient
 import org.sempods.auth.oidc.OidcTokenExchange
+import java.net.URI
 import java.net.URLEncoder
 
 class GoogleOidcClient(
@@ -55,5 +56,19 @@ class GoogleOidcClient(
     sub = claims.subject,
     email = IdTokenVerifier.verifiedEmail(claims),
     displayName = (claims.getClaim("name") as? String)?.takeIf { it.isNotBlank() },
+    picture = (claims.getClaim("picture") as? String)?.takeIf(::isHttpsAddress),
   )
+
+  /**
+   * Google's `picture` is an address on its own image host. It is passed on to relying parties as
+   * the `picture` claim, so anything other than an absolute HTTPS address is dropped here rather
+   * than handed to them.
+   */
+  private fun isHttpsAddress(value: String): Boolean =
+    value.length <= MAX_PICTURE_LENGTH &&
+      runCatching { URI(value) }.getOrNull()?.let { it.scheme == "https" && !it.host.isNullOrBlank() } == true
+
+  private companion object {
+    const val MAX_PICTURE_LENGTH = 2048
+  }
 }
