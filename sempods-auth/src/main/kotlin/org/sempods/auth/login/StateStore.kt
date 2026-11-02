@@ -2,6 +2,7 @@ package org.sempods.auth.login
 
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
+import org.bson.Document
 import org.sempods.auth.SempodsAuthCollections
 import org.sempods.auth.core.OneTimeStore
 import org.sempods.commons.mongo.getStringSet
@@ -40,36 +41,47 @@ class StateStore @Inject constructor(db: MongoDatabase) {
     val codeChallenge: String,
     val codeChallengeMethod: String,
     val scopes: Set<String>,
+    /** `prompt=consent`: ask about the released claims again even where the person agreed before. */
+    val promptConsent: Boolean = false,
   )
 
   private val states = OneTimeStore(
     db = db,
     collectionName = SempodsAuthCollections.OAUTH_LOGIN_STATES,
     ttl = Duration.ofMinutes(10),
-    write = {
-      put("clientId", it.clientId)
-      put("redirectUri", it.redirectUri)
-      putNotNull("clientState", it.clientState)
-      putNotNull("nonce", it.nonce)
-      put("codeChallenge", it.codeChallenge)
-      put("codeChallengeMethod", it.codeChallengeMethod)
-      putStrings("scopes", it.scopes)
-    },
-    read = {
-      PendingAuthorize(
-        clientId = getString("clientId") ?: return@OneTimeStore null,
-        redirectUri = getString("redirectUri") ?: return@OneTimeStore null,
-        clientState = getString("clientState"),
-        nonce = getString("nonce"),
-        codeChallenge = getString("codeChallenge") ?: return@OneTimeStore null,
-        codeChallengeMethod = getString("codeChallengeMethod") ?: return@OneTimeStore null,
-        scopes = getStringSet("scopes"),
-      )
-    },
+    write = { putPendingAuthorize(it) },
+    read = { readPendingAuthorize() },
   )
 
   fun generate(pending: PendingAuthorize): String = states.issue(pending)
 
   /** The parked request, removed in the same operation. `null` if unknown, used, expired or unreadable. */
   fun consume(state: String): PendingAuthorize? = states.consume(state)
+
+  companion object {
+
+    /** The row shape of a [PendingAuthorize], shared with [ConsentTransactionStore], which parks one too. */
+    internal fun Document.putPendingAuthorize(pending: PendingAuthorize) {
+      put("clientId", pending.clientId)
+      put("redirectUri", pending.redirectUri)
+      putNotNull("clientState", pending.clientState)
+      putNotNull("nonce", pending.nonce)
+      put("codeChallenge", pending.codeChallenge)
+      put("codeChallengeMethod", pending.codeChallengeMethod)
+      putStrings("scopes", pending.scopes)
+      if (pending.promptConsent) put("promptConsent", true)
+    }
+
+    internal fun Document.readPendingAuthorize(): PendingAuthorize? =
+      PendingAuthorize(
+        clientId = getString("clientId") ?: return null,
+        redirectUri = getString("redirectUri") ?: return null,
+        clientState = getString("clientState"),
+        nonce = getString("nonce"),
+        codeChallenge = getString("codeChallenge") ?: return null,
+        codeChallengeMethod = getString("codeChallengeMethod") ?: return null,
+        scopes = getStringSet("scopes"),
+        promptConsent = getBoolean("promptConsent") == true,
+      )
+  }
 }

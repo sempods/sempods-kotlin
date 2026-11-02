@@ -14,7 +14,8 @@ import java.util.Date
  *
  * 1. Derive the WebID URI and its URN twin from the OIDC claims (email namespace, or the OIDC
  *    namespace when the provider gave no verified address)
- * 2. Look up or create the WebID profile
+ * 2. Look up or create the WebID profile, and record the address and picture this sign-in came
+ *    with
  *
  * It used to mint a token here too — the `/login` endpoint's `aud`-less identity JWT, produced on
  * every callback and discarded on the `/authorize` one. Tokens are now issued where the request
@@ -32,16 +33,34 @@ class LoginService(
   fun processLogin(claims: OidcClaims): String {
     val (webIdUri, urnUri) = deriveUris(claims)
 
-    val profile = webIdProfileDao.findByUri(webIdUri)
-      ?.fillInMissingDisplayName(claims)
-      ?: WebIdProfile(
-        id = webIdUri,
-        namespace = if ("/e/" in webIdUri) WebIdNamespace.EMAIL else WebIdNamespace.OIDC,
-        displayName = claims.displayName ?: "",
-        createdAt = Date(),
-      ).also { webIdProfileDao.upsert(it) }
+    val namespace = if ("/e/" in webIdUri) WebIdNamespace.EMAIL else WebIdNamespace.OIDC
+    val stored = webIdProfileDao.findByUri(webIdUri)
+    val profile = (stored ?: WebIdProfile(id = webIdUri, namespace = namespace, displayName = "", createdAt = Date()))
+      .withMissingDisplayName(claims)
+      .copy(
+        email = claims.email.takeIf { namespace == WebIdNamespace.EMAIL },
+        picture = claims.picture,
+      )
+    if (profile != stored) webIdProfileDao.upsert(profile)
 
     return webIdUri
+  }
+
+  /**
+   * What the `id_token` for [webIdUri] carries under [scopes], read from the stored profile.
+   *
+   * [scopes] are the ones the authorization code was issued with, which `/authorize` limited to
+   * what the person agreed to release to that client. `email` and `picture` are what the person's
+   * latest sign-in came with, so the values are as current as that sign-in.
+   */
+  fun personClaimsFor(webIdUri: String, scopes: Set<String>): PersonClaims {
+    if ("profile" !in scopes && "email" !in scopes) return PersonClaims.NONE
+    val profile = webIdProfileDao.findByUri(webIdUri) ?: return PersonClaims.NONE
+    return PersonClaims(
+      name = profile.displayName.takeIf { "profile" in scopes && it.isNotBlank() },
+      picture = profile.picture.takeIf { "profile" in scopes },
+      email = profile.email.takeIf { "email" in scopes },
+    )
   }
 
   /**
@@ -83,10 +102,10 @@ class LoginService(
    * TODO: with profile management (see `docs/identity-service.md`, "Profile management") this becomes
    *   the user's decision rather than a first-writer-wins rule.
    */
-  private fun WebIdProfile.fillInMissingDisplayName(claims: OidcClaims): WebIdProfile {
+  private fun WebIdProfile.withMissingDisplayName(claims: OidcClaims): WebIdProfile {
     val incoming = claims.displayName?.takeIf { it.isNotBlank() } ?: return this
     if (displayName.isNotBlank()) return this
-    return copy(displayName = incoming).also { webIdProfileDao.upsert(it) }
+    return copy(displayName = incoming)
   }
 
   /**

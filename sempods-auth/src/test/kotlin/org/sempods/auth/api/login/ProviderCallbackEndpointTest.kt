@@ -12,6 +12,7 @@ import io.ktor.server.testing.testApplication
 import org.junit.jupiter.api.Test
 import org.sempods.auth.SempodsAuthCollections
 import org.sempods.auth.SempodsAuthIntegrationTest
+import org.sempods.auth.api.provider.AuthorizationCompletion
 import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.OidcPrompt
 import org.sempods.auth.login.LoginService
@@ -78,7 +79,7 @@ class ProviderCallbackEndpointTest : SempodsAuthIntegrationTest() {
         stateStore = stateStore,
         providers = providers.associateBy { it.name },
         loginService = injector.getInstance(LoginService::class.java),
-        authorizationCodeStore = codeStore,
+        completion = injector.getInstance(AuthorizationCompletion::class.java),
         issuer = testConfig.idBaseUrl,
       )
     }

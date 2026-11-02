@@ -8,6 +8,7 @@ import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.ReplaceOptions
 import org.bson.Document
 import org.sempods.auth.SempodsAuthCollections
+import org.sempods.commons.mongo.putNotNull
 import java.util.Date
 
 class WebIdProfileDao(db: MongoDatabase, collectionName: String) {
@@ -61,6 +62,8 @@ class WebIdProfileDao(db: MongoDatabase, collectionName: String) {
     if (linkedIdentities.isNotEmpty()) {
       put("linkedIdentities", linkedIdentities)
     }
+    putNotNull("email", email)
+    putNotNull("picture", picture)
   }
 
   private fun Document.toProfile() = WebIdProfile(
@@ -69,5 +72,7 @@ class WebIdProfileDao(db: MongoDatabase, collectionName: String) {
     displayName = getString("displayName") ?: "",
     createdAt = getDate("createdAt") ?: Date(),
     linkedIdentities = getList("linkedIdentities", String::class.java) ?: emptyList(),
+    email = getString("email"),
+    picture = getString("picture"),
   )
 }

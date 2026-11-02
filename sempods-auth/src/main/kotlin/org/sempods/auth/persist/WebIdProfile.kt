@@ -21,6 +21,14 @@ data class WebIdProfile(
   val displayName: String,
   val createdAt: Date,
   val linkedIdentities: List<String> = emptyList(),
+  /**
+   * The verified address the latest sign-in came with. Set only on an EMAIL profile, where it is
+   * the address the WebID is derived from. Private: released only as the `email` claim to a client
+   * the person agreed to, and never part of the WebID document.
+   */
+  val email: String? = null,
+  /** The picture the latest sign-in's provider supplied, an HTTPS address. Private, like [email]. */
+  val picture: String? = null,
 )
 
 enum class WebIdNamespace { EMAIL, OIDC }

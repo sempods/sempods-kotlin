@@ -18,6 +18,10 @@ SHA-256 is deliberate: a pod can derive an email's identifier without contacting
 service or sharing a secret. Hashing provides a stable identifier, not email secrecy against
 someone guessing addresses. The profile document itself includes no email field.
 
+The stored profile also keeps what the latest sign-in came with: the verified address of an `/e/`
+WebID and the provider's picture. Both are private. They leave the service only as claims, to a
+client the person [agreed to](#agreement), and are stored in plain text like every other row here.
+
 A profile is created on first login. A derived URI may return `404` before then.
 [WebIdEndpoint](../src/main/kotlin/org/sempods/auth/api/webid/WebIdEndpoint.kt) serves existing
 profiles as Turtle, JSON-LD or HTML. [WebIdDocument](../src/main/kotlin/org/sempods/auth/webid/WebIdDocument.kt)
@@ -33,6 +37,7 @@ and Apple. Each direction has its own code exchange and client identity.
 | `GET /.well-known/openid-configuration` | Discover the provider |
 | `GET /.well-known/jwks.json` | Read its public signing keys |
 | `GET /authorize` | Start Authorization Code + PKCE |
+| `POST /consent` | Receive the person's answer on the [agreement](#agreement) screen |
 | `POST /token` | Redeem the code for tokens |
 | `GET` or `POST /login/oidc/{provider}/callback` | Receive the upstream provider's answer |
 | `GET /e/{hash}`, `GET /oidc/{hash}` | Read a WebID profile |
@@ -54,6 +59,9 @@ with `user_cancelled_authorize` in `error_description`; a code that is no refusa
 `server_error`. [`OAuthErrors.fromUpstream`](../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OAuthError.kt)
 owns the mapping, which pods apply to their own provider the same way.
 
+A client that also asks for `profile` or `email` gets the code only after the
+[agreement](#agreement) step.
+
 PKCE is mandatory on this service, including for `did:web` clients. Redirect policy checks the
 identifier's host, port and optional path locally; it fetches no DID document. The pod's own
 public-client rules are [documented separately](../../sempods-server/docs/auth/oauth.md#client-identity-didweb-dyn-and-svc).
@@ -62,11 +70,37 @@ The token response also contains an `access_token`, as required by the OAuth res
 It authorizes no protected resource here. It has `typ: at+jwt` and the service as its audience,
 so it cannot stand in for the identity token beside it.
 
+### Agreement
+
+For example, an owner console asks for `scope=openid profile email`. After the upstream login the
+service shows its own screen: "console.example asks for your name and picture, your email
+address", with Allow and Deny. Google's or Apple's consent screen named only this service, so this
+is the first time the person sees which client asks.
+
+- The screen names the client by the host of its redirect address, which the redirect policy has
+  tied to the `client_id`, plus the path of a path-scoped identifier: `did:web:apps.example:console`
+  shows as `apps.example/console`. Nothing the client says about itself is shown.
+- Allow is stored per WebID and `client_id`. A later request within the agreed scopes shows no
+  screen; `prompt=consent` shows it anyway.
+- Deny completes the sign-in with `openid` alone and is not stored.
+- `openid` alone never shows the screen: releasing the WebID is what signing in means.
+
+[AuthorizationCompletion](../src/main/kotlin/org/sempods/auth/api/provider/AuthorizationCompletion.kt)
+owns the decision. The form's hidden key is a one-time value parked with the request, and it is
+also the CSRF token: `POST /consent` without it is refused with `403`.
+
 ### Token format
 
 [JwtIssuer](../src/main/kotlin/org/sempods/auth/login/JwtIssuer.kt) issues RS256 identity tokens:
 `sub` and `webid` name the canonical WebID; `aud` names the relying client; `nonce` binds the
 login request. The caller validates signature, issuer, audience, nonce and expiry.
+
+With an agreed `profile` scope the token carries `name` and `picture`; with `email`, `email` and
+`email_verified: true`. The values are the profile's when the code is redeemed, and each is left
+out when the profile has none: a latest sign-in through Apple leaves no picture, and an `/oidc/`
+WebID has no address. They are in the `id_token` because the service has no
+UserInfo endpoint (OpenID Connect Core §2 allows that). Any other scope is refused with
+`invalid_scope`.
 
 The optional `https://schema.sempods.org/claims/equivalent-identities` claim contains other
 HTTP(S) WebIDs recorded on the profile. `LoginService.equivalentIdentitiesFor` converts supported
@@ -123,7 +157,9 @@ secret is a signed assertion minted for each token exchange.
 
 ## Current limits
 
-The service maintains no login session: `prompt=none` returns `login_required`. A client's
+The service maintains no login session: `prompt=none` returns `login_required`. A person cannot
+yet see or revoke an agreement; that page comes with the session
+([sempods-kotlin#439](https://github.com/sempods/sempods-kotlin/issues/439)). A client's
 `prompt=login` or `prompt=select_account` is forwarded to the provider; without one, Google may
 reuse its session. Apple documents no `prompt`. Signing keys are persisted but not
 rotated automatically. Identity tokens from the removed `GET /login` carry no `aud`, so the pod and
@@ -139,7 +175,9 @@ Profile editing and identity linking have no user-facing UI.
 ## Verification
 
 [Provider HTTP tests](../src/test/kotlin/org/sempods/auth/api/provider/OpenIdProviderEndpointTest.kt)
-exercise discovery, PKCE, redirects and code redemption. [JwtIssuerTest](../src/test/kotlin/org/sempods/auth/login/JwtIssuerTest.kt)
+exercise discovery, PKCE, redirects and code redemption;
+[ConsentFlowTest](../src/test/kotlin/org/sempods/auth/api/provider/ConsentFlowTest.kt) covers the
+agreement step and the claims it releases. [JwtIssuerTest](../src/test/kotlin/org/sempods/auth/login/JwtIssuerTest.kt)
 covers token claims and equivalent identities, and
 [WebIdUriDeriverTest](../../sempods-commons/src/test/kotlin/org/sempods/commons/identity/WebIdUriDeriverTest.kt)
 covers WebID derivation. The tests use local provider fixtures and no live Google or Apple accounts.

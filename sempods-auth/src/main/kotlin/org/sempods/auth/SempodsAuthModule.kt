@@ -1,6 +1,8 @@
 package org.sempods.auth
 
 import org.sempods.commons.config.Env
+import org.sempods.auth.api.provider.AuthorizationCompletion
+import org.sempods.auth.core.AuthorizationCodeStore
 import org.sempods.auth.core.SempodsAuthCoreModule
 import org.sempods.auth.persist.MongoSigningKeyStore
 import org.sempods.auth.core.SigningKeys
@@ -12,6 +14,7 @@ import com.google.inject.multibindings.Multibinder
 import com.mongodb.client.MongoDatabase
 import org.sempods.commons.guice.BaseModule
 import org.sempods.commons.mongo.MongoModule
+import org.sempods.auth.login.ConsentTransactionStore
 import org.sempods.auth.login.JwtIssuer
 import org.sempods.auth.login.LoginService
 import org.sempods.auth.login.StateStore
@@ -20,6 +23,7 @@ import org.sempods.auth.oidc.OidcRegistry
 import org.sempods.auth.oidc.OidcTokenExchange
 import org.sempods.auth.oidc.apple.AppleOidcClient
 import org.sempods.auth.oidc.google.GoogleOidcClient
+import org.sempods.auth.persist.ConsentDecisionDao
 import org.sempods.auth.persist.WebIdProfileDao
 import org.sempods.commons.ktor.trace.TraceparentClientPlugin
 import io.ktor.client.*
@@ -130,6 +134,26 @@ class SempodsAuthModule(private val config: SempodsAuthConfig) : BaseModule() {
 
   @Provides @Singleton
   fun loginService(dao: WebIdProfileDao): LoginService = LoginService(config, dao)
+
+  @Provides @Singleton
+  fun consentDecisionDao(db: MongoDatabase): ConsentDecisionDao = ConsentDecisionDao(db)
+
+  @Provides @Singleton
+  fun consentTransactionStore(db: MongoDatabase): ConsentTransactionStore = ConsentTransactionStore(db)
+
+  @Provides @Singleton
+  fun authorizationCompletion(
+    authorizationCodeStore: AuthorizationCodeStore,
+    consentDecisions: ConsentDecisionDao,
+    consentTransactions: ConsentTransactionStore,
+    webIdProfileDao: WebIdProfileDao,
+  ): AuthorizationCompletion = AuthorizationCompletion(
+    issuer = config.idBaseUrl,
+    authorizationCodeStore = authorizationCodeStore,
+    consentDecisions = consentDecisions,
+    consentTransactions = consentTransactions,
+    webIdProfileDao = webIdProfileDao,
+  )
 
   private companion object {
     private val logger = KotlinLogging.logger {}

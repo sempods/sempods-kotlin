@@ -34,8 +34,14 @@ object OpenIdConfiguration {
   const val JWKS_PATH = "/.well-known/jwks.json"
   const val DISCOVERY_PATH = "/.well-known/openid-configuration"
 
-  /** `openid` is required for an `id_token` at all; the rest is what this provider actually returns. */
-  val SUPPORTED_SCOPES = listOf("openid")
+  /** Where the agreement screen posts its answer. Not a protocol endpoint, so not in the document. */
+  const val CONSENT_PATH = "/consent"
+
+  /**
+   * `openid` is required for an `id_token` at all. `profile` and `email` are OIDC Core §5.4's, and
+   * their claims are released only to a client the person agreed to (`AuthorizationCompletion`).
+   */
+  val SUPPORTED_SCOPES = listOf("openid", "profile", "email")
 
   /**
    * @param issuer already normalised — `SempodsAuthConfig.idBaseUrl` guarantees no trailing slash.
@@ -69,9 +75,12 @@ object OpenIdConfiguration {
       // redirect address has to sit on the origin the identifier names, which is what stands in
       // for a client secret here.
       tokenEndpointAuthMethods = listOf(ClientAuthenticationMethod.NONE)
-      // Sempods-specific, advertised so a consumer knows to expect them rather than discovering
-      // them in a token. A standard client ignores both.
-      claims = listOf("iss", "sub", "aud", "exp", "iat", "nonce", "webid", EquivalentIdentities.CLAIM)
+      // `webid` and the equivalent identities are sempods-specific, advertised so a consumer knows
+      // to expect them rather than discovering them in a token. A standard client ignores both.
+      claims = listOf(
+        "iss", "sub", "aud", "exp", "iat", "nonce", "webid", EquivalentIdentities.CLAIM,
+        "name", "picture", "email", "email_verified",
+      )
     }
     return metadata.toJSONObject().toJSONString()
   }

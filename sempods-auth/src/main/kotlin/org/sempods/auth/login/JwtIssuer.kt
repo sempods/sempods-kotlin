@@ -42,12 +42,16 @@ class JwtIssuer(
    *   ([EquivalentIdentities.isWebIdUri]); a relying party refuses the whole token for one bad
    *   entry. Empty leaves the claim out. A standard consumer ignores it; a pod decides grants and
    *   ownership with it.
+   * @param personClaims `name`, `picture` and `email` with `email_verified`, each only when set.
+   *   OIDC Core §5.4 returns these from a UserInfo endpoint when an access token is issued; this
+   *   service has none, and §2 lets an ID Token carry them instead.
    */
   fun issueIdToken(
     webIdUri: String,
     audience: String,
     equivalentIdentities: List<String>,
     nonce: String? = null,
+    personClaims: PersonClaims = PersonClaims.NONE,
     issuedAt: Instant = Instant.now(),
   ): String {
     require(equivalentIdentities.all(EquivalentIdentities::isWebIdUri)) {
@@ -63,6 +67,9 @@ class JwtIssuer(
       .issueTime(Date.from(issuedAt))
       .expirationTime(Date.from(issuedAt.plusSeconds(ID_TOKEN_TTL_SECONDS)))
       .apply { nonce?.let { claim("nonce", it) } }
+      .apply { personClaims.name?.let { claim("name", it) } }
+      .apply { personClaims.picture?.let { claim("picture", it) } }
+      .apply { personClaims.email?.let { claim("email", it).claim("email_verified", true) } }
       .build()
     return sign(claims)
   }

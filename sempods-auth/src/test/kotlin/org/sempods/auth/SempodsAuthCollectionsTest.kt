@@ -27,6 +27,8 @@ class SempodsAuthCollectionsTest {
         "oauth.signingKeys",
         "oauth.loginStates",
         "oauth.authCodes",
+        "oauth.consentDecisions",
+        "oauth.consentTransactions",
       ),
       SempodsAuthCollections.ALL,
     )
