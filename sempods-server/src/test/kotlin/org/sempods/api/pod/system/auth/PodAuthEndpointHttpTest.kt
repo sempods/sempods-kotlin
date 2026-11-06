@@ -4802,7 +4802,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `one refresh retry is accepted and a second reuse revokes all successors`() {
+  fun `presenting the successor replaced by a retry revokes the family`() {
     val pod = sempodsTestFactory.newPod()
     val issued = seedRefreshToken(pod)
 
@@ -4835,17 +4835,15 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(400, superseded.statusCode)
     assertTrue(superseded.responseBody.contains("invalid_grant"))
-    assertEquals(RefreshTokenStore.LookupState.ACTIVE, refreshTokenStore.lookup(retryRefresh).state)
+    assertTrue(superseded.responseBody.contains("refresh token replaced by a retry; family revoked"))
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(retryRefresh).state)
 
-    // The next reuse still ends the family.
-    val reuse = postForm(
+    val retiredRetry = postForm(
       tokenUrl(pod.name),
-      "grant_type=refresh_token" +
-        "&refresh_token=${java.net.URLEncoder.encode(issued.plaintext, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+      "grant_type=refresh_token&refresh_token=${enc(retryRefresh)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, reuse.statusCode)
-    assertTrue(reuse.responseBody.contains("invalid_grant"))
+    assertEquals(400, retiredRetry.statusCode)
+    assertTrue(retiredRetry.responseBody.contains("invalid_grant"))
 
     // Both the predecessor and the successor must now be revoked — the thief (or stale
     // client) cannot use the in-flight child either.

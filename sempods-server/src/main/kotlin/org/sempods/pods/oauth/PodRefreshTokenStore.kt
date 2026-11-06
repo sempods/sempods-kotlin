@@ -217,6 +217,12 @@ class PodRefreshTokenStore internal constructor(
 
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
+  /** Distinguishes a replaced credential's presentation from an ordinary family retirement. */
+  internal fun wasSuperseded(tokenHash: String): Boolean = tokens.find(Filters.and(
+    Filters.eq(Field.TOKEN_HASH, tokenHash),
+    Filters.eq(Field.SUPERSEDED_BY_GRACE, true),
+  )).projection(Document(Field.ID, 1)).first() != null
+
   internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
 
   /** Uses this pod's grace setting; both ordinary rotation and a claimed retry keep the family's terms. */

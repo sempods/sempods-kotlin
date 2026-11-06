@@ -37,7 +37,8 @@ for one connection.** If its response is lost, the pod accepts one retry with th
 within the [configured grace period](operations.md#refresh-rotation-grace), 60 seconds by default.
 The retry gets a fresh successor in the same family and retires the original successor. Use the
 retry's response and discard a late response from the original request. The retired token cannot
-start a second continuing chain; presenting it fails without retiring the retry's successor.
+start a second continuing chain. Presenting it counts as reuse and ends the whole family, including
+the retry's successor, with `invalid_grant` and `refresh token replaced by a retry; family revoked`.
 
 The allowance is shared across server replicas and consumed once. It ends at the configured
 deadline, when a successor starts rotating, or when the family ends. A second retry, a retry at or
@@ -45,13 +46,17 @@ after the deadline, or reuse of an older ancestor revokes the whole family. That
 also applies when the request names the wrong pod, client or scopes. Within a still-eligible
 window, these invalid requests are refused without consuming the retry. Two simultaneous
 refreshes can receive responses, but only the retry's successor remains usable; a third ends their
-connection. Families rotated before grace support, or while it was disabled, have no allowance.
+connection. Using the replaced successor also ends it, including when two tabs received the two
+responses. Families rotated before grace support, or while it was disabled, have no allowance.
 
 Grace preserves the family's lifetime and checks the same pod, client, current grants and requested
 scopes as an ordinary refresh. It cannot restore a signed-out, disconnected or limit-retired family.
 The tradeoff is delayed reuse detection: somebody holding a stolen predecessor can also claim that
-one retry during the window, displacing the original successor. Grace does not distinguish that
-caller from a client recovering a lost response. The amendment to `SPS-AUTH-033` is proposed in
+one retry during the window and take over the connection by displacing the original successor.
+When the legitimate client next presents that successor, the pod detects the conflict and ends
+both sides' connection. If that client never returns, the takeover can last until the family's
+normal expiry or another retirement. Grace cannot distinguish a stolen predecessor from a lost
+response at the time of the retry. The amendment to `SPS-AUTH-033` is proposed in
 [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142); enabled grace deviates from
 the current requirement to revoke on every reuse. Setting the period to zero retains strict reuse
 detection.
@@ -62,6 +67,8 @@ delegation.
 
 A refresh token the pod does not recognise is logged with a fingerprint of the token. The log
 cannot name the person: no family or WebID remains, and `client_id` names an app.
+Reuse and presentation of a replaced successor are logged at WARN with their cause, the stored
+client ID, family ID and the presented token's fingerprint. Plaintext tokens are never logged.
 
 The [shared refresh store](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/RefreshTokenStore.kt)
 owns hashing and replay detection. The

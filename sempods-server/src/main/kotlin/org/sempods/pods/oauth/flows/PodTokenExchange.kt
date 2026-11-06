@@ -22,6 +22,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore.RevocationReason
 import java.time.Duration
 import java.time.Instant
@@ -459,17 +460,19 @@ class PodTokenExchange @Inject internal constructor(
       }
 
       RefreshTokenStore.LookupState.REVOKED -> {
+        if (refreshTokenStore.wasSuperseded(token!!.tokenHash)) {
+          return refuseRefreshReuse(token, lookup.fingerprint, superseded = true)
+        }
         logger.warn {
           "[oauth/token] refresh_token revoked: pod='${podName}', clientId='$normalizedClientId', " +
-              "familyId='${token!!.familyId}'"
+              "familyId='${token.familyId}'"
         }
-        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token!!.familyId))
+        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
       }
 
       RefreshTokenStore.LookupState.REUSED -> {
         if (!refreshTokenStore.canRetryWithGrace(token!!.tokenHash)) {
-          refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.REUSE)
-          return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
+          return refuseRefreshReuse(token, lookup.fingerprint)
         }
       }
 
@@ -546,19 +549,10 @@ class PodTokenExchange @Inject internal constructor(
     // One concurrent loser may claim grace; every further replay ends the family.
     val rotation = refreshTokenStore.rotateWithGrace(token.tokenHash)
     if (rotation == RefreshTokenStore.RotationResult.SUPERSEDED) {
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+      return refuseRefreshReuse(token, lookup.fingerprint, superseded = true)
     }
     if (rotation == RefreshTokenStore.RotationResult.REJECTED) {
-      val retirement = refreshTokenStore.revocationReason(token.familyId)
-      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: RevocationReason.REUSE)
-      logger.warn {
-        "[oauth/token] refresh_token rotation refused: cause='${(retirement ?: RevocationReason.REUSE).code}', pod='${podName}', " +
-            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
-      }
-      return PodTokenResult.Refused(
-        OAuthErrorCode.INVALID_GRANT,
-        retirement?.description ?: "refresh token reuse detected",
-      )
+      return refuseRefreshReuse(token, lookup.fingerprint)
     }
 
     if (rotation == RefreshTokenStore.RotationResult.GRACE) {
@@ -631,6 +625,32 @@ class PodTokenExchange @Inject internal constructor(
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
     )
+  }
+
+  /** Called for a presented credential, never for an issuer discovering its own superseded row. */
+  private fun refuseRefreshReuse(
+    token: PodRefreshToken,
+    fingerprint: String,
+    superseded: Boolean = false,
+  ): PodTokenResult.Refused {
+    val retirement = refreshTokenStore.revocationReason(token.familyId)
+    val reason = retirement ?: RevocationReason.REUSE
+    val revoked = refreshTokenStore.revokeFamily(token.familyId, reason)
+    val event = when {
+      superseded -> "superseded refresh token presented"
+      reason == RevocationReason.REUSE -> "refresh_token reuse detected"
+      else -> "refresh_token rotation refused"
+    }
+    logger.warn {
+      "[oauth/token] $event — revoking family: cause='${reason.code}', pod='${token.owner.podName}', " +
+          "clientId='${token.owner.clientId}', familyId='${token.familyId}', tokenFp='$fingerprint', revokedRows=$revoked"
+    }
+    val description = when {
+      reason != RevocationReason.REUSE -> reason.description
+      superseded -> "refresh token replaced by a retry; family revoked"
+      else -> "refresh token reuse detected"
+    }
+    return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, description)
   }
 
   /**

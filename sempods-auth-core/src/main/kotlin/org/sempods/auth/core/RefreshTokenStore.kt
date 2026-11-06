@@ -322,7 +322,7 @@ class RefreshTokenStore<OWNER> internal constructor(
     ROTATED,
     GRACE,
 
-    /** Refuse this replaced successor without retiring the retry's family. */
+    /** A replaced successor was presented; the caller applies its reuse policy. */
     SUPERSEDED,
     REJECTED,
   }

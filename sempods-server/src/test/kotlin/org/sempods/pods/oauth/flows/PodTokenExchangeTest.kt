@@ -388,8 +388,74 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       val original = scenario.seed()
       val first = issued(scenario.refresh(original.plaintext))
       if (seconds > 0) scenario.expireGrace(original.plaintext)
-      assertEquals("refresh token reuse detected", refused(scenario.refresh(original.plaintext)).description)
+      val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {
+        assertEquals("refresh token reuse detected", refused(scenario.refresh(original.plaintext)).description)
+      }
+      assertTrue(lines.any { "reuse detected" in it && "familyId='${original.token.familyId}'" in it && "cause='reuse'" in it })
       assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(first.refreshToken)).state)
+    }
+  }
+
+  @Test
+  fun `presenting the successor replaced by a retry ends the takeover family`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      val first = issued(scenario.refresh(original.plaintext))
+      val retry = issued(scenario.refresh(original.plaintext))
+      val replaced = assertNotNull(first.refreshToken)
+      val fingerprint = scenario.store.lookup(replaced).fingerprint
+      val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {
+        assertEquals("refresh token replaced by a retry; family revoked", refused(scenario.refresh(replaced)).description)
+      }
+      assertTrue(lines.any {
+        "superseded refresh token presented" in it && "familyId='${original.token.familyId}'" in it &&
+          "clientId='$clientId'" in it && "tokenFp='$fingerprint'" in it && "cause='reuse'" in it
+      })
+      assertTrue(lines.none { replaced in it || assertNotNull(retry.refreshToken) in it })
+      assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(retry.refreshToken)).state)
+      assertEquals(PodRefreshTokenStore.RevocationReason.REUSE, scenario.store.revocationReason(original.token.familyId))
+      assertEquals(OAuthErrorCode.INVALID_GRANT, refused(scenario.refresh(assertNotNull(retry.refreshToken))).code)
+    }
+  }
+
+  @Test
+  fun `supersession after lookup still makes presentation revoke the family`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      val first = issued(scenario.refresh(original.plaintext))
+      val firstHash = assertNotNull(scenario.store.lookup(assertNotNull(first.refreshToken)).token).tokenHash
+      val observed = spyk(scenario.store)
+      lateinit var retry: PodTokenResult.Issued
+      every { observed.rotateWithGrace(firstHash) } answers {
+        retry = issued(scenario.refresh(original.plaintext))
+        callOriginal()
+      }
+      val result = exchangeUsing(observed).refresh(
+        scenario.authorized.podId, scenario.authorized.pod.name, first.refreshToken, clientId, null,
+      )
+      assertEquals("refresh token replaced by a retry; family revoked", refused(result).description)
+      assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(retry.refreshToken)).state)
+    }
+  }
+
+  @Test
+  fun `a retry issuer cannot revive the family after a superseded successor was presented`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      val first = issued(scenario.refresh(original.plaintext))
+      val observed = spyk(scenario.store)
+      every { observed.issueInFamily(any(), any(), RefreshTokenStore.RotationResult.GRACE) } answers {
+        assertEquals(
+          "refresh token replaced by a retry; family revoked",
+          refused(scenario.refresh(assertNotNull(first.refreshToken))).description,
+        )
+        callOriginal()
+      }
+      val result = exchangeUsing(observed).refresh(
+        scenario.authorized.podId, scenario.authorized.pod.name, original.plaintext, clientId, null,
+      )
+      assertEquals(OAuthErrorCode.INVALID_GRANT, refused(result).code)
+      assertTrue(scenario.store.findByFamily(original.token.familyId).all { it.revokedAt != null })
     }
   }
 
