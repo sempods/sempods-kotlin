@@ -420,6 +420,7 @@ class RefreshTokenStore<OWNER> internal constructor(
     )
     if (rotation == RotationResult.GRACE) {
       supersede(Filters.and(
+        Filters.eq(Field.FAMILY_ID, previous.familyId),
         Filters.eq(Field.PREDECESSOR_HASH, previous.tokenHash),
         Filters.ne(Field.GRACE_SUCCESSOR, true),
       ))
