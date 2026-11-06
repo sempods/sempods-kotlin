@@ -282,22 +282,6 @@ class PodConsentFlow @Inject internal constructor(
     // harmless since a code carrying no generation is refused at the exchange: nothing redeems,
     // auto-grant needs a decision it does not have, and the next visit renders this dialog again.
     val decision = recordDecision(pod, normalizedClientId, identity, durable = form.durable)
-    if (!form.durable) {
-      // Withholding is not merely declining to extend: the families this authorization already has
-      // would otherwise keep rotating, and the person would have changed nothing they can observe.
-      val revoked = refreshTokenStore.revokeForUser(
-        pod = pod.id,
-        clientId = normalizedClientId,
-        webIds = identity.allUris,
-      )
-      if (revoked > 0) {
-        logger.info {
-          "[oauth/consent] Durable connection withheld — refresh tokens revoked: " +
-              "pod='${pod.name}', clientId='$normalizedClientId', webId='${identity.webId}', " +
-              "revokedRows=$revoked"
-        }
-      }
-    }
 
     logger.info {
       "[oauth/consent] Grants saved: pod='${pod.name}', clientId='$normalizedClientId', " +
@@ -333,8 +317,7 @@ class PodConsentFlow @Inject internal constructor(
    *
    * The decision is still recorded, because a code carrying no generation is refused at the
    * exchange — but it answers nothing about how long this app stays connected. The screen has no
-   * lifetime control, and writing `false` for a question nobody was asked would end a durable
-   * family the app already holds. `PodConsentDecisionStore.recordWithoutLifetime` is that write.
+   * lifetime control. `PodConsentDecisionStore.recordWithoutLifetime` preserves the existing answer.
    *
    * @param offered what the screen put to the person, which the refusals name. [submitted] is what
    *   came back of it, and an empty one is the person saying no.
@@ -485,11 +468,9 @@ class PodConsentFlow @Inject internal constructor(
   /**
    * End what this app holds for this person.
    *
-   * The grants go, the decision is written as a refusal — a silence would read as an authorization
-   * that predates the control and be left alone, and the count it moves withdraws a management
-   * authority — and the refresh families are revoked, because withholding that is merely declining
-   * to extend would leave the person's most emphatic gesture with nothing to show for it. The client is still told `access_denied`: the request really was
-   * denied, and what changed is that the denial now has an effect.
+   * Removes grants, records the disconnect and revokes the refresh families. Moving the decision's
+   * generation also ends outstanding codes and management authorities. The client receives
+   * `access_denied`.
    */
   private fun disconnectApp(
     pod: HostedPod,

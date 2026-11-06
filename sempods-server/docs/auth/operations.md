@@ -1,6 +1,16 @@
 # OAuth operations
 
+<!-- doc-examples: checked -->
+
 [Pod authentication](README.md) · [OAuth reference](oauth.md) · [Connection lifetimes](connections.md)
+
+## Connection family limit
+
+`SEMPODS_CONNECTION_MAX_FAMILIES` defaults to **10** and must be positive; zero and negative values
+fail startup. It bounds live refresh families for one app and person on one pod. The
+[connection rules](connections.md#new-consent-and-multiple-devices) describe which family is retired
+when the limit is exceeded and the resulting refresh error. A lowered limit takes effect at the
+next successful code exchange for that authorization.
 
 ## Rate limit
 
@@ -128,8 +138,10 @@ This compatibility ends after 0.2.x ([#341](https://github.com/sempods/sempods-k
 ## Upgrading old delegations
 
 A deployment upgraded from a release without the connection-lifetime question holds delegations
-with no stored answer. The pod refuses their codes and ends their refresh families at the next
-rotation. Clear them once; this affects **every pod on the server**:
+with no stored answer. The pod refuses their codes until consent answers the lifetime question.
+Existing refresh families keep their terms; a family without an absolute deadline takes its
+current token expiry as that deadline on rotation. To require fresh consent for all old
+delegations, clear them once; this affects **every pod on the server**:
 
 <!-- doc-example: illustrative; destructive operator maintenance, reviewed against PodTokenExchange and consent-generation checks -->
 ```js

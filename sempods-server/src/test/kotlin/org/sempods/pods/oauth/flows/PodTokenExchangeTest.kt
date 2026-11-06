@@ -230,12 +230,12 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a reconnect retires the family it supersedes`() {
+  fun `two code exchanges leave both families refreshable`() {
     val authorized = Authorized()
     val first = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
     val second = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
 
-    assertEquals(OAuthErrorCode.INVALID_GRANT, refused(authorized.refresh(checkNotNull(first.refreshToken))).code)
+    assertIs<PodTokenResult.Issued>(authorized.refresh(checkNotNull(first.refreshToken)))
     assertIs<PodTokenResult.Issued>(authorized.refresh(checkNotNull(second.refreshToken)))
   }
 
@@ -376,20 +376,20 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a withdrawal ends a durable family and leaves a session one alone`() {
-    // A session family exists because the answer was "no", so a refusal on record cannot be what
-    // ends it — that would make the control do nothing at all.
+  fun `a later shorter choice preserves each existing family lifetime`() {
     for (durable in listOf(true, false)) {
       val authorized = Authorized()
       val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable)))).refreshToken)
+      val original = checkNotNull(refreshTokenStore.lookup(token).token)
       authorized.answer(durable = false)
 
-      val result = authorized.refresh(token)
-      if (durable) {
-        assertEquals("the durable connection was withdrawn", refused(result).description)
-      } else {
-        assertIs<PodTokenResult.Issued>(result)
-      }
+      val result = issued(authorized.refresh(token))
+      val successor = checkNotNull(refreshTokenStore.lookup(checkNotNull(result.refreshToken)).token)
+      assertEquals(original.kind, successor.kind)
+      assertEquals(original.endsAt, successor.endsAt)
+      assertEquals(original.familyId, successor.familyId)
+      val terms = refreshTokenStore.termsOf(refreshTokenStore.lifetimeOf(original))
+      assertEquals(minOf(successor.issuedAt.plus(terms.idle), checkNotNull(original.endsAt)), successor.expiresAt)
     }
   }
 

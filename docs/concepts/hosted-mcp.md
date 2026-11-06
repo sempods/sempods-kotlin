@@ -1,5 +1,7 @@
 # Hosted MCP — a standalone MCP service for pods
 
+<!-- doc-examples: checked -->
+
 **hosted-mcp** is an **additional, standalone service** (e.g. `mcp.sempods.org`) that
 provides the **MCP / LLM-tooling layer** over sempods pods. One service fronts **many
 pods** — including pods run by others that implement the sempods HTTP/Auth profile,
@@ -163,12 +165,12 @@ has, and a connection made before the fork keeps its shared `client_id` and call
 connect and re-authorize alike. The dashboard marks it *shared client* and offers to separate it —
 its own action, because the new client has no grants at the pod and the person is asked again:
 
-> While two profiles share a `client_id`, connecting in `…/cron-agent` retires the refresh-token
-> family `…/private` holds, so `…/private` reports "reconnect required". Separated, it costs the
-> first nothing.
+> While two profiles share a `client_id`, changing the context grants in `…/cron-agent` also
+> changes what `…/private` can access. Separate client identities let each profile keep its own
+> grants. Their refresh families follow the [pod connection rules](../../sempods-server/docs/auth/connections.md#new-consent-and-multiple-devices).
 
 **Per profile, not per service user.** Two accounts signing in at a pod as the same WebID are one
-person to that pod — one grant set, one refresh-token family, whatever this service sends. The
+person to that pod and share one grant set for each client ID. The
 WebID is what separates people there, so the fork stops at the profile.
 
 **Re-authorize** runs the same leg again from the dashboard. A sempods pod always shows a `dyn:`

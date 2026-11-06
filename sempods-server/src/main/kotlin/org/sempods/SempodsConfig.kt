@@ -178,9 +178,13 @@ data class SempodsConfig(
 
   /** The spike allowed on that tier; `0` means the same as the rate. */
   val registerRateLimitServiceBurst: Int = 0,
+
+  /** Maximum live refresh families per pod, client and person, including derivable WebID aliases. */
+  val connectionMaxFamilies: Int = SempodsModule.DEFAULT_CONNECTION_MAX_FAMILIES,
 ) {
 
   init {
+    require(connectionMaxFamilies > 0) { "connectionMaxFamilies must be positive, got $connectionMaxFamilies" }
     // A negative value would reach `TokenBucketRateLimiter`, which reads every non-positive rate as
     // "disabled" — so `-300` would boot happily with the protection silently off, while the
     // documented off switch is `0`. Same reasoning `Env.int` states for an unparseable number: a

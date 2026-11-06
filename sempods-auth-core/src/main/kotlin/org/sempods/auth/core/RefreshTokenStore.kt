@@ -312,9 +312,8 @@ class RefreshTokenStore<OWNER>(
   /**
    * Revokes every row matching [filter] — the hook for whatever "belongs to" means to a service.
    *
-   * The pod server revokes by person-and-client when a consent is withdrawn, and everything but
-   * the successor's family when a consent replaces it; both are its domain and neither is
-   * expressible here, so they are filters it builds over its own owner fields plus [Field.FAMILY_ID].
+   * A service selects rows through its own owner fields and [Field.FAMILY_ID]. The reason for
+   * revocation belongs to that service.
    */
   fun revokeWhere(filter: Bson): Long =
     tokens.updateMany(filter, Updates.set(Field.REVOKED_AT, clock())).modifiedCount

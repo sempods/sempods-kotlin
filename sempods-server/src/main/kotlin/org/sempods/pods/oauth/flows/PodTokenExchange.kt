@@ -21,7 +21,6 @@ import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodManagementAuthorityStore
-import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import java.time.Duration
 import java.time.Instant
@@ -36,14 +35,11 @@ import java.time.Instant
  * [PodTokenResult] that says nothing about status codes, headers or JSON. The endpoint binds the
  * request and renders the answer.
  *
- * **The order of the checks is the contract, not a style.** Each of the two person exchanges signs
- * its access token before its last look at the consent decision, reads the decision again after
- * seeding its family, and sweeps what it supersedes only once the successor exists.
- * `PodSignOut.signOut` writes in the order that makes those reads sufficient (`SPS-AUTH-062`,
- * `SPS-AUTH-063`), so moving one of them re-opens a window on the other side. The comments at each
- * step say which. [exchangeServiceClient] authorizes no person and seeds no family, so it runs
- * none of that. [privilegedToken] signs and re-reads the same way and seeds no family either, so
- * it has nothing to sweep and nothing to take back on a refusal.
+ * Exchanges sign before their final checks. Code exchange re-reads consent after seeding the
+ * family; rotation checks its predecessor and grants after inserting the successor. Sign-out
+ * writes in the order that lets those checks see it (`SPS-AUTH-062`, `SPS-AUTH-063`). Family-limit
+ * cleanup follows successful code exchange. [privilegedToken] signs and re-reads consent without
+ * seeding a family; [exchangeServiceClient] authorizes no person.
  */
 class PodTokenExchange @Inject internal constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
@@ -148,8 +144,8 @@ class PodTokenExchange @Inject internal constructor(
     val featureScopes = entry.scopes.intersect(PodScopeValidator.featureScopes)
 
     // ── A privileged authority takes its own exit ─────────────────────────
-    // It is the one person-exchange that seeds no family, so it leaves before the family is
-    // measured rather than after. A code that carries a privileged scope beside anything else
+    // It is the one person-exchange that seeds no family, so it leaves before a family is
+    // minted. A code that carries a privileged scope beside anything else
     // never came from a dialog — every screen that offers one offers nothing else — and a mixed
     // set is refused rather than narrowed, because narrowing is how an hour-long authority would
     // quietly acquire a renewable neighbour.
@@ -192,20 +188,6 @@ class PodTokenExchange @Inject internal constructor(
       if (durable) PodRefreshTokenStore.Lifetime.DURABLE
       else PodRefreshTokenStore.Lifetime.SESSION
 
-    // What this exchange supersedes, named *before* the successor exists — see
-    // `PodRefreshTokenStore.liveFamilies` for why the order is the whole argument. Across the
-    // person's derivable URIs, because the superseded family may have been minted under the twin
-    // of the URI this code carries.
-    //
-    // Measured for both answers, because both mint one. An auto-granted reconnect records no new
-    // decision and so revokes nothing: gated on the durable answer, every visit would leave one
-    // more live family behind, each renewing a window of its own.
-    val superseded = refreshTokenStore.liveFamilies(
-      pod = pod,
-      clientId = entry.clientId,
-      webIds = webIdUriDeriver.derivableAliases(entry.subject),
-    )
-
     val issuedRefresh = refreshTokenStore.issueNewFamily(
       pod = pod,
       podName = podName,
@@ -247,7 +229,7 @@ class PodTokenExchange @Inject internal constructor(
     // exchange answers anything a test can set up.
     val standing = consentDecisionStore.find(pod, entry.clientId, listOf(entry.subject))
     if (standing?.generation != issuedUnder) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId)
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId, reason = "consent changed")
       val withdrawn = standing?.durable == false
       logger.info {
         "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
@@ -260,20 +242,13 @@ class PodTokenExchange @Inject internal constructor(
       )
     }
 
-    // A reconnect replaces the connection it supersedes rather than adding to it — the same answer
-    // the withholding path gives from the other end, so that reconnecting twice does not leave two
-    // families behind, each renewing a window of its own. Swept only once the successor exists, so
-    // neither answer ever leaves the person holding nothing.
-    if (superseded.isNotEmpty()) {
-      val retired = refreshTokenStore.revokeFamilies(superseded)
-      if (retired > 0) {
-        logger.info {
-          "[oauth/token] reconnect retired what it supersedes: pod='${podName}', " +
-              "clientId='${entry.clientId}', webId='${entry.subject}', " +
-              "retiredFamilies=${superseded.size}, retiredRows=$retired"
-        }
-      }
-    }
+    // SPS-AUTH-063: write the new family before retiring any excess. The cap bounds repeated
+    // reconnects while allowing the same app to stay connected on several devices.
+    refreshTokenStore.enforceConnectionLimit(
+      pod = pod,
+      clientId = entry.clientId,
+      webIds = webIdUriDeriver.derivableAliases(entry.subject),
+    )
 
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podName}', clientId='${entry.clientId}', " +
@@ -483,7 +458,7 @@ class PodTokenExchange @Inject internal constructor(
           "[oauth/token] refresh_token revoked: pod='${podName}', clientId='$normalizedClientId', " +
               "familyId='${token!!.familyId}'"
         }
-        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token!!.familyId))
       }
 
       RefreshTokenStore.LookupState.REUSED -> {
@@ -491,7 +466,7 @@ class PodTokenExchange @Inject internal constructor(
         // behaving client keeps only the successor — whatever presented it again is stale
         // state or a thief. Kill the whole family to pull the plug on any in-flight child
         // token the attacker might already be holding.
-        val revoked = refreshTokenStore.revokeFamily(token!!.familyId)
+        val revoked = refreshTokenStore.revokeFamily(token!!.familyId, reason = "reuse")
         logger.warn {
           "[oauth/token] refresh_token reuse detected — revoking family: pod='${podName}', " +
               "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
@@ -526,7 +501,7 @@ class PodTokenExchange @Inject internal constructor(
     // then force re-consent and revoke the family so a stray rotation cannot re-hydrate it.
     val currentGrants = podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId))
     if (currentGrants.isEmpty()) {
-      refreshTokenStore.revokeFamily(token.familyId)
+      refreshTokenStore.revokeFamily(token.familyId, reason = "withdrawn grant")
       logger.info {
         "[oauth/token] refresh_token grants revoked since issue — forcing re-consent: " +
             "pod='${podName}', clientId='$normalizedClientId', webId='${token.owner.webId}', " +
@@ -555,7 +530,7 @@ class PodTokenExchange @Inject internal constructor(
     // and send them back, which is the standard thing to do with the `scope` of a token response, so
     // refusing the echo would break exactly the clients that behaved correctly. It is never a
     // feature scope, so it cannot be down-scoped *to*; what it names is the connection this request
-    // is already proving it holds, and a refusal on record has ended the family further up.
+    // is already proving it holds.
     val requested = OAuthSyntax.parseScope(requestedScope)
     val finalScopes = if (requestedScope.isNullOrBlank()) {
       effectiveFeatureScopes
@@ -568,27 +543,20 @@ class PodTokenExchange @Inject internal constructor(
       requestedFeatures
     }
 
-    // A refusal ends the family, whether or not the withdrawal's own revocation reached it: that
-    // sweep sees the rows that exist at the moment it runs, and rotation inserts one after it.
-    if (endsOnRefusal(pod, token)) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId)
-      logger.info {
-        "[oauth/token] refresh refused — the durable connection was withdrawn: pod='${podName}', " +
-            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
-      }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
-    }
-
     // Rotate atomically. If another caller slipped in between our lookup and rotation,
-    // markRotated() returns false — that's an observed reuse event (could be a race too,
-    // but treating it as reuse is the safe default per OAuth 2.1).
+    // markRotated() returns false. Preserve a concurrent retirement's cause; otherwise this
+    // is reuse, including a second caller racing to rotate the same token.
     if (!refreshTokenStore.markRotated(token.tokenHash)) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      val retirement = refreshTokenStore.revocationReason(token.familyId)
+      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: "reuse")
       logger.warn {
-        "[oauth/token] refresh_token rotation race — treating as reuse: pod='${podName}', " +
+        "[oauth/token] refresh_token rotation refused: cause='${retirement ?: "reuse"}', pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
+      return PodTokenResult.Refused(
+        OAuthErrorCode.INVALID_GRANT,
+        if (retirement != null) refreshTokenStore.revocationDescription(token.familyId) else "refresh token reuse detected",
+      )
     }
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
@@ -608,46 +576,36 @@ class PodTokenExchange @Inject internal constructor(
     )
 
     // A retirement landing between the rotation and that insert revoked the rows it found, and this
-    // successor appeared after it — alive, in the family a reconnect had just replaced. `markRotated`
+    // successor appeared after it — alive, in a family that was just retired. `markRotated`
     // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
     // one arriving in between, and the two together leave it nowhere to land unseen. The window is
     // between two statements and has no test; `a family the retirement swept cannot be refreshed
     // back to life` covers the ordinary path and says so.
     if (refreshTokenStore.noLongerStands(token.tokenHash)) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      val revoked = refreshTokenStore.revokeFamily(
+        token.familyId,
+        reason = refreshTokenStore.revocationReason(token.familyId) ?: "retired",
+      )
       logger.info {
         "[oauth/token] family retired mid-rotation — successor revoked: pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
     }
 
-    // The third of the three, and the one the grant cascade needs. `currentGrants` was read before
+    // The grant cascade also needs a check after insertion. `currentGrants` was read before
     // any of this, and a context deletion writes in between: it removes the app's last grant, names
     // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
     // replaying the spent row still ends the family. What that leaves behind is a successor for an
     // app holding nothing, and this is the last moment it can be answered for. Untestable for the
-    // same reason as its two neighbours; the check before the insert covers the ordinary case.
+    // same reason as the predecessor check; the check before the insert covers the ordinary case.
     if (podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId)).isEmpty()) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId)
+      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = "withdrawn grant")
       logger.info {
         "[oauth/token] grants revoked mid-rotation — successor revoked: pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "all previously granted scopes have been revoked")
-    }
-
-    // Asked again, because the check above and this insert are two moments: a withdrawal landing
-    // between them revokes what it can see and misses the row about to appear. Whoever arrives
-    // second undoes the other's work rather than leaving a live successor behind.
-    if (endsOnRefusal(pod, token)) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId)
-      logger.info {
-        "[oauth/token] durable connection withdrawn mid-rotation — successor revoked: " +
-            "pod='${podName}', clientId='$normalizedClientId', familyId='${token.familyId}', " +
-            "revokedRows=$revoked"
-      }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "the durable connection was withdrawn")
     }
 
     logger.info {
@@ -744,26 +702,6 @@ class PodTokenExchange @Inject internal constructor(
       refreshToken = refreshToken,
     )
   }
-
-  /**
-   * Whether a refusal on record ends **this** family.
-   *
-   * A session family exists *because* the answer was "no", so asking only whether the person
-   * refused would end every one of them at its first rotation — the feature would do nothing, and
-   * a tester who ticks the box would never see it. What a refusal ends is a family minted on the
-   * long terms, or one grandfathered onto them ([PodRefreshTokenStore.lifetimeOf]).
-   *
-   * A session family keeps its withdrawal safety net elsewhere: the consent submission sweeps every
-   * family this app holds for this person, rotated rows included, so its predecessor is no longer
-   * standing and [PodRefreshTokenStore.noLongerStands] revokes the successor.
-   *
-   * Not the negation of granted, either: an authorization with nothing recorded predates the
-   * control and is left alone, which is why this asks for a recorded refusal rather than for the
-   * absence of a grant.
-   */
-  private fun endsOnRefusal(pod: PodId, token: PodRefreshToken): Boolean =
-    refreshTokenStore.lifetimeOf(token) == PodRefreshTokenStore.Lifetime.DURABLE &&
-        consentDecisionStore.find(pod, token.owner.clientId, listOf(token.owner.webId))?.durable == false
 
   private companion object {
     private val logger = KotlinLogging.logger {}

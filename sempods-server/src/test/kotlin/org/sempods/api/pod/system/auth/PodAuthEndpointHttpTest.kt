@@ -1362,10 +1362,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `withholding the durable connection revokes what the app already held`() {
-    // The choice has to take effect on what exists, not only on what is minted next. Without this,
-    // somebody unticks the control, keeps their context grants, and changes nothing they can
-    // observe — the family they just declined keeps rotating.
+  fun `an unticked consent leaves existing families refreshable`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1378,8 +1375,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       tokenUrl(pod.name),
       "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refreshed.statusCode, "the declined family must be dead: ${refreshed.responseBody}")
-    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    assertEquals(200, refreshed.statusCode, refreshed.responseBody)
   }
 
   @Test
@@ -1436,39 +1432,32 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a reconnect retires the family it supersedes`() {
-    // The withholding path's rule, asked from the other end: an answer governs what stands after
-    // it. Without this a reconnect adds a second ninety-day family rather than replacing the
-    // first, the next one a third, and every rotation renews each of their TTLs in full.
+  fun `two code exchanges leave both device families refreshable`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
 
     val first = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "first", durable = true)))
-    val superseded = checkNotNull(first["refresh_token"] as? String) { "the first consent grants one: $first" }
+    val firstToken = checkNotNull(first["refresh_token"] as? String) { "the first consent grants one: $first" }
 
     val second = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "again", durable = true)))
-    val successor = checkNotNull(second["refresh_token"] as? String) { "the reconnect grants one too: $second" }
+    val secondToken = checkNotNull(second["refresh_token"] as? String) { "the reconnect grants one too: $second" }
 
-    val stale = postForm(
+    val firstRefresh = postForm(
       tokenUrl(pod.name),
-      "grant_type=refresh_token&refresh_token=${enc(superseded)}&client_id=${enc(testClientId)}",
+      "grant_type=refresh_token&refresh_token=${enc(firstToken)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, stale.statusCode, "the superseded family must be dead: ${stale.responseBody}")
-    assertTrue("invalid_grant" in stale.responseBody, stale.responseBody)
+    assertEquals(200, firstRefresh.statusCode, firstRefresh.responseBody)
 
     val live = postForm(
       tokenUrl(pod.name),
-      "grant_type=refresh_token&refresh_token=${enc(successor)}&client_id=${enc(testClientId)}",
+      "grant_type=refresh_token&refresh_token=${enc(secondToken)}&client_id=${enc(testClientId)}",
     )
     assertEquals(200, live.statusCode, "the family the reconnect produced keeps working: ${live.responseBody}")
   }
 
   @Test
-  fun `two silent codes under one standing consent leave one live family`() {
-    // Auto-grant issues a code without recording a new decision, so a client can hold two codes
-    // under one generation and redeem both — the path where "retire what I supersede" has to be
-    // measured before the successor is minted rather than phrased as "everything but my own".
+  fun `two silent codes under one standing consent leave both families live`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1497,15 +1486,12 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       tokenUrl(pod.name),
       "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refresh(earlier).statusCode, "the earlier family is superseded")
-    assertEquals(200, refresh(later).statusCode, "and exactly one is left alive")
+    assertEquals(200, refresh(earlier).statusCode)
+    assertEquals(200, refresh(later).statusCode)
   }
 
   @Test
-  fun `two silent codes under a standing refusal leave one live family`() {
-    // The same run on the short answer. Measured only for the durable one, `superseded` would come
-    // back empty here and every auto-granted visit would leave one more live family behind — nothing throws, the collection grows, and a connection the person
-    // believes they replaced keeps rotating.
+  fun `two silent codes under a shorter lifetime leave both families live`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1531,8 +1517,8 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       tokenUrl(pod.name),
       "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refresh(earlier).statusCode, "the earlier family is superseded")
-    assertEquals(200, refresh(later).statusCode, "and exactly one is left alive")
+    assertEquals(200, refresh(earlier).statusCode)
+    assertEquals(200, refresh(later).statusCode)
   }
 
   @Test
@@ -1574,10 +1560,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a durable family does not survive the answer that ended it`() {
-    // The other direction of the same gate, because one passing test hides the inverted case. The
-    // refusal is written straight to the decision store rather than through the consent form: that
-    // form sweeps the family itself, and would answer this test without the gate ever running.
+  fun `a durable family keeps its terms after a later shorter choice`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1590,19 +1573,18 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       tokenUrl(pod.name),
       "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
-    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
-    assertTrue(
-      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
-      "the whole family goes with the refusal, not just this rotation",
-    )
+    assertEquals(200, refreshed.statusCode, refreshed.responseBody)
+    val body = JsonMappers.default().readValue(refreshed.responseBody, Map::class.java)
+    val successor = checkNotNull(refreshTokenStore.lookup(body["refresh_token"] as String).token)
+    assertEquals(PodRefreshTokenStore.Lifetime.DURABLE, refreshTokenStore.lifetimeOf(successor))
+    assertEquals(held.token.endsAt, successor.endsAt)
+    assertEquals(held.token.familyId, successor.familyId)
+    val idle = refreshTokenStore.termsOf(PodRefreshTokenStore.Lifetime.DURABLE).idle
+    assertEquals(minOf(successor.issuedAt.plus(idle), checkNotNull(successor.endsAt)), successor.expiresAt)
   }
 
   @Test
-  fun `a family that predates the control is ended by a refusal like a durable one`() {
-    // A row carrying no class was minted when only a ticked box produced one, so every one that
-    // exists was ticked. Reading such a row as a session family would hand it the short window
-    // **and** an escape from the withdrawal.
+  fun `a family that predates the lifetime class survives a later shorter choice`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
@@ -1619,7 +1601,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       tokenUrl(pod.name),
       "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
+    assertEquals(200, refreshed.statusCode, refreshed.responseBody)
   }
 
   @Test
@@ -1634,7 +1616,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
     val held = seedRefreshToken(pod, webId = ownerWebId)
 
-    // Exactly what the reconnect's sweep does to the family this token belongs to.
+    // An explicit re-authorization retires the family.
     refreshTokenStore.revokeFamilies(setOf(held.token.familyId))
 
     val refreshed = postForm(
@@ -1650,25 +1632,40 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a reconnect retires a family the pod recorded under an alias`() {
-    // `SPS-AUTH-061` on the retirement path. The pod stores whichever URI authenticated, so the connection a
-    // reconnect replaces may sit under the twin of the one the code carries — and a survivor there
-    // is exactly the second credential this rule exists to prevent.
+  fun `the eleventh family retires the least recently rotated family across aliases`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
     val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
     val alias = webIdUriDeriver.derivableAliases(ownerWebId).first { it != ownerWebId }
     createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
-    val held = seedRefreshToken(pod, webId = alias)
-
-    exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "reconnect", durable = true)))
-
-    val refreshed = postForm(
+    val held = (0 until 10).map { index ->
+      seedRefreshToken(pod, webId = if (index == 1) alias else ownerWebId).also { issued ->
+        db.getCollection(SempodsCollections.OAUTH_REFRESH_TOKENS).updateOne(
+          Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, issued.token.tokenHash),
+          Updates.set(RefreshTokenStore.Field.ISSUED_AT, Instant.now().minusSeconds(100L - index)),
+        )
+      }
+    }
+    fun refresh(token: String) = postForm(
       tokenUrl(pod.name),
-      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
+      "grant_type=refresh_token&refresh_token=${enc(token)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, refreshed.statusCode, "the alias-bound family must be dead: ${refreshed.responseBody}")
-    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
+    // Refresh the oldest family: the second-oldest, under an alias, must now be retired.
+    val renewed = refresh(held.first().plaintext)
+    assertEquals(200, renewed.statusCode, renewed.responseBody)
+    val renewedToken = JsonMappers.default().readValue(renewed.responseBody, Map::class.java)["refresh_token"] as String
+
+    val newest = exchangeCode(pod, codeFrom(submitConsent(pod, ownerWebId, state = "eleventh", durable = true)))
+
+    val retired = refresh(held[1].plaintext)
+    assertEquals(400, retired.statusCode, retired.responseBody)
+    val error = JsonMappers.default().readValue(retired.responseBody, Map::class.java)
+    assertEquals("invalid_grant", error["error"])
+    assertEquals("refresh token retired: connection limit", error["error_description"])
+    assertEquals(200, refresh(renewedToken).statusCode)
+    held.drop(2).forEach { assertEquals(200, refresh(it.plaintext).statusCode) }
+    assertEquals(200, refresh(newest["refresh_token"] as String).statusCode)
+    assertEquals(10, refreshTokenStore.liveFamilies(pod.podId(), testClientId, listOf(ownerWebId, alias)).size)
   }
 
   @Test
@@ -1834,31 +1831,6 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(
       podGrantsDao.fetchGrantStrings(checkNotNull(pod.id), testClientId, listOf(ownerWebId)).isEmpty(),
       "the disconnect must stand",
-    )
-  }
-
-  @Test
-  fun `a refusal on record ends the family even where the withdrawal missed it`() {
-    // `SPS-AUTH-063`, rotation half, at the point the race would leave behind: a family that exists while the
-    // decision says the person refused. The sweep sees the rows of its own moment; rotation inserts
-    // one after it, so the refusal has to be asked again rather than assumed to have been applied.
-    val ownerUser = sempodsTestFactory.newOwner()
-    val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)
-    val ownerWebId = webIdUriDeriver.deriveFromEmail(checkNotNull(ownerUser.email))
-    createContextViaDao(checkNotNull(pod.id), pod.name, "public/tasks")
-    val held = seedRefreshToken(pod, webId = ownerWebId)
-    consentDecisionStore.record(pod.podId(), testClientId, ownerWebId, durable = false)
-
-    val refreshed = postForm(
-      tokenUrl(pod.name),
-      "grant_type=refresh_token&refresh_token=${enc(held.plaintext)}&client_id=${enc(testClientId)}",
-    )
-
-    assertEquals(400, refreshed.statusCode, refreshed.responseBody)
-    assertTrue("invalid_grant" in refreshed.responseBody, refreshed.responseBody)
-    assertTrue(
-      refreshTokenStore.findByFamily(held.token.familyId).all { it.revokedAt != null },
-      "the family goes with the refusal, not just this rotation",
     )
   }
 

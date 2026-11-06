@@ -1,5 +1,7 @@
 # User connections
 
+<!-- doc-examples: checked -->
+
 [Delegated access](user-access.md) · [OAuth reference](oauth.md) · [Operations](operations.md)
 
 A user can let an app stay connected after the browser closes. For example, Alice approves Notes
@@ -34,9 +36,9 @@ A successful refresh replaces the refresh token. **Store the replacement and ser
 for one connection.** Reusing an old token revokes the whole family. For example, two workers
 refreshing with the same token can invalidate each other's connection.
 
-On `invalid_grant`, reconnect through authorization; do not retry indefinitely. New consent can
-retire older refresh families. Deleting a context removes its grants immediately and can also end
-a connection when that deletion removes its last delegation.
+On `invalid_grant`, reconnect through authorization; do not retry indefinitely. Deleting a context
+removes its grants immediately and can also end a connection when that deletion removes its last
+delegation.
 
 A refresh token the pod does not recognise is logged with a fingerprint of the token. The log
 cannot name the person: no family or WebID remains, and `client_id` names an app.
@@ -46,6 +48,23 @@ owns hashing and replay detection. The
 [pod refresh store](../../src/main/kotlin/org/sempods/pods/oauth/PodRefreshTokenStore.kt) owns lifetime
 and family-retirement rules. Deployments predating lifetime consent need the
 [delegation reset](operations.md#upgrading-old-delegations).
+
+## New consent and multiple devices
+
+Each code exchange starts a separate refresh family. Signing in to Notes on a phone leaves the
+same app's desktop connection usable. The lifetime choice applies to the new family: an unticked
+consent on the phone neither shortens nor revokes the desktop's durable family.
+
+The pod bounds live families per pod, client ID and person, including derivable WebID aliases.
+After writing the new family, it retires excess families in order of their last rotation, or
+issuance if never rotated. Expired and revoked families do not count. The
+[family-limit setting](operations.md#connection-family-limit) controls the bound. Refreshing a
+family retired by this limit returns `invalid_grant` with
+`error_description=refresh token retired: connection limit`.
+
+Family revocations are logged with their cause, client ID and family ID. Sign-out, reuse and
+withdrawn grants still end the affected families. The specification proposal for coexistence and
+per-family lifetime choices is [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142).
 
 ## The `prompt` parameter
 
