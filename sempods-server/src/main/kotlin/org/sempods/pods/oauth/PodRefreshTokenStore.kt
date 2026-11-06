@@ -242,13 +242,19 @@ class PodRefreshTokenStore internal constructor(
   /**
    * Retires excess live families after a successful code exchange has inserted its new family.
    * [webIds] must include the person's derivable aliases. Expired and revoked rows do not count.
-   * The last rotation (or issuance for an unused family) orders families; the id breaks ties so
-   * concurrent sweeps over the same set choose the same victims. Rotated rows count while their
-   * successor is being inserted, so a rotation cannot temporarily hide a family from the cap.
+   * [newFamilyId] counts toward the limit but is excluded from this sweep's victims. Among the
+   * other families, the last rotation (or issuance for an unused family) orders victims, and the
+   * id breaks ties. If the new family has already ended, this sweep does nothing. Rotated rows
+   * count while their successor is being inserted, so a rotation cannot hide a family from the cap.
    * Any revoked row excludes its family, including a tip revoked by the grant cascade while
    * rotated predecessors remain for reuse detection.
    */
-  internal fun enforceConnectionLimit(pod: PodId, clientId: String, webIds: Collection<String>) {
+  internal fun enforceConnectionLimit(
+    pod: PodId,
+    clientId: String,
+    webIds: Collection<String>,
+    newFamilyId: String,
+  ) {
     val owner = ownerFilter(pod, clientId, webIds) ?: return
     val families = tokens.aggregate(listOf(
       Aggregates.match(Filters.and(
@@ -261,9 +267,10 @@ class PodRefreshTokenStore internal constructor(
       Aggregates.match(Filters.eq("revokedAt", null)),
       Document("\$sort", Document("lastUsed", 1).append("_id", 1)),
     )).map { it.getString("_id") }.toList()
-    families.take((families.size - maxFamilies).coerceAtLeast(0)).forEach {
-      revokeFamily(it, reason = "limit")
-    }
+    if (newFamilyId !in families) return
+    families.filterNot { it == newFamilyId }
+      .take((families.size - maxFamilies).coerceAtLeast(0))
+      .forEach { revokeFamily(it, reason = "limit") }
   }
 
   /** The first recorded reason survives later sweeps, including the cleanup of an in-flight rotation. */

@@ -248,6 +248,7 @@ class PodTokenExchange @Inject internal constructor(
       pod = pod,
       clientId = entry.clientId,
       webIds = webIdUriDeriver.derivableAliases(entry.subject),
+      newFamilyId = issuedRefresh.token.familyId,
     )
 
     logger.info {

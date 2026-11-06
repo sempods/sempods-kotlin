@@ -66,7 +66,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     val newest = issue()
 
     val lines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
-      store.enforceConnectionLimit(pod, client, listOf(person, alias))
+      store.enforceConnectionLimit(pod, client, listOf(person, alias), newFamilyId = newest.token.familyId)
     }
 
     assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(old.plaintext).state)
@@ -79,6 +79,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
 
   @Test
   fun `expired and revoked families do not displace a live connection`() {
+    store = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 2))
     val expired = issue()
     db.getCollection(collection).updateOne(
       Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, expired.token.tokenHash),
@@ -87,29 +88,34 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     val revoked = issue()
     store.revokeFamily(revoked.token.familyId, reason = "reuse")
     val live = issue()
+    val newest = issue()
 
-    store.enforceConnectionLimit(pod, client, listOf(person))
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
 
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(live.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
   }
 
   @Test
   fun `a revoked tip does not count its rotated predecessors as a live family`() {
+    store = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 2))
     val first = issue()
     assertTrue(store.markRotated(first.token.tokenHash))
     val successor = store.issueInFamily(first.token, emptySet())
     store.revokeTokens(listOf(successor.token.tokenHash))
     assertEquals(RefreshTokenStore.LookupState.REUSED, store.lookup(first.plaintext).state)
     val live = issue()
+    val newest = issue()
     // Make the live family older so incorrectly counting the revoked one would evict it.
     db.getCollection(collection).updateOne(
       Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, live.token.tokenHash),
       Updates.set(RefreshTokenStore.Field.ISSUED_AT, Instant.now().minusSeconds(60)),
     )
 
-    store.enforceConnectionLimit(pod, client, listOf(person))
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
 
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(live.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
   }
 
   @Test
@@ -117,7 +123,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     val first = issue()
     assertTrue(store.markRotated(first.token.tokenHash))
     val second = store.issueInFamily(first.token, emptySet())
-    store.enforceConnectionLimit(pod, client, listOf(person))
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = first.token.familyId)
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(second.plaintext).state)
 
     assertTrue(store.markRotated(second.token.tokenHash))
@@ -129,7 +135,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
       ),
     )
     val newest = issue()
-    store.enforceConnectionLimit(pod, client, listOf(person))
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
     val inFlight = store.issueInFamily(second.token, emptySet())
     assertTrue(store.noLongerStands(second.token.tokenHash))
     store.revokeFamily(inFlight.token.familyId, reason = assertNotNull(store.revocationReason(first.token.familyId)))
@@ -137,6 +143,59 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     assertEquals("refresh token retired: connection limit", store.revocationDescription(inFlight.token.familyId))
     assertTrue(store.findByFamily(first.token.familyId).all { it.revokedAt != null })
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+  }
+
+  @Test
+  fun `a rotation after issuance cannot make the new family retire itself`() {
+    val existing = issue()
+    val newest = issue()
+    db.getCollection(collection).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, newest.token.tokenHash),
+      Updates.set(RefreshTokenStore.Field.ISSUED_AT, Instant.now().minusSeconds(60)),
+    )
+    assertTrue(store.markRotated(existing.token.tokenHash))
+    val rotated = store.issueInFamily(existing.token, emptySet())
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
+
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(rotated.plaintext).state)
+    assertEquals("refresh token retired: connection limit", store.revocationDescription(existing.token.familyId))
+    assertEquals(setOf(newest.token.familyId), store.liveFamilies(pod, client, listOf(person)))
+  }
+
+  @Test
+  fun `equal timestamps cannot make the new family retire itself through the id tie break`() {
+    val existing = issue()
+    val newest = issue()
+    val newFamilyId = "00000000-0000-0000-0000-000000000000"
+    db.getCollection(collection).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, newest.token.tokenHash),
+      Updates.combine(
+        Updates.set(RefreshTokenStore.Field.FAMILY_ID, newFamilyId),
+        Updates.set(RefreshTokenStore.Field.ISSUED_AT, existing.token.issuedAt),
+      ),
+    )
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newFamilyId)
+
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(existing.plaintext).state)
+    assertEquals("refresh token retired: connection limit", store.revocationDescription(existing.token.familyId))
+    assertEquals(setOf(newFamilyId), store.liveFamilies(pod, client, listOf(person)))
+  }
+
+  @Test
+  fun `a sweep whose new family has already ended leaves other connections alone`() {
+    val first = issue()
+    val second = issue()
+    val newest = issue()
+    store.revokeFamily(newest.token.familyId, reason = "limit")
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
+
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(first.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(second.plaintext).state)
   }
 
   @Test
