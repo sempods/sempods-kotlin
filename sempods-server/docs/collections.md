@@ -41,12 +41,14 @@ not derived from the codec — this server stores `podName` without ever queryin
 The [pod refresh store](../src/main/kotlin/org/sempods/pods/oauth/PodRefreshTokenStore.kt) also
 queries and revokes its token rows for the family limit. Revocation records carry a stable cause
 and an operation identifier so overlapping writes can log their own changes. The wrapper and the
-shared token mechanism use the same clock. Its separate issuance counter orders new
-families across replicas; it is retained when tokens expire. Keep the counter with the token
+shared token mechanism use the same clock for lifetime calculations and family revocation. Its
+separate issuance counter orders new families across replicas; it is retained when tokens expire. Keep the counter with the token
 collection in backups so restored families and new issuances share the same order.
 
 The shared refresh store also owns predecessor links and one-use grace bookkeeping in the token
-rows. Legacy rows need no rewrite: an unmarked rotation has no retry allowance. Only hashes are
+rows, using MongoDB time for rotation and grace checks. Supersession marks individual revoked rows
+so the family limit and retirement diagnostics can distinguish them from a retired family.
+Legacy rows need no rewrite: an unmarked rotation has no retry allowance. Only hashes are
 stored, including the predecessor link; no response token is retained for recovery.
 
 `oauth.loginStates` and `oauth.consentTransactions` do not own their mechanism either: both are

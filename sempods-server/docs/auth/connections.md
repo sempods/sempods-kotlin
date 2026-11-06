@@ -35,20 +35,23 @@ The [JVM guide](user-access.md#stay-connected) explains the client's current ref
 A successful refresh replaces the refresh token. **Store the replacement and serialize refreshes
 for one connection.** If its response is lost, the pod accepts one retry with the predecessor
 within the [configured grace period](operations.md#refresh-rotation-grace), 60 seconds by default.
-The retry gets a fresh successor in the same family. The first successor stays valid too, so a
-delayed original response does not leave the client holding a token retired by its retry.
+The retry gets a fresh successor in the same family and retires the original successor. Use the
+retry's response and discard a late response from the original request. The retired token cannot
+start a second continuing chain; presenting it fails without retiring the retry's successor.
 
 The allowance is shared across server replicas and consumed once. It ends at the configured
 deadline, when a successor starts rotating, or when the family ends. A second retry, a retry at or
-after the deadline, or reuse of an older ancestor revokes the whole family. Two simultaneous
-refreshes can therefore succeed; a third ends their connection. Families rotated before grace
-support, or while it was disabled, have no allowance.
+after the deadline, or reuse of an older ancestor revokes the whole family. That strict detection
+also applies when the request names the wrong pod, client or scopes. Within a still-eligible
+window, these invalid requests are refused without consuming the retry. Two simultaneous
+refreshes can receive responses, but only the retry's successor remains usable; a third ends their
+connection. Families rotated before grace support, or while it was disabled, have no allowance.
 
 Grace preserves the family's lifetime and checks the same pod, client, current grants and requested
 scopes as an ordinary refresh. It cannot restore a signed-out, disconnected or limit-retired family.
 The tradeoff is delayed reuse detection: somebody holding a stolen predecessor can also claim that
-one retry during the window. Grace does not distinguish that caller from a client recovering a lost
-response. The amendment to `SPS-AUTH-033` is proposed in
+one retry during the window, displacing the original successor. Grace does not distinguish that
+caller from a client recovering a lost response. The amendment to `SPS-AUTH-033` is proposed in
 [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142); enabled grace deviates from
 the current requirement to revoke on every reuse. Setting the period to zero retains strict reuse
 detection.

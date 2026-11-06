@@ -466,7 +466,12 @@ class PodTokenExchange @Inject internal constructor(
         return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token!!.familyId))
       }
 
-      RefreshTokenStore.LookupState.REUSED -> Unit
+      RefreshTokenStore.LookupState.REUSED -> {
+        if (!refreshTokenStore.canRetryWithGrace(token!!.tokenHash)) {
+          refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.REUSE)
+          return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
+        }
+      }
 
       RefreshTokenStore.LookupState.ACTIVE -> Unit
     }
@@ -540,6 +545,9 @@ class PodTokenExchange @Inject internal constructor(
     // Validate ownership, grants and requested scopes before spending either rotation or grace.
     // One concurrent loser may claim grace; every further replay ends the family.
     val rotation = refreshTokenStore.rotateWithGrace(token.tokenHash)
+    if (rotation == RefreshTokenStore.RotationResult.SUPERSEDED) {
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token revoked")
+    }
     if (rotation == RefreshTokenStore.RotationResult.REJECTED) {
       val retirement = refreshTokenStore.revocationReason(token.familyId)
       val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: RevocationReason.REUSE)
@@ -560,7 +568,7 @@ class PodTokenExchange @Inject internal constructor(
       }
     }
 
-    val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
+    val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes, rotation = rotation)
 
     // Signed before the checks below, for the reason the code exchange gives: the sign-out's sweep
     // lands before its last instant, so a token signed ahead of a check that passes is dated before it.
@@ -570,7 +578,7 @@ class PodTokenExchange @Inject internal constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       // The successor's deadline, not the predecessor's. A family that predates the terms acquires
-      // one in this very rotation (`RefreshTokenStore.issueInFamily`), so the row that was read
+      // one in this very rotation (`RefreshTokenStore.issueAfterRotation`), so the row that was read
       // still carries none — capping against that would hand out a full hour past a deadline that
       // came into existence one statement ago.
       familyEndsAt = issuedRefresh.token.endsAt,
@@ -591,6 +599,10 @@ class PodTokenExchange @Inject internal constructor(
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, retirement.description)
+    }
+
+    if (refreshTokenStore.noLongerStands(issuedRefresh.token.tokenHash)) {
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
     }
 
     // The grant cascade also needs a check after insertion. `currentGrants` was read before

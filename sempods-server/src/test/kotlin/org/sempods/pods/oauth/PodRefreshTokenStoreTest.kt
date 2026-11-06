@@ -364,6 +364,24 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `superseding a sibling neither excludes its family from the cap nor hides its retirement cause`() {
+    val original = issue()
+    assertEquals(RefreshTokenStore.RotationResult.ROTATED, store.rotateWithGrace(original.token.tokenHash))
+    val first = store.issueInFamily(original.token, emptySet())
+    assertEquals(RefreshTokenStore.RotationResult.GRACE, store.rotateWithGrace(original.token.tokenHash))
+    val retry = store.issueInFamily(original.token, emptySet(), RefreshTokenStore.RotationResult.GRACE)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(first.plaintext).state)
+    val newest = issue()
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newest.token.familyId)
+
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(retry.plaintext).state)
+    assertEquals(RevocationReason.LIMIT, store.revocationReason(original.token.familyId))
+    assertEquals("refresh token retired: connection limit", store.revocationDescription(original.token.familyId))
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+  }
+
+  @Test
   fun `bulk revocations log each family with client and cause`() {
     for (cause in listOf(RevocationReason.SIGN_OUT, RevocationReason.REUSE, RevocationReason.WITHDRAWN_GRANT, RevocationReason.DISCONNECT)) {
       val first = issue()

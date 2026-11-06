@@ -1,5 +1,7 @@
 package org.sempods
 
+import org.sempods.auth.core.RefreshTokenStore
+
 import org.sempods.client.SempodsPodBase
 import java.net.URI
 
@@ -187,8 +189,8 @@ data class SempodsConfig(
 ) {
 
   init {
-    require(refreshReuseGraceSeconds in 0..120) {
-      "refreshReuseGraceSeconds must be between 0 and 120, got $refreshReuseGraceSeconds"
+    require(refreshReuseGraceSeconds in 0..RefreshTokenStore.MAX_GRACE_SECONDS) {
+      "refreshReuseGraceSeconds must be between 0 and ${RefreshTokenStore.MAX_GRACE_SECONDS}, got $refreshReuseGraceSeconds"
     }
     require(connectionMaxFamilies > 0) { "connectionMaxFamilies must be positive, got $connectionMaxFamilies" }
     // A negative value would reach `TokenBucketRateLimiter`, which reads every non-positive rate as

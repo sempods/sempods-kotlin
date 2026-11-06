@@ -39,7 +39,8 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  *   states.
  * @param sequenceCollectionName stores the issuance counter for this token collection. Keep it
  *   with the token collection when restoring data; it is retained when tokens expire.
- * @param clock shared with the token mechanism for issuance, expiry, rotation and revocation.
+ * @param clock shared with the token mechanism for issuance, expiry and family revocation.
+ *   Grace admission and rotation use MongoDB time.
  */
 class PodRefreshTokenStore internal constructor(
   db: MongoDatabase,
@@ -206,10 +207,12 @@ class PodRefreshTokenStore internal constructor(
   internal fun issueInFamily(
     previous: PodRefreshToken,
     scopes: Set<String>,
-  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(
+    rotation: RefreshTokenStore.RotationResult = RefreshTokenStore.RotationResult.ROTATED,
+  ): RefreshTokenStore.Issued<Owner> = store.issueAfterRotation(
     previous = previous.copy(endsAt = previous.endsAt ?: previous.expiresAt),
     scopes = scopes,
     ttlSeconds = termsOf(lifetimeOf(previous)).idle.seconds,
+    rotation = rotation,
   )
 
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
@@ -217,6 +220,8 @@ class PodRefreshTokenStore internal constructor(
   internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
 
   /** Uses this pod's grace setting; both ordinary rotation and a claimed retry keep the family's terms. */
+  internal fun canRetryWithGrace(tokenHash: String): Boolean = store.canRetryWithGrace(tokenHash, graceSeconds)
+
   internal fun rotateWithGrace(tokenHash: String): RefreshTokenStore.RotationResult =
     store.rotateWithGrace(tokenHash, graceSeconds)
 
@@ -291,8 +296,8 @@ class PodRefreshTokenStore internal constructor(
    * check its token before returning success. Among the others, last rotation (or issuance for an
    * unused family) orders victims, with the id breaking ties. If [newFamilyId] has already ended,
    * this sweep does nothing. Rotated rows count while their successor is being inserted.
-   * Any revoked row excludes its family, including a tip revoked by the grant cascade while
-   * rotated predecessors remain for reuse detection.
+   * A row revoked by a family-ending action excludes its family, including a tip revoked by the
+   * grant cascade while rotated predecessors remain. A superseded sibling is excluded individually.
    */
   internal fun enforceConnectionLimit(
     pod: PodId,
@@ -314,6 +319,7 @@ class PodRefreshTokenStore internal constructor(
     val families = tokens.aggregate(listOf(
       Aggregates.match(Filters.and(
         owner,
+        Filters.ne(Field.SUPERSEDED_BY_GRACE, true),
         Filters.gt(Field.EXPIRES_AT, clock()),
       )),
       Document("\$group", Document("_id", "\$${Field.FAMILY_ID}")
@@ -336,6 +342,7 @@ class PodRefreshTokenStore internal constructor(
   internal fun revocationReason(familyId: String): RevocationReason? = tokens.find(Filters.and(
     Filters.eq(Field.FAMILY_ID, familyId),
     Filters.ne(Field.REVOKED_AT, null),
+    Filters.ne(Field.SUPERSEDED_BY_GRACE, true),
   )).sort(Sorts.ascending(Field.REVOKED_AT)).first()?.getString(FIELD_REVOCATION_REASON)?.let { code ->
     RevocationReason.entries.firstOrNull { it.code == code } ?: RevocationReason.RETIRED
   }

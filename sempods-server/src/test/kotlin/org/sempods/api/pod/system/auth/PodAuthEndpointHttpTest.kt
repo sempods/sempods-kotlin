@@ -4824,11 +4824,19 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val firstRefresh = JsonMappers.default().readTree(first.responseBody).get("refresh_token").asText()
     val retryRefresh = JsonMappers.default().readTree(retry.responseBody).get("refresh_token").asText()
     assertNotEquals(firstRefresh, retryRefresh)
-    for (plaintext in listOf(firstRefresh, retryRefresh)) {
-      val found = refreshTokenStore.lookup(plaintext)
-      assertEquals(RefreshTokenStore.LookupState.ACTIVE, found.state)
-      assertEquals(issued.token.familyId, found.token!!.familyId)
-    }
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(firstRefresh).state)
+    val recovered = refreshTokenStore.lookup(retryRefresh)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, recovered.state)
+    assertEquals(issued.token.familyId, recovered.token!!.familyId)
+
+    val superseded = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(firstRefresh)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, superseded.statusCode)
+    assertTrue(superseded.responseBody.contains("invalid_grant"))
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, refreshTokenStore.lookup(retryRefresh).state)
+
     // The next reuse still ends the family.
     val reuse = postForm(
       tokenUrl(pod.name),

@@ -113,6 +113,7 @@ class RefreshTokenStoreTest {
       )
     },
     clock = { clock },
+    rotationNow = { Date.from(clock) },
   )
 
   private fun owner(podId: ObjectId = PROBE_POD, clientId: String = "notes-app", webId: String = WEB_ID) =
@@ -607,16 +608,16 @@ class RefreshTokenStoreTest {
   fun `grace permits one retry without moving the original rotation time`() {
     val original = store.issueNewFamily(owner(), emptySet(), kind = "session", endsAt = ISSUED_AT.plusSeconds(3600))
     assertEquals(RotationResult.ROTATED, store.rotateWithGrace(original.token.tokenHash, 60))
-    val first = store.issueInFamily(original.token, emptySet())
+    val first = store.issueAfterRotation(original.token, emptySet(), RotationResult.ROTATED)
     clock = ISSUED_AT.plusSeconds(59).plusMillis(999)
     assertEquals(RotationResult.GRACE, store.rotateWithGrace(original.token.tokenHash, 60))
-    val retry = store.issueInFamily(original.token, emptySet())
+    val retry = store.issueAfterRotation(original.token, emptySet(), RotationResult.GRACE)
 
     assertNotEquals(first.plaintext, retry.plaintext)
     assertEquals(first.token.familyId, retry.token.familyId)
     assertEquals(first.token.endsAt, retry.token.endsAt)
     assertEquals(first.token.kind, retry.token.kind)
-    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(first.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(first.plaintext).state)
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(retry.plaintext).state)
     assertEquals(ISSUED_AT, store.lookup(original.plaintext).token!!.rotatedAt)
     assertEquals(RotationResult.REJECTED, store.rotateWithGrace(original.token.tokenHash, 60))
@@ -691,6 +692,87 @@ class RefreshTokenStoreTest {
     } finally {
       pool.shutdownNow()
     }
+  }
+
+  @Test
+  fun `grace admission is read only and rejects a used closed or elapsed allowance`() {
+    val first = store.issueNewFamily(owner(), emptySet())
+    assertFalse(store.canRetryWithGrace(first.token.tokenHash, 60))
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(first.token.tokenHash, 60))
+    repeat(2) { assertTrue(store.canRetryWithGrace(first.token.tokenHash, 60)) }
+    assertFalse(store.canRetryWithGrace(first.token.tokenHash, 0))
+    assertEquals(RotationResult.GRACE, store.rotateWithGrace(first.token.tokenHash, 60))
+    assertFalse(store.canRetryWithGrace(first.token.tokenHash, 60))
+    val other = store.issueNewFamily(owner(), emptySet())
+    store.rotateWithGrace(other.token.tokenHash, 60)
+    clock = clock.plusSeconds(60)
+    assertFalse(store.canRetryWithGrace(other.token.tokenHash, 60))
+  }
+
+  @Test
+  fun `a late original issuer cannot create a second chain after retry issuance`() {
+    val original = store.issueNewFamily(owner(), emptySet())
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(original.token.tokenHash, 60))
+    assertEquals(RotationResult.GRACE, store.rotateWithGrace(original.token.tokenHash, 60))
+    val retry = store.issueAfterRotation(original.token, emptySet(), RotationResult.GRACE)
+    val late = store.issueAfterRotation(original.token, emptySet(), RotationResult.ROTATED)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(late.plaintext).state)
+    assertEquals(RotationResult.SUPERSEDED, store.rotateWithGrace(late.token.tokenHash, 60))
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(retry.token.tokenHash, 60))
+  }
+
+  @Test
+  fun `claiming grace prevents the original successor rotating before retry issuance`() {
+    val original = store.issueNewFamily(owner(), emptySet())
+    store.rotateWithGrace(original.token.tokenHash, 60)
+    val first = store.issueAfterRotation(original.token, emptySet(), RotationResult.ROTATED)
+    assertEquals(RotationResult.GRACE, store.rotateWithGrace(original.token.tokenHash, 60))
+    assertEquals(RotationResult.SUPERSEDED, store.rotateWithGrace(first.token.tokenHash, 60))
+    val retry = store.issueAfterRotation(original.token, emptySet(), RotationResult.GRACE)
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(retry.token.tokenHash, 60))
+  }
+
+  @Test
+  fun `zero still closes an allowance opened before the setting changed`() {
+    val original = store.issueNewFamily(owner(), emptySet())
+    store.rotateWithGrace(original.token.tokenHash, 60)
+    val first = store.issueAfterRotation(original.token, emptySet(), RotationResult.ROTATED)
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(first.token.tokenHash, 0))
+    assertFalse(store.canRetryWithGrace(original.token.tokenHash, 60))
+  }
+
+  @Test
+  fun `replica application clock skew does not move Mongo grace timestamps`() {
+    fun replica(offsetSeconds: Long) = RefreshTokenStore<PodOwner>(
+      db = db!!, collectionName = COLLECTION, ownerIndexFields = listOf("podId"),
+      writeOwner = { put("podId", it.podId) },
+      readOwner = { owner(getObjectId("podId")) },
+      clock = { Instant.now().plusSeconds(offsetSeconds) },
+    )
+    val fast = replica(3600)
+    val slow = replica(-3600)
+    val original = fast.issueNewFamily(owner(), emptySet())
+    val before = Instant.now().minusSeconds(5)
+    assertEquals(RotationResult.ROTATED, fast.rotateWithGrace(original.token.tokenHash, 60))
+    assertTrue(slow.canRetryWithGrace(original.token.tokenHash, 60))
+    assertEquals(RotationResult.GRACE, slow.rotateWithGrace(original.token.tokenHash, 60))
+    val row = document(original.token.tokenHash)
+    val after = Instant.now().plusSeconds(5)
+    for (field in listOf("rotatedAt", "graceUsedAt")) {
+      assertTrue(row.getDate(field).toInstant() in before..after)
+    }
+  }
+
+  @Test
+  fun `a late ordinary successor stays retired after its predecessor was reaped`() {
+    val original = store.issueNewFamily(owner(), emptySet())
+    store.rotateWithGrace(original.token.tokenHash, 60)
+    store.rotateWithGrace(original.token.tokenHash, 60)
+    val retry = store.issueAfterRotation(original.token, emptySet(), RotationResult.GRACE)
+    raw().deleteOne(Filters.eq("tokenHash", original.token.tokenHash))
+    val late = store.issueAfterRotation(original.token, emptySet(), RotationResult.ROTATED)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(late.plaintext).state)
+    assertEquals(RotationResult.ROTATED, store.rotateWithGrace(retry.token.tokenHash, 60))
   }
 
 }

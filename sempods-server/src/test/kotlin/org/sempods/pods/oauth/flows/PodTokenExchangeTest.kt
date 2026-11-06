@@ -172,6 +172,13 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       pod = authorized.podId, podName = authorized.pod.name, clientId = clientId,
       webId = authorized.webId, scopes = emptySet(), lifetime = lifetime,
     )
+    fun expireGrace(plaintext: String) {
+      val hash = assertNotNull(store.lookup(plaintext).token).tokenHash
+      db.getCollection(collection).updateOne(
+        com.mongodb.client.model.Filters.eq("tokenHash", hash),
+        com.mongodb.client.model.Updates.set("rotatedAt", Instant.now().minusSeconds(120)),
+      )
+    }
     fun refresh(plaintext: String) = flow.refresh(authorized.podId, authorized.pod.name, plaintext, clientId, null)
     override fun close() {
       db.getCollection(collection).drop()
@@ -380,14 +387,14 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     for (seconds in listOf(0, 60)) GraceScenario(seconds).use { scenario ->
       val original = scenario.seed()
       val first = issued(scenario.refresh(original.plaintext))
-      scenario.now = scenario.now.plusSeconds(seconds.toLong())
+      if (seconds > 0) scenario.expireGrace(original.plaintext)
       assertEquals("refresh token reuse detected", refused(scenario.refresh(original.plaintext)).description)
       assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(first.refreshToken)).state)
     }
   }
 
   @Test
-  fun `two concurrent refreshes both succeed and keep their successors usable`() {
+  fun `two concurrent refreshes leave only the retry successor usable`() {
     GraceScenario().use { scenario ->
       val original = scenario.seed(PodRefreshTokenStore.Lifetime.SESSION)
       val start = CyclicBarrier(2)
@@ -396,18 +403,38 @@ class PodTokenExchangeTest : SempodsStoreTest() {
         pool.invokeAll((1..2).map { Callable {
           start.await(10, TimeUnit.SECONDS)
           scenario.refresh(original.plaintext)
-        } }, 15, TimeUnit.SECONDS).map { issued(it.get()) }
+        } }, 15, TimeUnit.SECONDS).map { it.get() }
       } finally {
         pool.shutdownNow()
       }
-      assertEquals(2, results.map { it.refreshToken }.toSet().size)
-      results.forEach { result ->
-        val plaintext = assertNotNull(result.refreshToken)
-        val successor = assertNotNull(scenario.store.lookup(plaintext).token)
-        assertEquals(original.token.familyId, successor.familyId)
-        assertEquals(original.token.endsAt, successor.endsAt)
-        assertEquals(original.token.kind, successor.kind)
-        issued(scenario.refresh(plaintext))
+      val issued = results.filterIsInstance<PodTokenResult.Issued>()
+      assertTrue(issued.isNotEmpty())
+      val usable = issued.mapNotNull { it.refreshToken }.filter { scenario.store.lookup(it).state == RefreshTokenStore.LookupState.ACTIVE }
+      assertEquals(1, usable.size)
+      val successor = assertNotNull(scenario.store.lookup(usable.single()).token)
+      assertEquals(original.token.familyId, successor.familyId)
+      assertEquals(original.token.endsAt, successor.endsAt)
+      assertEquals(original.token.kind, successor.kind)
+      issued(scenario.refresh(usable.single()))
+    }
+  }
+
+  @Test
+  fun `ineligible replay revokes the family before checking pod client or scopes`() {
+    for (seconds in listOf(0, 60)) for (invalid in listOf("pod", "client", "scope")) {
+      GraceScenario(seconds).use { scenario ->
+        val original = scenario.seed()
+        val next = issued(scenario.refresh(original.plaintext))
+        if (seconds > 0) scenario.expireGrace(original.plaintext)
+        val other = sempodsTestFactory.newPod()
+        val result = scenario.flow.refresh(
+          if (invalid == "pod") other.podId() else scenario.authorized.podId,
+          if (invalid == "pod") other.name else scenario.authorized.pod.name,
+          original.plaintext, if (invalid == "client") "did:web:other.example" else clientId,
+          if (invalid == "scope") "unknown-scope" else null,
+        )
+        assertEquals("refresh token reuse detected", refused(result).description)
+        assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(next.refreshToken)).state)
       }
     }
   }
@@ -448,7 +475,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       val original = scenario.seed()
       issued(scenario.refresh(original.plaintext))
       val observed = spyk(scenario.store)
-      every { observed.issueInFamily(any(), any()) } answers {
+      every { observed.issueInFamily(any(), any(), any()) } answers {
         val successor = callOriginal()
         scenario.store.revokeFamily(original.token.familyId, PodRefreshTokenStore.RevocationReason.LIMIT)
         successor

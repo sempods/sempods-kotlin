@@ -59,17 +59,27 @@ import java.util.concurrent.TimeUnit
  * @param writeOwner / @param readOwner the only things that know what an owner is. A row missing an
  *   owner field fails loudly, the way [readInstant] does and for the same reason — the row cannot
  *   serve the exchange it belongs to, and inventing a value would hand out authority nobody granted.
- * @param clock the "now" of issuing, rotation and revocation. A parameter because the interesting
- *   cases are about time and testing them by waiting is not testing them.
+ * @param clock the "now" of issuance, lookup, strict rotation and revocation. Grace admission and
+ *   rotation use MongoDB time; the internal constructor supplies a deterministic expression for tests.
  */
-class RefreshTokenStore<OWNER>(
+class RefreshTokenStore<OWNER> internal constructor(
   db: MongoDatabase,
   collectionName: String,
   ownerIndexFields: List<String>,
   private val writeOwner: Document.(OWNER) -> Unit,
   private val readOwner: Document.() -> OWNER,
-  private val clock: () -> Instant = Instant::now,
+  private val clock: () -> Instant,
+  private val rotationNow: () -> Any,
 ) {
+
+  constructor(
+    db: MongoDatabase,
+    collectionName: String,
+    ownerIndexFields: List<String>,
+    writeOwner: Document.(OWNER) -> Unit,
+    readOwner: Document.() -> OWNER,
+    clock: () -> Instant = Instant::now,
+  ) : this(db, collectionName, ownerIndexFields, writeOwner, readOwner, clock, { "\$\$NOW" })
 
   private val tokens = db.getCollection(collectionName)
 
@@ -237,6 +247,7 @@ class RefreshTokenStore<OWNER>(
     kind: String?,
     endsAt: Instant?,
     predecessorHash: String? = null,
+    graceSuccessor: Boolean = false,
   ): Issued<OWNER> {
     val plaintext = PLAINTEXT_PREFIX + Secrets.newSecret()
     val now = clock().truncatedTo(ChronoUnit.MILLIS)
@@ -257,7 +268,9 @@ class RefreshTokenStore<OWNER>(
       endsAt = deadline,
       kind = kind,
     )
-    tokens.insertOne(token.toDocument().putNotNull(Field.PREDECESSOR_HASH, predecessorHash))
+    tokens.insertOne(token.toDocument().putNotNull(Field.PREDECESSOR_HASH, predecessorHash).apply {
+      if (graceSuccessor) put(Field.GRACE_SUCCESSOR, true)
+    })
     return Issued(plaintext, token)
   }
 
@@ -305,62 +318,126 @@ class RefreshTokenStore<OWNER>(
     ).modifiedCount > 0L
 
   /** Whether an exchange may issue a successor, or must apply its reuse/retirement policy. */
-  enum class RotationResult { ROTATED, GRACE, REJECTED }
+  enum class RotationResult {
+    ROTATED,
+    GRACE,
+
+    /** Refuse this replaced successor without retiring the retry's family. */
+    SUPERSEDED,
+    REJECTED,
+  }
 
   /**
-   * Rotates once, or consumes one retry strictly before [graceSeconds] have passed since rotation.
-   * Zero disables retries; the supported range is 0–120 seconds. A retry never moves `rotatedAt`.
-   * Each claim is a conditional update of the predecessor, so replicas share the same allowance.
-   * A revoked, expired, unmarked legacy or already-retried predecessor cannot use grace.
+   * Read-only admission check before a spent token passes request validation. False means strict
+   * reuse detection applies immediately. True reserves nothing; [rotateWithGrace] claims atomically.
+   */
+  fun canRetryWithGrace(tokenHash: String, graceSeconds: Int): Boolean {
+    require(graceSeconds in 0..MAX_GRACE_SECONDS) { "graceSeconds must be between 0 and $MAX_GRACE_SECONDS" }
+    return graceSeconds > 0 && tokens.find(graceFilter(tokenHash, graceSeconds, rotationNow()))
+      .projection(Document(Field.ID, 1)).first() != null
+  }
+
+  /**
+   * Rotates once, or consumes one retry before [graceSeconds] have passed since rotation.
+   * Zero disables retries; [MAX_GRACE_SECONDS] bounds the period. MongoDB's `$$NOW` timestamps
+   * and checks the window, independently of application clocks. A retry never moves `rotatedAt`.
    *
-   * Rotating a successor closes its predecessor's allowance before claiming the successor. Thus a
-   * chain that advanced A → B → C cannot retry A, even inside its original window. A retry that
-   * claimed A before B started rotating remains valid. Both successors may remain active; callers
-   * must check for concurrent family retirement after inserting either one, as on ordinary rotation.
+   * A successor closes its predecessor's allowance before rotating. An ordinary successor cannot
+   * rotate after that predecessor's retry has won. This ordering prevents two continuing chains,
+   * including when retry issuance and ordinary successor rotation overlap across replicas.
    *
-   * Use this operation on every rotation of a grace-aware service. [markRotated] keeps its strict
-   * contract and does not open a retry allowance. A failed exchange may consume its claim without
-   * returning a token; this operation never restores a consumed claim.
+   * Use this operation with [issueAfterRotation] on every rotation of a grace-aware service.
+   * [markRotated] remains strict. Claims are never restored after a failed exchange; callers must
+   * still check for family retirement after inserting a successor.
    */
   fun rotateWithGrace(tokenHash: String, graceSeconds: Int): RotationResult {
-    require(graceSeconds in 0..120) { "graceSeconds must be between 0 and 120" }
+    require(graceSeconds in 0..MAX_GRACE_SECONDS) { "graceSeconds must be between 0 and $MAX_GRACE_SECONDS" }
     val row = tokens.find(Filters.eq(Field.TOKEN_HASH, tokenHash))
-      .projection(Document(Field.PREDECESSOR_HASH, 1)).first() ?: return RotationResult.REJECTED
+      .projection(Document(Field.PREDECESSOR_HASH, 1).append(Field.GRACE_SUCCESSOR, 1)
+        .append(Field.SUPERSEDED_BY_GRACE, 1)).first() ?: return RotationResult.REJECTED
+    if (row.getBoolean(Field.SUPERSEDED_BY_GRACE, false)) return RotationResult.SUPERSEDED
     row.getString(Field.PREDECESSOR_HASH)?.let { predecessor ->
-      tokens.updateOne(
+      val ordinary = !row.getBoolean(Field.GRACE_SUCCESSOR, false)
+      val filter = Filters.and(
         Filters.eq(Field.TOKEN_HASH, predecessor),
-        Updates.set(Field.GRACE_CLOSED, true),
+        if (ordinary) Filters.eq(Field.GRACE_USED_AT, null) else Document(),
       )
+      val closed = tokens.updateOne(filter, Updates.set(Field.GRACE_CLOSED, true)).matchedCount > 0
+      if (!closed && ordinary && tokens.find(Filters.eq(Field.TOKEN_HASH, predecessor)).first() != null) {
+        supersede(Filters.eq(Field.TOKEN_HASH, tokenHash))
+        return RotationResult.SUPERSEDED
+      }
     }
-    val now = clock().truncatedTo(ChronoUnit.MILLIS)
-    val live = Filters.and(
-      Filters.eq(Field.TOKEN_HASH, tokenHash),
-      Filters.eq(Field.REVOKED_AT, null),
-      Filters.gt(Field.EXPIRES_AT, now),
-    )
+    val now = rotationNow()
     val rotated = tokens.updateOne(
-      Filters.and(live, Filters.eq(Field.ROTATED_AT, null)),
-      Updates.combine(
-        Updates.set(Field.ROTATED_AT, now),
-        Updates.set(Field.GRACE_ENABLED, graceSeconds > 0),
-      ),
+      Filters.and(liveFilter(tokenHash, now), Filters.eq(Field.ROTATED_AT, null)),
+      listOf(Document("\$set", Document(Field.ROTATED_AT, now).append(Field.GRACE_ENABLED, graceSeconds > 0))),
     ).modifiedCount > 0
     if (rotated) return RotationResult.ROTATED
     if (graceSeconds == 0) return RotationResult.REJECTED
-    val retryAt = clock().truncatedTo(ChronoUnit.MILLIS)
     val retried = tokens.updateOne(
-      Filters.and(
-        live,
-        Filters.gt(Field.EXPIRES_AT, retryAt),
-        Filters.eq(Field.GRACE_ENABLED, true),
-        Filters.ne(Field.GRACE_CLOSED, true),
-        Filters.eq(Field.GRACE_USED_AT, null),
-        Filters.gt(Field.ROTATED_AT, retryAt.minusSeconds(graceSeconds.toLong())),
-        Filters.lte(Field.ROTATED_AT, retryAt),
-      ),
-      Updates.set(Field.GRACE_USED_AT, retryAt),
+      graceFilter(tokenHash, graceSeconds, now),
+      listOf(Document("\$set", Document(Field.GRACE_USED_AT, now))),
     ).modifiedCount > 0
     return if (retried) RotationResult.GRACE else RotationResult.REJECTED
+  }
+
+  private fun liveFilter(tokenHash: String, now: Any): Bson = Filters.and(
+    Filters.eq(Field.TOKEN_HASH, tokenHash),
+    Filters.eq(Field.REVOKED_AT, null),
+    Filters.expr(Document("\$gt", listOf("\$${Field.EXPIRES_AT}", now))),
+  )
+
+  private fun graceFilter(tokenHash: String, seconds: Int, now: Any): Bson = Filters.and(
+    liveFilter(tokenHash, now),
+    Filters.eq(Field.GRACE_ENABLED, true),
+    Filters.ne(Field.GRACE_CLOSED, true),
+    Filters.eq(Field.GRACE_USED_AT, null),
+    Filters.expr(Document("\$gt", listOf("\$${Field.ROTATED_AT}", Document("\$subtract", listOf(now, seconds * 1000L))))),
+    Filters.expr(Document("\$lte", listOf("\$${Field.ROTATED_AT}", now))),
+  )
+
+  /**
+   * Issues after a successful [rotateWithGrace] claim. A grace successor replaces the original
+   * successor; only the retry branch may continue. Both the batch sweep and the ordinary issuer's
+   * post-insert check are needed: either can insert after the other has already swept.
+   * Supersession revokes individual rows, not the family, and never changes its first retirement cause.
+   * The returned snapshot can already be superseded; callers check the issued row and its predecessor
+   * for retirement before returning tokens.
+   */
+  fun issueAfterRotation(
+    previous: Token<OWNER>,
+    scopes: Set<String>,
+    rotation: RotationResult,
+    ttlSeconds: Long = DEFAULT_TTL_SECONDS,
+  ): Issued<OWNER> {
+    require(rotation == RotationResult.ROTATED || rotation == RotationResult.GRACE)
+    val issued = issue(
+      owner = previous.owner, scopes = scopes, familyId = previous.familyId,
+      ttlSeconds = ttlSeconds, kind = previous.kind,
+      endsAt = previous.endsAt ?: previous.expiresAt.takeIf { previous.kind == null },
+      predecessorHash = previous.tokenHash, graceSuccessor = rotation == RotationResult.GRACE,
+    )
+    if (rotation == RotationResult.GRACE) {
+      supersede(Filters.and(
+        Filters.eq(Field.PREDECESSOR_HASH, previous.tokenHash),
+        Filters.ne(Field.GRACE_SUCCESSOR, true),
+      ))
+    } else {
+      val parent = tokens.find(Filters.eq(Field.TOKEN_HASH, previous.tokenHash))
+        .projection(Document(Field.GRACE_USED_AT, 1)).first()
+      if (parent == null || parent.getInstant(Field.GRACE_USED_AT) != null) {
+        supersede(Filters.eq(Field.TOKEN_HASH, issued.token.tokenHash))
+      }
+    }
+    return issued
+  }
+
+  private fun supersede(filter: Bson) {
+    tokens.updateMany(
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      listOf(Document("\$set", Document(Field.REVOKED_AT, rotationNow()).append(Field.SUPERSEDED_BY_GRACE, true))),
+    )
   }
 
   /**
@@ -493,9 +570,18 @@ class RefreshTokenStore<OWNER>(
 
     /** Set before a successor rotates, preventing retries of older ancestors. */
     const val GRACE_CLOSED = "graceClosed"
+
+    /** Marks the sole successor issued by the grace claim. */
+    const val GRACE_SUCCESSOR = "graceSuccessor"
+
+    /** This row was superseded by a grace successor; its revokedAt does not retire the family. */
+    const val SUPERSEDED_BY_GRACE = "supersededByGrace"
   }
 
   companion object {
+
+    /** Maximum supported rotation grace, in seconds. Zero always disables grace. */
+    const val MAX_GRACE_SECONDS: Int = 120
 
     /** Lets a log scraper tell refresh tokens apart from access tokens at a glance. */
     private const val PLAINTEXT_PREFIX = "rt_"

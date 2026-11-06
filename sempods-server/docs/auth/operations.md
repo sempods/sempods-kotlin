@@ -16,11 +16,21 @@ next successful code exchange for that authorization.
 
 `SEMPODS_REFRESH_REUSE_GRACE_SECONDS` defaults to **60 seconds**. Zero disables grace; values
 outside **0–120** fail startup. The period runs from the original rotation and is not extended by
-a retry. Deploy replicas with the same setting and synchronized clocks. The
-[rotation rules](connections.md#refresh-token-rotation) describe which retry qualifies, the two
-valid successors and the reuse-detection tradeoff.
+a retry. Deploy replicas with the same setting. MongoDB timestamps rotations and checks grace
+eligibility with its own clock, so application-clock skew does not move this window. The
+[rotation rules](connections.md#refresh-token-rotation) describe which retry qualifies, replacement
+of the original successor and the reuse-detection tradeoff.
 
 The setting applies to the pod server. The hosted MCP service keeps strict refresh reuse detection.
+
+**Known conformance deviation — `SPS-AUTH-033`:** the default follows the
+[maintainer decision in #447](https://github.com/sempods/sempods-kotlin/issues/447#issuecomment-6654605982).
+Until [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142) is adopted, deployments
+with a positive setting do not satisfy the current requirement to revoke on every reuse. This is
+an experimental implementation choice, not specification adoption or a conformance claim. Operators
+requiring the current contract set `0`; the specification's
+[governance](https://github.com/sempods/sempods-spec/blob/main/GOVERNANCE.md#what-the-tag-changes-and-what-it-no-longer-does)
+continues to govern adoption.
 
 ## Rate limit
 
