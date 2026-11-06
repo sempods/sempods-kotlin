@@ -466,18 +466,7 @@ class PodTokenExchange @Inject internal constructor(
         return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token!!.familyId))
       }
 
-      RefreshTokenStore.LookupState.REUSED -> {
-        // OAuth 2.1 reuse-detection: this token was already exchanged once. A correctly
-        // behaving client keeps only the successor — whatever presented it again is stale
-        // state or a thief. Kill the whole family to pull the plug on any in-flight child
-        // token the attacker might already be holding.
-        val revoked = refreshTokenStore.revokeFamily(token!!.familyId, reason = RevocationReason.REUSE)
-        logger.warn {
-          "[oauth/token] refresh_token reuse detected — revoking family: pod='${podName}', " +
-              "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
-        }
-        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
-      }
+      RefreshTokenStore.LookupState.REUSED -> Unit
 
       RefreshTokenStore.LookupState.ACTIVE -> Unit
     }
@@ -548,10 +537,10 @@ class PodTokenExchange @Inject internal constructor(
       requestedFeatures
     }
 
-    // Rotate atomically. If another caller slipped in between our lookup and rotation,
-    // markRotated() returns false. Preserve a concurrent retirement's cause; otherwise this
-    // is reuse, including a second caller racing to rotate the same token.
-    if (!refreshTokenStore.markRotated(token.tokenHash)) {
+    // Validate ownership, grants and requested scopes before spending either rotation or grace.
+    // One concurrent loser may claim grace; every further replay ends the family.
+    val rotation = refreshTokenStore.rotateWithGrace(token.tokenHash)
+    if (rotation == RefreshTokenStore.RotationResult.REJECTED) {
       val retirement = refreshTokenStore.revocationReason(token.familyId)
       val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: RevocationReason.REUSE)
       logger.warn {
@@ -562,6 +551,13 @@ class PodTokenExchange @Inject internal constructor(
         OAuthErrorCode.INVALID_GRANT,
         retirement?.description ?: "refresh token reuse detected",
       )
+    }
+
+    if (rotation == RefreshTokenStore.RotationResult.GRACE) {
+      logger.info {
+        "[oauth/token] refresh retry claimed within grace: pod='$podName', clientId='$normalizedClientId', " +
+            "familyId='${token.familyId}'"
+      }
     }
 
     val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
@@ -581,11 +577,9 @@ class PodTokenExchange @Inject internal constructor(
     )
 
     // A retirement landing between the rotation and that insert revoked the rows it found, and this
-    // successor appeared after it — alive, in a family that was just retired. `markRotated`
+    // successor appeared after it — alive, in a family that was just retired. `rotateWithGrace`
     // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
-    // one arriving in between, and the two together leave it nowhere to land unseen. The window is
-    // between two statements and has no test; `a family the retirement swept cannot be refreshed
-    // back to life` covers the ordinary path and says so.
+    // one arriving in between. The same check applies after a grace claim.
     if (refreshTokenStore.noLongerStands(token.tokenHash)) {
       val retirement = refreshTokenStore.revocationReason(token.familyId) ?: RevocationReason.RETIRED
       val revoked = refreshTokenStore.revokeFamily(
@@ -602,9 +596,8 @@ class PodTokenExchange @Inject internal constructor(
     // The grant cascade also needs a check after insertion. `currentGrants` was read before
     // any of this, and a context deletion writes in between: it removes the app's last grant, names
     // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
-    // replaying the spent row still ends the family. What that leaves behind is a successor for an
-    // app holding nothing, and this is the last moment it can be answered for. Untestable for the
-    // same reason as the predecessor check; the check before the insert covers the ordinary case.
+    // reuse outside grace still ends the family. What that leaves behind is a successor for an
+    // app holding nothing, and this is the last moment it can be answered for.
     if (podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId)).isEmpty()) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.WITHDRAWN_GRANT)
       logger.info {

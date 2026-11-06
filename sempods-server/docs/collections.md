@@ -45,6 +45,10 @@ shared token mechanism use the same clock. Its separate issuance counter orders 
 families across replicas; it is retained when tokens expire. Keep the counter with the token
 collection in backups so restored families and new issuances share the same order.
 
+The shared refresh store also owns predecessor links and one-use grace bookkeeping in the token
+rows. Legacy rows need no rewrite: an unmarked rotation has no retry allowance. Only hashes are
+stored, including the predecessor link; no response token is retained for recovery.
+
 `oauth.loginStates` and `oauth.consentTransactions` do not own their mechanism either: both are
 `sempods-auth-core`'s `OneTimeStore` with a payload codec, the first through `BrowserSignIn`, which
 keeps the parked request under `payload` beside the sign-in's encrypted verifier — one-time

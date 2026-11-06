@@ -1,6 +1,14 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import com.mongodb.client.MongoDatabase
+import org.sempods.SempodsModule
+import org.sempods.auth.core.RefreshTokenStore
+import java.time.Instant
+import java.util.concurrent.Callable
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import io.mockk.every
 import io.mockk.spyk
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -136,6 +144,39 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       scope: String? = null,
       clientId: String = this@PodTokenExchangeTest.clientId,
     ) = exchange.refresh(podId, pod.name, token, clientId, scope)
+  }
+
+  private fun exchangeUsing(store: PodRefreshTokenStore) = PodTokenExchange(
+    authorizationCodeStore = authorizationCodeStore,
+    refreshTokenStore = store,
+    consentDecisionStore = consentDecisionStore,
+    podGrantsFacade = podGrantsFacade,
+    dynamicClientStore = injector.getInstance(DynamicClientStore::class.java),
+    podTokenIssuer = injector.getInstance(PodTokenIssuer::class.java),
+    serviceClients = serviceClients,
+    managementAuthorities = managementAuthorities,
+    webIdUriDeriver = injector.getInstance(WebIdUriDeriver::class.java),
+  )
+
+  private inner class GraceScenario(seconds: Int = 60) : AutoCloseable {
+    val authorized = Authorized()
+    var now = Instant.now()
+    private val collection = "test.refreshGrace.${randomId()}"
+    private val db = injector.getInstance(MongoDatabase::class.java)
+    val store = PodRefreshTokenStore(
+      db = db, collectionName = collection,
+      config = SempodsModule.config.copy(refreshReuseGraceSeconds = seconds), clock = { now },
+    )
+    val flow = exchangeUsing(store)
+    fun seed(lifetime: PodRefreshTokenStore.Lifetime = PodRefreshTokenStore.Lifetime.DURABLE) = store.issueNewFamily(
+      pod = authorized.podId, podName = authorized.pod.name, clientId = clientId,
+      webId = authorized.webId, scopes = emptySet(), lifetime = lifetime,
+    )
+    fun refresh(plaintext: String) = flow.refresh(authorized.podId, authorized.pod.name, plaintext, clientId, null)
+    override fun close() {
+      db.getCollection(collection).drop()
+      db.getCollection("$collection.sequence").drop()
+    }
   }
 
   private fun refused(result: PodTokenResult): PodTokenResult.Refused = assertIs(result)
@@ -316,7 +357,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `rotation returns a new pair and the spent one becomes reuse`() {
+  fun `rotation permits one lost-answer retry and a second reuse ends the family`() {
     val authorized = Authorized()
     val first = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
     val rotated = issued(authorized.refresh(checkNotNull(first.refreshToken)))
@@ -324,12 +365,111 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     assertNotNull(rotated.refreshToken)
     assertTrue(rotated.refreshToken != first.refreshToken, "a rotation replaces what it spent")
 
-    // Reuse detection takes the whole family, the successor included.
+    val retry = issued(authorized.refresh(checkNotNull(first.refreshToken)))
+    assertTrue(retry.refreshToken != rotated.refreshToken)
+    // A second retry takes the whole family, including both successors.
     assertEquals(
       "refresh token reuse detected",
       refused(authorized.refresh(checkNotNull(first.refreshToken))).description,
     )
     assertEquals(OAuthErrorCode.INVALID_GRANT, refused(authorized.refresh(checkNotNull(rotated.refreshToken))).code)
+  }
+
+  @Test
+  fun `disabled and elapsed grace retain family-wide reuse detection`() {
+    for (seconds in listOf(0, 60)) GraceScenario(seconds).use { scenario ->
+      val original = scenario.seed()
+      val first = issued(scenario.refresh(original.plaintext))
+      scenario.now = scenario.now.plusSeconds(seconds.toLong())
+      assertEquals("refresh token reuse detected", refused(scenario.refresh(original.plaintext)).description)
+      assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(first.refreshToken)).state)
+    }
+  }
+
+  @Test
+  fun `two concurrent refreshes both succeed and keep their successors usable`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed(PodRefreshTokenStore.Lifetime.SESSION)
+      val start = CyclicBarrier(2)
+      val pool = Executors.newFixedThreadPool(2)
+      val results = try {
+        pool.invokeAll((1..2).map { Callable {
+          start.await(10, TimeUnit.SECONDS)
+          scenario.refresh(original.plaintext)
+        } }, 15, TimeUnit.SECONDS).map { issued(it.get()) }
+      } finally {
+        pool.shutdownNow()
+      }
+      assertEquals(2, results.map { it.refreshToken }.toSet().size)
+      results.forEach { result ->
+        val plaintext = assertNotNull(result.refreshToken)
+        val successor = assertNotNull(scenario.store.lookup(plaintext).token)
+        assertEquals(original.token.familyId, successor.familyId)
+        assertEquals(original.token.endsAt, successor.endsAt)
+        assertEquals(original.token.kind, successor.kind)
+        issued(scenario.refresh(plaintext))
+      }
+    }
+  }
+
+  @Test
+  fun `wrong owners and invalid scopes neither consume grace nor retire the family`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      issued(scenario.refresh(original.plaintext))
+      val elsewhere = sempodsTestFactory.newPod()
+      assertEquals("refresh token does not belong to this pod", refused(scenario.flow.refresh(
+        elsewhere.podId(), elsewhere.name, original.plaintext, clientId, null,
+      )).description)
+      assertEquals("refresh token does not belong to this client", refused(scenario.flow.refresh(
+        scenario.authorized.podId, scenario.authorized.pod.name, original.plaintext, "did:web:other.example", null,
+      )).description)
+      assertEquals(OAuthErrorCode.INVALID_SCOPE, refused(scenario.flow.refresh(
+        scenario.authorized.podId, scenario.authorized.pod.name, original.plaintext, clientId, "unknown-scope",
+      )).code)
+      issued(scenario.refresh(original.plaintext))
+    }
+  }
+
+  @Test
+  fun `a predecessor from before the current rotation is reuse even within sixty seconds`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      val first = issued(scenario.refresh(original.plaintext))
+      val second = issued(scenario.refresh(assertNotNull(first.refreshToken)))
+      assertEquals("refresh token reuse detected", refused(scenario.refresh(original.plaintext)).description)
+      assertEquals(RefreshTokenStore.LookupState.REVOKED, scenario.store.lookup(assertNotNull(second.refreshToken)).state)
+    }
+  }
+
+  @Test
+  fun `a limit retirement during a grace retry cannot revive the family`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      issued(scenario.refresh(original.plaintext))
+      val observed = spyk(scenario.store)
+      every { observed.issueInFamily(any(), any()) } answers {
+        val successor = callOriginal()
+        scenario.store.revokeFamily(original.token.familyId, PodRefreshTokenStore.RevocationReason.LIMIT)
+        successor
+      }
+      val answer = exchangeUsing(observed).refresh(
+        scenario.authorized.podId, scenario.authorized.pod.name, original.plaintext, clientId, null,
+      )
+      assertEquals("refresh token retired: connection limit", refused(answer).description)
+      assertTrue(scenario.store.findByFamily(original.token.familyId).all { it.revokedAt != null })
+    }
+  }
+
+  @Test
+  fun `withdrawn grants prevent a grace retry from issuing access`() {
+    GraceScenario().use { scenario ->
+      val original = scenario.seed()
+      issued(scenario.refresh(original.plaintext))
+      scenario.authorized.grant(emptySet())
+      assertEquals(OAuthErrorCode.INVALID_GRANT, refused(scenario.refresh(original.plaintext)).code)
+      assertTrue(scenario.store.findByFamily(original.token.familyId).all { it.revokedAt != null })
+    }
   }
 
   @Test
@@ -346,18 +486,15 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a refresh token presented by many at once rotates at most once, and ends its family`() {
-    // The race connections.md warns clients of: whoever loses `markRotated` reports reuse and ends
-    // the family, so what a winner was handed dies with it. Which of them wins, and whether the
-    // winner's answer left before the family ended, depends on the interleaving; that no successor
-    // survives does not.
+  fun `more than two simultaneous refreshes issue at most two successors and end the family`() {
+    // The first call rotates, one retry may use grace, and further calls revoke the family.
     val authorized = Authorized()
     val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable = true)))).refreshToken)
 
     val results = concurrently { authorized.refresh(token) }
 
     val successors = results.filterIsInstance<PodTokenResult.Issued>().map { checkNotNull(it.refreshToken) }
-    assertTrue(successors.size <= 1, "$results")
+    assertTrue(successors.size <= 2, "$results")
     results.filterIsInstance<PodTokenResult.Refused>().forEach { assertEquals(OAuthErrorCode.INVALID_GRANT, it.code, "$it") }
     for (survivor in successors + token) {
       assertEquals(OAuthErrorCode.INVALID_GRANT, refused(authorized.refresh(survivor)).code, "the family outlived the race")

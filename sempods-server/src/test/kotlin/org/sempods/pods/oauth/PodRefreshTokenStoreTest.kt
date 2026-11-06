@@ -288,8 +288,9 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
       assertEquals(1L, store.revokeFamilies(listOf(first.token.familyId, second.token.familyId), reason = RevocationReason.LIMIT))
     }
 
-    assertEquals(1, firstLines.count { "family revoked:" in it })
-    assertEquals(1, secondLines.count { "family revoked:" in it })
+    val familyIds = setOf(first.token.familyId, second.token.familyId)
+    assertEquals(1, firstLines.count { line -> familyIds.any { "familyId='$it'" in line } })
+    assertEquals(1, secondLines.count { line -> familyIds.any { "familyId='$it'" in line } })
     assertTrue(secondLines.any { "familyId='${second.token.familyId}'" in it })
     assertTrue(secondLines.none { "familyId='${first.token.familyId}'" in it })
     assertEquals(now, store.findByFamily(second.token.familyId).single().revokedAt)
@@ -309,7 +310,8 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     assertEquals(9, retired.size)
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
     assertEquals(2, store.liveFamilies(pod, client, listOf(person)).size)
-    assertEquals(9, lines.count { "family revoked:" in it })
+    val familyIds = (families + newest).map { it.token.familyId }.toSet()
+    assertEquals(9, lines.count { line -> familyIds.any { "familyId='$it'" in line } })
     retired.forEach { family ->
       assertEquals(1, lines.count { "cause='limit'" in it && "familyId='${family.token.familyId}'" in it })
     }

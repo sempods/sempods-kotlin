@@ -4802,7 +4802,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `refresh_token reuse after rotation triggers family-wide revocation`() {
+  fun `one refresh retry is accepted and a second reuse revokes all successors`() {
     val pod = sempodsTestFactory.newPod()
     val issued = seedRefreshToken(pod)
 
@@ -4815,7 +4815,21 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(200, first.statusCode)
 
-    // Second attempt with the old plaintext — must be rejected as reuse.
+    // A lost-answer retry is accepted once with a fresh successor in the same family.
+    val retry = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(issued.plaintext)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(200, retry.statusCode, retry.responseBody)
+    val firstRefresh = JsonMappers.default().readTree(first.responseBody).get("refresh_token").asText()
+    val retryRefresh = JsonMappers.default().readTree(retry.responseBody).get("refresh_token").asText()
+    assertNotEquals(firstRefresh, retryRefresh)
+    for (plaintext in listOf(firstRefresh, retryRefresh)) {
+      val found = refreshTokenStore.lookup(plaintext)
+      assertEquals(RefreshTokenStore.LookupState.ACTIVE, found.state)
+      assertEquals(issued.token.familyId, found.token!!.familyId)
+    }
+    // The next reuse still ends the family.
     val reuse = postForm(
       tokenUrl(pod.name),
       "grant_type=refresh_token" +
@@ -4828,7 +4842,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     // Both the predecessor and the successor must now be revoked — the thief (or stale
     // client) cannot use the in-flight child either.
     val familyRows = refreshTokenStore.findByFamily(issued.token.familyId)
-    assertEquals(2, familyRows.size, "family should hold predecessor + successor")
+    assertEquals(3, familyRows.size, "family should hold predecessor and both successors")
     assertTrue(
       familyRows.all { it.revokedAt != null },
       "reuse must revoke every row in the family",

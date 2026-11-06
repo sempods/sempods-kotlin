@@ -73,6 +73,7 @@ class PodRefreshTokenStore internal constructor(
   private val tokens = db.getCollection(collectionName)
   private val sequence = db.getCollection(sequenceCollectionName)
   private val maxFamilies = config.connectionMaxFamilies
+  private val graceSeconds = config.refreshReuseGraceSeconds
 
   private val store = RefreshTokenStore<Owner>(
     db = db,
@@ -214,6 +215,10 @@ class PodRefreshTokenStore internal constructor(
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
   internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
+
+  /** Uses this pod's grace setting; both ordinary rotation and a claimed retry keep the family's terms. */
+  internal fun rotateWithGrace(tokenHash: String): RefreshTokenStore.RotationResult =
+    store.rotateWithGrace(tokenHash, graceSeconds)
 
   internal fun revokeFamily(familyId: String, reason: RevocationReason): Long =
     revokeWhere(Filters.eq(Field.FAMILY_ID, familyId), reason)
@@ -385,8 +390,8 @@ class PodRefreshTokenStore internal constructor(
    * `lookup` answers `REVOKED` before it answers `REUSED`, so a replay of a row that is both would
    * be reported as merely revoked, and the refresh exchange would refuse it without killing the
    * family — leaving the successor a thief may hold. Nothing is lost by skipping it: a rotated row
-   * cannot be exchanged either way, and staying merely rotated is what makes replaying it end the
-   * family. The `null` comparison matches a row that never carried the field, for the reason
+   * cannot be exchanged normally, and staying merely rotated preserves reuse detection outside
+   * grace. The `null` comparison matches a row that never carried the field, for the reason
    * [RefreshTokenStore.markRotated] states.
    */
   internal fun revokeTokens(tokenHashes: Collection<String>): Long =
@@ -403,7 +408,7 @@ class PodRefreshTokenStore internal constructor(
    * Whether this row has stopped standing — revoked, or gone — since it was read. The question a
    * rotation has to ask after inserting its successor.
    *
-   * `markRotated` refuses a revoked row, so a retirement landing *before* the rotation is already
+   * [rotateWithGrace] refuses a revoked row, so a retirement landing *before* the rotation is already
    * answered. One landing between the rotation and the insert is not: it revokes the rows it finds,
    * and the successor appears after it, alive in a family that was meant to be retired. Asking
    * about the predecessor answers for the family, because retirement is family-wide.

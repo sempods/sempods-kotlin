@@ -102,6 +102,8 @@ class SempodsConfigTest {
     assertEquals(180, SempodsModule.DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS)
     assertEquals(10, SempodsModule.DEFAULT_CONNECTION_MAX_FAMILIES)
     assertEquals(10, withoutOpinion.connectionMaxFamilies)
+    assertEquals(60, withoutOpinion.refreshReuseGraceSeconds)
+    assertEquals("SEMPODS_REFRESH_REUSE_GRACE_SECONDS", SempodsModule.REFRESH_REUSE_GRACE_SECONDS_ENV_VARIABLE)
     assertEquals("SEMPODS_CONNECTION_MAX_FAMILIES", SempodsModule.CONNECTION_MAX_FAMILIES_ENV_VARIABLE)
     assertEquals(96, withoutOpinion.sessionConnectionIdleHours)
     assertEquals(7, withoutOpinion.sessionConnectionAbsoluteDays)
@@ -136,6 +138,18 @@ class SempodsConfigTest {
     }
     assertEquals(1, config.copy(connectionMaxFamilies = 1).connectionMaxFamilies)
     assertEquals(25, config.copy(connectionMaxFamilies = 25).connectionMaxFamilies)
+  }
+
+  @Test
+  fun `refresh grace accepts zero through 120 seconds`() {
+    val config = connectionConfig()
+    for (seconds in listOf(-1, 121, Int.MAX_VALUE)) {
+      val failure = assertFailsWith<IllegalArgumentException> { config.copy(refreshReuseGraceSeconds = seconds) }
+      assertContains(failure.message.orEmpty(), "refreshReuseGraceSeconds")
+    }
+    for (seconds in listOf(0, 1, 60, 120)) {
+      assertEquals(seconds, config.copy(refreshReuseGraceSeconds = seconds).refreshReuseGraceSeconds)
+    }
   }
 
   private fun connectionConfig(

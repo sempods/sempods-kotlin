@@ -29,9 +29,9 @@ import java.util.concurrent.TimeUnit
  *
  * - **The token is not stored.** Only its SHA-256, so a database dump holds nothing usable.
  * - **Rotation is a conditional `updateOne`.** Exactly one of N concurrent exchanges of the same
- *   token wins; every other one is told it lost, which is the replay signal.
- * - **Reuse revokes the family.** If a client rotated A → B and something replays A, both die, so
- *   the thief's in-flight B is worthless.
+ *   token wins. Services may opt into [rotateWithGrace] to allow one short-lived retry.
+ * - **The service decides what reuse ends.** Strict callers revoke the family on a spent token;
+ *   [rotateWithGrace] distinguishes the one permitted retry from further reuse.
  * - **Expiry is a TTL index**, and rotated-but-unexpired rows stay: the reuse-detection window is
  *   the token's own lifetime, so a shorter lifetime is a shorter window — a replay arriving after
  *   it reports [LookupState.NOT_FOUND] rather than [LookupState.REUSED], and the family survives.
@@ -47,6 +47,7 @@ import java.util.concurrent.TimeUnit
  * carried it. One writer therefore reproduces both, which is what let live collections move onto
  * this class without rewriting a stored document. That is the declaration order; a live row carries
  * neither spent timestamp and takes them by `$set`, so on a spent row they follow the two terms.
+ * Successors append [Field.PREDECESSOR_HASH]; grace operations append their bookkeeping fields.
  *
  * Not built on [OneTimeStore], though both hash their key: that one is consumed once and gone,
  * this one is a mutating chain whose spent links have to stay readable.
@@ -85,9 +86,10 @@ class RefreshTokenStore<OWNER>(
   }
 
   /**
-   * A stored token, as it is on disk — everything but the row's `_id`.
+   * The stored credential data. The row key, predecessor link and grace bookkeeping stay inside
+   * the store; callers use the rotation operations to change those fields.
    *
-   * That one field stays behind because nothing above the store has ever had a use for it: a row is
+   * The collection key stays behind because nothing above the store has ever had a use for it: a row is
    * found by [tokenHash], a family is revoked by [familyId], and a service's own bulk revocations go
    * through [revokeWhere] over the owner's fields. Carrying the key out would put the collection's
    * identifier type in this class's signature to answer a question no caller asks.
@@ -149,7 +151,7 @@ class RefreshTokenStore<OWNER>(
 
     REVOKED,
 
-    /** The token exists but was already exchanged — a replay. The caller must revoke the family. */
+    /** Already exchanged. A strict caller revokes the family; grace-aware callers use [rotateWithGrace]. */
     REUSED,
   }
 
@@ -224,6 +226,7 @@ class RefreshTokenStore<OWNER>(
     ttlSeconds = ttlSeconds,
     kind = previous.kind,
     endsAt = previous.endsAt ?: previous.expiresAt.takeIf { previous.kind == null },
+    predecessorHash = previous.tokenHash,
   )
 
   private fun issue(
@@ -233,6 +236,7 @@ class RefreshTokenStore<OWNER>(
     ttlSeconds: Long,
     kind: String?,
     endsAt: Instant?,
+    predecessorHash: String? = null,
   ): Issued<OWNER> {
     val plaintext = PLAINTEXT_PREFIX + Secrets.newSecret()
     val now = clock().truncatedTo(ChronoUnit.MILLIS)
@@ -253,7 +257,7 @@ class RefreshTokenStore<OWNER>(
       endsAt = deadline,
       kind = kind,
     )
-    tokens.insertOne(token.toDocument())
+    tokens.insertOne(token.toDocument().putNotNull(Field.PREDECESSOR_HASH, predecessorHash))
     return Issued(plaintext, token)
   }
 
@@ -299,6 +303,65 @@ class RefreshTokenStore<OWNER>(
       ),
       Updates.set(Field.ROTATED_AT, clock()),
     ).modifiedCount > 0L
+
+  /** Whether an exchange may issue a successor, or must apply its reuse/retirement policy. */
+  enum class RotationResult { ROTATED, GRACE, REJECTED }
+
+  /**
+   * Rotates once, or consumes one retry strictly before [graceSeconds] have passed since rotation.
+   * Zero disables retries; the supported range is 0–120 seconds. A retry never moves `rotatedAt`.
+   * Each claim is a conditional update of the predecessor, so replicas share the same allowance.
+   * A revoked, expired, unmarked legacy or already-retried predecessor cannot use grace.
+   *
+   * Rotating a successor closes its predecessor's allowance before claiming the successor. Thus a
+   * chain that advanced A → B → C cannot retry A, even inside its original window. A retry that
+   * claimed A before B started rotating remains valid. Both successors may remain active; callers
+   * must check for concurrent family retirement after inserting either one, as on ordinary rotation.
+   *
+   * Use this operation on every rotation of a grace-aware service. [markRotated] keeps its strict
+   * contract and does not open a retry allowance. A failed exchange may consume its claim without
+   * returning a token; this operation never restores a consumed claim.
+   */
+  fun rotateWithGrace(tokenHash: String, graceSeconds: Int): RotationResult {
+    require(graceSeconds in 0..120) { "graceSeconds must be between 0 and 120" }
+    val row = tokens.find(Filters.eq(Field.TOKEN_HASH, tokenHash))
+      .projection(Document(Field.PREDECESSOR_HASH, 1)).first() ?: return RotationResult.REJECTED
+    row.getString(Field.PREDECESSOR_HASH)?.let { predecessor ->
+      tokens.updateOne(
+        Filters.eq(Field.TOKEN_HASH, predecessor),
+        Updates.set(Field.GRACE_CLOSED, true),
+      )
+    }
+    val now = clock().truncatedTo(ChronoUnit.MILLIS)
+    val live = Filters.and(
+      Filters.eq(Field.TOKEN_HASH, tokenHash),
+      Filters.eq(Field.REVOKED_AT, null),
+      Filters.gt(Field.EXPIRES_AT, now),
+    )
+    val rotated = tokens.updateOne(
+      Filters.and(live, Filters.eq(Field.ROTATED_AT, null)),
+      Updates.combine(
+        Updates.set(Field.ROTATED_AT, now),
+        Updates.set(Field.GRACE_ENABLED, graceSeconds > 0),
+      ),
+    ).modifiedCount > 0
+    if (rotated) return RotationResult.ROTATED
+    if (graceSeconds == 0) return RotationResult.REJECTED
+    val retryAt = clock().truncatedTo(ChronoUnit.MILLIS)
+    val retried = tokens.updateOne(
+      Filters.and(
+        live,
+        Filters.gt(Field.EXPIRES_AT, retryAt),
+        Filters.eq(Field.GRACE_ENABLED, true),
+        Filters.ne(Field.GRACE_CLOSED, true),
+        Filters.eq(Field.GRACE_USED_AT, null),
+        Filters.gt(Field.ROTATED_AT, retryAt.minusSeconds(graceSeconds.toLong())),
+        Filters.lte(Field.ROTATED_AT, retryAt),
+      ),
+      Updates.set(Field.GRACE_USED_AT, retryAt),
+    ).modifiedCount > 0
+    return if (retried) RotationResult.GRACE else RotationResult.REJECTED
+  }
 
   /**
    * Revokes every token in the family — the answer to reuse detection.
@@ -418,6 +481,18 @@ class RefreshTokenStore<OWNER>(
     const val REVOKED_AT = "revokedAt"
     const val ENDS_AT = "endsAt"
     const val KIND = "kind"
+
+    /** Hash of the token this row succeeded; absent on roots and rows predating grace support. */
+    const val PREDECESSOR_HASH = "predecessorHash"
+
+    /** True only when rotation explicitly opened a grace allowance; absent on legacy rotations. */
+    const val GRACE_ENABLED = "graceEnabled"
+
+    /** Time the single retry was claimed; absent until claimed. Never resets the rotation time. */
+    const val GRACE_USED_AT = "graceUsedAt"
+
+    /** Set before a successor rotates, preventing retries of older ancestors. */
+    const val GRACE_CLOSED = "graceClosed"
   }
 
   companion object {
