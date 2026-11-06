@@ -1,5 +1,7 @@
 package org.sempods
 
+import org.sempods.auth.core.RefreshTokenStore
+
 import org.sempods.client.SempodsPodBase
 import java.net.URI
 
@@ -181,9 +183,15 @@ data class SempodsConfig(
 
   /** Maximum live refresh families per pod, client and person, including derivable WebID aliases. */
   val connectionMaxFamilies: Int = SempodsModule.DEFAULT_CONNECTION_MAX_FAMILIES,
+
+  /** One retry of a rotated refresh token within this many seconds; 0 disables it, maximum 120. */
+  val refreshReuseGraceSeconds: Int = SempodsModule.DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
 ) {
 
   init {
+    require(refreshReuseGraceSeconds in 0..RefreshTokenStore.MAX_GRACE_SECONDS) {
+      "refreshReuseGraceSeconds must be between 0 and ${RefreshTokenStore.MAX_GRACE_SECONDS}, got $refreshReuseGraceSeconds"
+    }
     require(connectionMaxFamilies > 0) { "connectionMaxFamilies must be positive, got $connectionMaxFamilies" }
     // A negative value would reach `TokenBucketRateLimiter`, which reads every non-positive rate as
     // "disabled" — so `-300` would boot happily with the protection silently off, while the

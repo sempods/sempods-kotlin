@@ -134,7 +134,7 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a refresh rotates the token, and replaying the old one ends the family`() {
+  fun `a refresh tolerates one lost answer and a second replay ends the family`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
     val app = flow.register(owned.pod)
@@ -146,12 +146,20 @@ class DelegatedAccessHttpTest : SempodsIntegrationTest() {
     assertNotEquals(first.refreshToken, second.refreshToken, "a rotation hands out a new refresh token")
     assertEquals(setOf(notes), catalogue(owned.pod, second.accessToken).readable)
 
+    val retried = flow.refresh(owned.pod, app, first.refreshToken)
+    assertEquals(200, retried.statusCode, retried.responseBody)
+    val recovered = Tokens.of(retried)
+    assertNotEquals(second.refreshToken, recovered.refreshToken)
+    assertEquals(setOf(notes), catalogue(owned.pod, recovered.accessToken).readable)
+
     val replayed = flow.refresh(owned.pod, app, first.refreshToken)
     assertEquals(400, replayed.statusCode, replayed.responseBody)
     assertEquals("invalid_grant", json(replayed)["error"])
-    val successor = flow.refresh(owned.pod, app, second.refreshToken)
-    assertEquals(400, successor.statusCode, "the replay ended the whole family: ${successor.responseBody}")
-    assertEquals("invalid_grant", json(successor)["error"])
+    for (token in listOf(second.refreshToken, recovered.refreshToken)) {
+      val successor = flow.refresh(owned.pod, app, token)
+      assertEquals(400, successor.statusCode, "the replay ended the whole family: ${successor.responseBody}")
+      assertEquals("invalid_grant", json(successor)["error"])
+    }
   }
 
   @Test

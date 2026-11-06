@@ -39,7 +39,8 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  *   states.
  * @param sequenceCollectionName stores the issuance counter for this token collection. Keep it
  *   with the token collection when restoring data; it is retained when tokens expire.
- * @param clock shared with the token mechanism for issuance, expiry, rotation and revocation.
+ * @param clock shared with the token mechanism for issuance, expiry and family revocation.
+ *   Grace admission and rotation use MongoDB time.
  */
 class PodRefreshTokenStore internal constructor(
   db: MongoDatabase,
@@ -73,6 +74,7 @@ class PodRefreshTokenStore internal constructor(
   private val tokens = db.getCollection(collectionName)
   private val sequence = db.getCollection(sequenceCollectionName)
   private val maxFamilies = config.connectionMaxFamilies
+  private val graceSeconds = config.refreshReuseGraceSeconds
 
   private val store = RefreshTokenStore<Owner>(
     db = db,
@@ -205,15 +207,29 @@ class PodRefreshTokenStore internal constructor(
   internal fun issueInFamily(
     previous: PodRefreshToken,
     scopes: Set<String>,
-  ): RefreshTokenStore.Issued<Owner> = store.issueInFamily(
+    rotation: RefreshTokenStore.RotationResult = RefreshTokenStore.RotationResult.ROTATED,
+  ): RefreshTokenStore.Issued<Owner> = store.issueAfterRotation(
     previous = previous.copy(endsAt = previous.endsAt ?: previous.expiresAt),
     scopes = scopes,
     ttlSeconds = termsOf(lifetimeOf(previous)).idle.seconds,
+    rotation = rotation,
   )
 
   internal fun lookup(plaintext: String): RefreshTokenStore.Lookup<Owner> = store.lookup(plaintext)
 
+  /** Distinguishes a replaced credential's presentation from an ordinary family retirement. */
+  internal fun wasSuperseded(tokenHash: String): Boolean = tokens.find(Filters.and(
+    Filters.eq(Field.TOKEN_HASH, tokenHash),
+    Filters.eq(Field.SUPERSEDED_BY_GRACE, true),
+  )).projection(Document(Field.ID, 1)).first() != null
+
   internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
+
+  /** Uses this pod's grace setting; both ordinary rotation and a claimed retry keep the family's terms. */
+  internal fun canRetryWithGrace(tokenHash: String): Boolean = store.canRetryWithGrace(tokenHash, graceSeconds)
+
+  internal fun rotateWithGrace(tokenHash: String): RefreshTokenStore.RotationResult =
+    store.rotateWithGrace(tokenHash, graceSeconds)
 
   internal fun revokeFamily(familyId: String, reason: RevocationReason): Long =
     revokeWhere(Filters.eq(Field.FAMILY_ID, familyId), reason)
@@ -286,8 +302,8 @@ class PodRefreshTokenStore internal constructor(
    * check its token before returning success. Among the others, last rotation (or issuance for an
    * unused family) orders victims, with the id breaking ties. If [newFamilyId] has already ended,
    * this sweep does nothing. Rotated rows count while their successor is being inserted.
-   * Any revoked row excludes its family, including a tip revoked by the grant cascade while
-   * rotated predecessors remain for reuse detection.
+   * A row revoked by a family-ending action excludes its family, including a tip revoked by the
+   * grant cascade while rotated predecessors remain. A superseded sibling is excluded individually.
    */
   internal fun enforceConnectionLimit(
     pod: PodId,
@@ -309,6 +325,7 @@ class PodRefreshTokenStore internal constructor(
     val families = tokens.aggregate(listOf(
       Aggregates.match(Filters.and(
         owner,
+        Filters.ne(Field.SUPERSEDED_BY_GRACE, true),
         Filters.gt(Field.EXPIRES_AT, clock()),
       )),
       Document("\$group", Document("_id", "\$${Field.FAMILY_ID}")
@@ -331,6 +348,7 @@ class PodRefreshTokenStore internal constructor(
   internal fun revocationReason(familyId: String): RevocationReason? = tokens.find(Filters.and(
     Filters.eq(Field.FAMILY_ID, familyId),
     Filters.ne(Field.REVOKED_AT, null),
+    Filters.ne(Field.SUPERSEDED_BY_GRACE, true),
   )).sort(Sorts.ascending(Field.REVOKED_AT)).first()?.getString(FIELD_REVOCATION_REASON)?.let { code ->
     RevocationReason.entries.firstOrNull { it.code == code } ?: RevocationReason.RETIRED
   }
@@ -385,8 +403,8 @@ class PodRefreshTokenStore internal constructor(
    * `lookup` answers `REVOKED` before it answers `REUSED`, so a replay of a row that is both would
    * be reported as merely revoked, and the refresh exchange would refuse it without killing the
    * family — leaving the successor a thief may hold. Nothing is lost by skipping it: a rotated row
-   * cannot be exchanged either way, and staying merely rotated is what makes replaying it end the
-   * family. The `null` comparison matches a row that never carried the field, for the reason
+   * cannot be exchanged normally, and staying merely rotated preserves reuse detection outside
+   * grace. The `null` comparison matches a row that never carried the field, for the reason
    * [RefreshTokenStore.markRotated] states.
    */
   internal fun revokeTokens(tokenHashes: Collection<String>): Long =
@@ -403,7 +421,7 @@ class PodRefreshTokenStore internal constructor(
    * Whether this row has stopped standing — revoked, or gone — since it was read. The question a
    * rotation has to ask after inserting its successor.
    *
-   * `markRotated` refuses a revoked row, so a retirement landing *before* the rotation is already
+   * [rotateWithGrace] refuses a revoked row, so a retirement landing *before* the rotation is already
    * answered. One landing between the rotation and the insert is not: it revokes the rows it finds,
    * and the successor appears after it, alive in a family that was meant to be retired. Asking
    * about the predecessor answers for the family, because retirement is family-wide.

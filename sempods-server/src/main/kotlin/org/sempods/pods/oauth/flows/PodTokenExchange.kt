@@ -22,6 +22,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodRefreshToken
 import org.sempods.pods.oauth.PodRefreshTokenStore.RevocationReason
 import java.time.Duration
 import java.time.Instant
@@ -459,24 +460,20 @@ class PodTokenExchange @Inject internal constructor(
       }
 
       RefreshTokenStore.LookupState.REVOKED -> {
+        if (refreshTokenStore.wasSuperseded(token!!.tokenHash)) {
+          return refuseRefreshReuse(token, lookup.fingerprint, superseded = true)
+        }
         logger.warn {
           "[oauth/token] refresh_token revoked: pod='${podName}', clientId='$normalizedClientId', " +
-              "familyId='${token!!.familyId}'"
+              "familyId='${token.familyId}'"
         }
-        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token!!.familyId))
+        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
       }
 
       RefreshTokenStore.LookupState.REUSED -> {
-        // OAuth 2.1 reuse-detection: this token was already exchanged once. A correctly
-        // behaving client keeps only the successor — whatever presented it again is stale
-        // state or a thief. Kill the whole family to pull the plug on any in-flight child
-        // token the attacker might already be holding.
-        val revoked = refreshTokenStore.revokeFamily(token!!.familyId, reason = RevocationReason.REUSE)
-        logger.warn {
-          "[oauth/token] refresh_token reuse detected — revoking family: pod='${podName}', " +
-              "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
+        if (!refreshTokenStore.canRetryWithGrace(token!!.tokenHash)) {
+          return refuseRefreshReuse(token, lookup.fingerprint)
         }
-        return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, "refresh token reuse detected")
       }
 
       RefreshTokenStore.LookupState.ACTIVE -> Unit
@@ -548,23 +545,24 @@ class PodTokenExchange @Inject internal constructor(
       requestedFeatures
     }
 
-    // Rotate atomically. If another caller slipped in between our lookup and rotation,
-    // markRotated() returns false. Preserve a concurrent retirement's cause; otherwise this
-    // is reuse, including a second caller racing to rotate the same token.
-    if (!refreshTokenStore.markRotated(token.tokenHash)) {
-      val retirement = refreshTokenStore.revocationReason(token.familyId)
-      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: RevocationReason.REUSE)
-      logger.warn {
-        "[oauth/token] refresh_token rotation refused: cause='${(retirement ?: RevocationReason.REUSE).code}', pod='${podName}', " +
-            "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
-      }
-      return PodTokenResult.Refused(
-        OAuthErrorCode.INVALID_GRANT,
-        retirement?.description ?: "refresh token reuse detected",
-      )
+    // Validate ownership, grants and requested scopes before spending either rotation or grace.
+    // One concurrent loser may claim grace; every further replay ends the family.
+    val rotation = refreshTokenStore.rotateWithGrace(token.tokenHash)
+    if (rotation == RefreshTokenStore.RotationResult.SUPERSEDED) {
+      return refuseRefreshReuse(token, lookup.fingerprint, superseded = true)
+    }
+    if (rotation == RefreshTokenStore.RotationResult.REJECTED) {
+      return refuseRefreshReuse(token, lookup.fingerprint)
     }
 
-    val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes)
+    if (rotation == RefreshTokenStore.RotationResult.GRACE) {
+      logger.info {
+        "[oauth/token] refresh retry claimed within grace: pod='$podName', clientId='$normalizedClientId', " +
+            "familyId='${token.familyId}'"
+      }
+    }
+
+    val issuedRefresh = refreshTokenStore.issueInFamily(previous = token, scopes = finalScopes, rotation = rotation)
 
     // Signed before the checks below, for the reason the code exchange gives: the sign-out's sweep
     // lands before its last instant, so a token signed ahead of a check that passes is dated before it.
@@ -574,18 +572,16 @@ class PodTokenExchange @Inject internal constructor(
       webId = token.owner.webId,
       scopes = finalScopes,
       // The successor's deadline, not the predecessor's. A family that predates the terms acquires
-      // one in this very rotation (`RefreshTokenStore.issueInFamily`), so the row that was read
+      // one in this very rotation (`RefreshTokenStore.issueAfterRotation`), so the row that was read
       // still carries none — capping against that would hand out a full hour past a deadline that
       // came into existence one statement ago.
       familyEndsAt = issuedRefresh.token.endsAt,
     )
 
     // A retirement landing between the rotation and that insert revoked the rows it found, and this
-    // successor appeared after it — alive, in a family that was just retired. `markRotated`
+    // successor appeared after it — alive, in a family that was just retired. `rotateWithGrace`
     // answers for a retirement arriving earlier, since it refuses a revoked row; this answers for
-    // one arriving in between, and the two together leave it nowhere to land unseen. The window is
-    // between two statements and has no test; `a family the retirement swept cannot be refreshed
-    // back to life` covers the ordinary path and says so.
+    // one arriving in between. The same check applies after a grace claim.
     if (refreshTokenStore.noLongerStands(token.tokenHash)) {
       val retirement = refreshTokenStore.revocationReason(token.familyId) ?: RevocationReason.RETIRED
       val revoked = refreshTokenStore.revokeFamily(
@@ -599,12 +595,15 @@ class PodTokenExchange @Inject internal constructor(
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, retirement.description)
     }
 
+    if (refreshTokenStore.noLongerStands(issuedRefresh.token.tokenHash)) {
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
+    }
+
     // The grant cascade also needs a check after insertion. `currentGrants` was read before
     // any of this, and a context deletion writes in between: it removes the app's last grant, names
     // this family's live row, then finds it rotated and leaves it alone — deliberately, so that
-    // replaying the spent row still ends the family. What that leaves behind is a successor for an
-    // app holding nothing, and this is the last moment it can be answered for. Untestable for the
-    // same reason as the predecessor check; the check before the insert covers the ordinary case.
+    // reuse outside grace still ends the family. What that leaves behind is a successor for an
+    // app holding nothing, and this is the last moment it can be answered for.
     if (podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId)).isEmpty()) {
       val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.WITHDRAWN_GRANT)
       logger.info {
@@ -626,6 +625,32 @@ class PodTokenExchange @Inject internal constructor(
       scopes = finalScopes,
       refreshToken = issuedRefresh.plaintext,
     )
+  }
+
+  /** Called for a presented credential, never for an issuer discovering its own superseded row. */
+  private fun refuseRefreshReuse(
+    token: PodRefreshToken,
+    fingerprint: String,
+    superseded: Boolean = false,
+  ): PodTokenResult.Refused {
+    val retirement = refreshTokenStore.revocationReason(token.familyId)
+    val reason = retirement ?: RevocationReason.REUSE
+    val revoked = refreshTokenStore.revokeFamily(token.familyId, reason)
+    val event = when {
+      superseded -> "superseded refresh token presented"
+      reason == RevocationReason.REUSE -> "refresh_token reuse detected"
+      else -> "refresh_token rotation refused"
+    }
+    logger.warn {
+      "[oauth/token] $event — revoking family: cause='${reason.code}', pod='${token.owner.podName}', " +
+          "clientId='${token.owner.clientId}', familyId='${token.familyId}', tokenFp='$fingerprint', revokedRows=$revoked"
+    }
+    val description = when {
+      reason != RevocationReason.REUSE -> reason.description
+      superseded -> "refresh token replaced by a retry; family revoked"
+      else -> "refresh token reuse detected"
+    }
+    return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, description)
   }
 
   /**

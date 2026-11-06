@@ -667,6 +667,8 @@ class SempodsModule : BaseModule() {
     internal const val SESSION_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE = "SEMPODS_SESSION_CONNECTION_ABSOLUTE_DAYS"
     internal const val DURABLE_CONNECTION_IDLE_DAYS_ENV_VARIABLE = "SEMPODS_DURABLE_CONNECTION_IDLE_DAYS"
     internal const val DURABLE_CONNECTION_ABSOLUTE_DAYS_ENV_VARIABLE = "SEMPODS_DURABLE_CONNECTION_ABSOLUTE_DAYS"
+    internal const val REFRESH_REUSE_GRACE_SECONDS_ENV_VARIABLE = "SEMPODS_REFRESH_REUSE_GRACE_SECONDS"
+
     internal const val CONNECTION_MAX_FAMILIES_ENV_VARIABLE = "SEMPODS_CONNECTION_MAX_FAMILIES"
 
     /**
@@ -768,6 +770,8 @@ class SempodsModule : BaseModule() {
     /** 90 days unused and 180 days at most, for a connection the person ticked. */
     internal const val DEFAULT_DURABLE_CONNECTION_IDLE_DAYS = 90
     internal const val DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS = 180
+    internal const val DEFAULT_REFRESH_REUSE_GRACE_SECONDS = 60
+
     internal const val DEFAULT_CONNECTION_MAX_FAMILIES = 10
 
     /** A registration budget from [variable]: off in development, [default] in a deployment. */
@@ -864,6 +868,9 @@ class SempodsModule : BaseModule() {
         ),
         registerRateLimitServiceBurst = registerBudget(
           REGISTER_RATE_LIMIT_SERVICE_BURST_ENV_VARIABLE, DEFAULT_REGISTER_RATE_LIMIT_SERVICE_BURST,
+        ),
+        refreshReuseGraceSeconds = Env.int(
+          REFRESH_REUSE_GRACE_SECONDS_ENV_VARIABLE, default = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
         ),
         connectionMaxFamilies = Env.int(CONNECTION_MAX_FAMILIES_ENV_VARIABLE, default = DEFAULT_CONNECTION_MAX_FAMILIES),
         sessionConnectionIdleHours = Env.int(

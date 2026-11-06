@@ -12,6 +12,26 @@ fail startup. It bounds live refresh families for one app and person on one pod.
 when the limit is exceeded and the resulting refresh error. A lowered limit takes effect at the
 next successful code exchange for that authorization.
 
+## Refresh rotation grace
+
+`SEMPODS_REFRESH_REUSE_GRACE_SECONDS` defaults to **60 seconds**. Zero disables grace; values
+outside **0–120** fail startup. The period runs from the original rotation and is not extended by
+a retry. Deploy replicas with the same setting. MongoDB timestamps rotations and checks grace
+eligibility with its own clock, so application-clock skew does not move this window. The
+[rotation rules](connections.md#refresh-token-rotation) describe which retry qualifies, replacement
+of the original successor and the reuse-detection tradeoff.
+
+The setting applies to the pod server. The hosted MCP service keeps strict refresh reuse detection.
+
+**Known conformance deviation — `SPS-AUTH-033`:** the default follows the
+[maintainer decision in #447](https://github.com/sempods/sempods-kotlin/issues/447#issuecomment-6654605982).
+Until [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142) is adopted, deployments
+with a positive setting do not satisfy the current requirement to revoke on every reuse. This is
+an experimental implementation choice, not specification adoption or a conformance claim. Operators
+requiring the current contract set `0`; the specification's
+[governance](https://github.com/sempods/sempods-spec/blob/main/GOVERNANCE.md#what-the-tag-changes-and-what-it-no-longer-does)
+continues to govern adoption.
+
 ## Rate limit
 
 `/token` charges an address budget before a finer address-and-client budget. The address is the
@@ -36,8 +56,8 @@ A per-client rate of zero disables both tiers while the address rate keeps its d
 explicit positive address rate beside it fails startup. An address rate of zero disables only that
 tier. Limits default to off outside a deployment. Negative settings fail startup. Buckets are
 per process, so replicas multiply capacity. Bounded key maps evict entries rather than refusing
-new callers because the map is full. Rate limits do not prevent refresh-token replay: one accepted
-reuse is enough to revoke a family.
+new callers because the map is full. Rate limits do not prevent refresh-token replay: a reuse
+outside the single grace allowance is enough to revoke a family.
 
 ## Registration rate limit
 

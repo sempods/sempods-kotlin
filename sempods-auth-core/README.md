@@ -29,6 +29,11 @@ Construct the components directly or install
 application. Guice is optional; Mongo-backed stores require the caller's database. Each service
 supplies configuration, persistence and transport. Exact contracts belong to the linked KDoc.
 
+Refresh rotation is strict by default. A service can pair `RefreshTokenStore.rotateWithGrace`
+with `issueAfterRotation` for a single bounded retry that replaces the original successor.
+Its caller still owns request validation and checks for family retirement before returning tokens.
+The pod server enables it under its [connection rules](../sempods-server/docs/auth/connections.md#refresh-token-rotation).
+
 [Tests](src/test/kotlin/org/sempods/auth/core/) cover redirect policy, PKCE, token validation,
 one-time redemption, refresh rotation, the browser sign-in and encryption at rest. The services'
 HTTP tests cover their endpoint wiring. The test fixtures carry

@@ -4802,7 +4802,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `refresh_token reuse after rotation triggers family-wide revocation`() {
+  fun `presenting the successor replaced by a retry revokes the family`() {
     val pod = sempodsTestFactory.newPod()
     val issued = seedRefreshToken(pod)
 
@@ -4815,20 +4815,40 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(200, first.statusCode)
 
-    // Second attempt with the old plaintext — must be rejected as reuse.
-    val reuse = postForm(
+    // A lost-answer retry is accepted once with a fresh successor in the same family.
+    val retry = postForm(
       tokenUrl(pod.name),
-      "grant_type=refresh_token" +
-        "&refresh_token=${java.net.URLEncoder.encode(issued.plaintext, "UTF-8")}" +
-        "&client_id=${java.net.URLEncoder.encode(testClientId, "UTF-8")}",
+      "grant_type=refresh_token&refresh_token=${enc(issued.plaintext)}&client_id=${enc(testClientId)}",
     )
-    assertEquals(400, reuse.statusCode)
-    assertTrue(reuse.responseBody.contains("invalid_grant"))
+    assertEquals(200, retry.statusCode, retry.responseBody)
+    val firstRefresh = JsonMappers.default().readTree(first.responseBody).get("refresh_token").asText()
+    val retryRefresh = JsonMappers.default().readTree(retry.responseBody).get("refresh_token").asText()
+    assertNotEquals(firstRefresh, retryRefresh)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(firstRefresh).state)
+    val recovered = refreshTokenStore.lookup(retryRefresh)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, recovered.state)
+    assertEquals(issued.token.familyId, recovered.token!!.familyId)
+
+    val superseded = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(firstRefresh)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, superseded.statusCode)
+    assertTrue(superseded.responseBody.contains("invalid_grant"))
+    assertTrue(superseded.responseBody.contains("refresh token replaced by a retry; family revoked"))
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, refreshTokenStore.lookup(retryRefresh).state)
+
+    val retiredRetry = postForm(
+      tokenUrl(pod.name),
+      "grant_type=refresh_token&refresh_token=${enc(retryRefresh)}&client_id=${enc(testClientId)}",
+    )
+    assertEquals(400, retiredRetry.statusCode)
+    assertTrue(retiredRetry.responseBody.contains("invalid_grant"))
 
     // Both the predecessor and the successor must now be revoked — the thief (or stale
     // client) cannot use the in-flight child either.
     val familyRows = refreshTokenStore.findByFamily(issued.token.familyId)
-    assertEquals(2, familyRows.size, "family should hold predecessor + successor")
+    assertEquals(3, familyRows.size, "family should hold predecessor and both successors")
     assertTrue(
       familyRows.all { it.revokedAt != null },
       "reuse must revoke every row in the family",

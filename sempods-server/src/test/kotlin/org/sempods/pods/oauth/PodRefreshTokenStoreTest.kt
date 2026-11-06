@@ -288,8 +288,9 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
       assertEquals(1L, store.revokeFamilies(listOf(first.token.familyId, second.token.familyId), reason = RevocationReason.LIMIT))
     }
 
-    assertEquals(1, firstLines.count { "family revoked:" in it })
-    assertEquals(1, secondLines.count { "family revoked:" in it })
+    val familyIds = setOf(first.token.familyId, second.token.familyId)
+    assertEquals(1, firstLines.count { line -> familyIds.any { "familyId='$it'" in line } })
+    assertEquals(1, secondLines.count { line -> familyIds.any { "familyId='$it'" in line } })
     assertTrue(secondLines.any { "familyId='${second.token.familyId}'" in it })
     assertTrue(secondLines.none { "familyId='${first.token.familyId}'" in it })
     assertEquals(now, store.findByFamily(second.token.familyId).single().revokedAt)
@@ -309,7 +310,8 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     assertEquals(9, retired.size)
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
     assertEquals(2, store.liveFamilies(pod, client, listOf(person)).size)
-    assertEquals(9, lines.count { "family revoked:" in it })
+    val familyIds = (families + newest).map { it.token.familyId }.toSet()
+    assertEquals(9, lines.count { line -> familyIds.any { "familyId='$it'" in line } })
     retired.forEach { family ->
       assertEquals(1, lines.count { "cause='limit'" in it && "familyId='${family.token.familyId}'" in it })
     }
@@ -359,6 +361,24 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     assertEquals(null, store.revocationReason(unknown.token.familyId))
     assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(unknown.plaintext).state)
     assertEquals("refresh token revoked", store.revocationDescription(unknown.token.familyId))
+  }
+
+  @Test
+  fun `superseding a sibling neither excludes its family from the cap nor hides its retirement cause`() {
+    val original = issue()
+    assertEquals(RefreshTokenStore.RotationResult.ROTATED, store.rotateWithGrace(original.token.tokenHash))
+    val first = store.issueInFamily(original.token, emptySet())
+    assertEquals(RefreshTokenStore.RotationResult.GRACE, store.rotateWithGrace(original.token.tokenHash))
+    val retry = store.issueInFamily(original.token, emptySet(), RefreshTokenStore.RotationResult.GRACE)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(first.plaintext).state)
+    val newest = issue()
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newest.token.familyId)
+
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(retry.plaintext).state)
+    assertEquals(RevocationReason.LIMIT, store.revocationReason(original.token.familyId))
+    assertEquals("refresh token retired: connection limit", store.revocationDescription(original.token.familyId))
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
   }
 
   @Test
