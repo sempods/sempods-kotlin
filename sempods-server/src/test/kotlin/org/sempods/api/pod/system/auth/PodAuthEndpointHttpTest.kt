@@ -1311,6 +1311,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       "until it goes ${PodAuthorizeResponses.durationInWords(durable.idle)} unused",
       "Unticked, for up to ${PodAuthorizeResponses.durationInWords(session.absolute)}",
       "until it goes ${PodAuthorizeResponses.durationInWords(session.idle)} unused",
+      "This choice applies to this sign-in only",
     )) {
       assertTrue(expected in page, "the dialog has to say '$expected' — it is what the server enforces")
     }
