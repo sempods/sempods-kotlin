@@ -15,6 +15,10 @@ import org.sempods.commons.logging.CapturedLog
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.toPodId
 import java.time.Instant
+import java.util.concurrent.Callable
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -40,6 +44,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
   @AfterEach
   fun dropCollection() {
     db.getCollection(collection).drop()
+    db.getCollection("$collection.sequence").drop()
   }
 
   private fun issue(
@@ -196,6 +201,76 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
 
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(first.plaintext).state)
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(second.plaintext).state)
+  }
+
+  @Test
+  fun `two replicas selecting before either retires keep the same newest family`() {
+    val replica = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 1))
+    val first = issue(webId = alias)
+    val newest = replica.issueNewFamily(pod, "test", client, person, emptySet(), PodRefreshTokenStore.Lifetime.DURABLE)
+    // Both snapshots precede both writes, exactly the interleaving that could retire both families.
+    val firstVictims = store.connectionLimitVictims(pod, client, listOf(person, alias), first.token.familyId)
+    val secondVictims = replica.connectionLimitVictims(pod, client, listOf(person, alias), newest.token.familyId)
+
+    firstVictims.forEach { store.revokeFamily(it, reason = "limit") }
+    secondVictims.forEach { replica.revokeFamily(it, reason = "limit") }
+
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(first.plaintext).state)
+    assertEquals(setOf(newest.token.familyId), store.liveFamilies(pod, client, listOf(person, alias)))
+  }
+
+  @Test
+  fun `replicas allocate distinct family orders from the same empty counter`() {
+    val replica = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 1))
+    val start = CyclicBarrier(8)
+    val pool = Executors.newFixedThreadPool(8)
+    try {
+      val calls = (0 until 8).map { index -> Callable {
+        start.await(10, TimeUnit.SECONDS)
+        val writer = if (index % 2 == 0) store else replica
+        writer.issueNewFamily(pod, "test", client, person, emptySet(), PodRefreshTokenStore.Lifetime.DURABLE)
+      } }
+      val issued = pool.invokeAll(calls).map { it.get(10, TimeUnit.SECONDS) }
+      assertEquals((1L..8L).toList(), issued.map { it.token.owner.familyOrder }.sorted())
+      issued.forEach {
+        assertEquals(it.token.owner.familyOrder, assertNotNull(store.lookup(it.plaintext).token).owner.familyOrder)
+      }
+    } finally {
+      pool.shutdownNow()
+    }
+  }
+
+  @Test
+  fun `rotation retains family order after the original row is reaped`() {
+    val original = issue()
+    val newest = issue()
+    assertTrue(store.markRotated(original.token.tokenHash))
+    val rotated = store.issueInFamily(original.token, emptySet())
+    db.getCollection(collection).deleteOne(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, original.token.tokenHash))
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
+
+    assertEquals(original.token.owner.familyOrder, rotated.token.owner.familyOrder)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(rotated.plaintext).state)
+  }
+
+  @Test
+  fun `legacy rows without issuance order remain readable and yield to a new family`() {
+    val legacy = issue()
+    db.getCollection(collection).updateOne(
+      Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, legacy.token.tokenHash),
+      Updates.unset("familyOrder"),
+    )
+    val read = assertNotNull(store.lookup(legacy.plaintext).token)
+    assertEquals(0L, read.owner.familyOrder)
+    val newest = issue()
+
+    store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
+
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(legacy.plaintext).state)
   }
 
   @Test

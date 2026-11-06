@@ -38,8 +38,9 @@ import java.time.Instant
  * Exchanges sign before their final checks. Code exchange re-reads consent after seeding the
  * family; rotation checks its predecessor and grants after inserting the successor. Sign-out
  * writes in the order that lets those checks see it (`SPS-AUTH-062`, `SPS-AUTH-063`). Family-limit
- * cleanup follows successful code exchange. [privilegedToken] signs and re-reads consent without
- * seeding a family; [exchangeServiceClient] authorizes no person.
+ * cleanup follows insertion, and code exchange checks its family again before returning success.
+ * [privilegedToken] signs and re-reads consent without seeding a family;
+ * [exchangeServiceClient] authorizes no person.
  */
 class PodTokenExchange @Inject internal constructor(
   private val authorizationCodeStore: AuthorizationCodeStore,
@@ -250,6 +251,12 @@ class PodTokenExchange @Inject internal constructor(
       webIds = webIdUriDeriver.derivableAliases(entry.subject),
       newFamilyId = issuedRefresh.token.familyId,
     )
+    if (refreshTokenStore.noLongerStands(issuedRefresh.token.tokenHash)) {
+      return PodTokenResult.Refused(
+        OAuthErrorCode.INVALID_GRANT,
+        refreshTokenStore.revocationDescription(issuedRefresh.token.familyId),
+      )
+    }
 
     logger.info {
       "[oauth/token] Tokens issued (authorization_code): pod='${podName}', clientId='${entry.clientId}', " +

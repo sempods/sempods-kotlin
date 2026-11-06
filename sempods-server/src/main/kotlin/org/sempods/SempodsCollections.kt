@@ -67,6 +67,9 @@ internal object SempodsCollections {
   /** Refresh-token families, with rotation and reuse detection. */
   const val OAUTH_REFRESH_TOKENS = "oauth.refreshTokens"
 
+  /** Shared monotonic issuance order for refresh families, across replicas and aliases. */
+  const val OAUTH_REFRESH_FAMILY_SEQUENCE = "oauth.refreshFamilySequence"
+
   /** When a person last signed out of a pod — `(podId, webId)`. */
   const val OAUTH_SIGN_OUTS = "oauth.signOuts"
 
@@ -104,6 +107,7 @@ internal object SempodsCollections {
     OAUTH_SIGNING_KEYS,
     OAUTH_CONSENT_DECISIONS,
     OAUTH_REFRESH_TOKENS,
+    OAUTH_REFRESH_FAMILY_SEQUENCE,
     OAUTH_SIGN_OUTS,
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,

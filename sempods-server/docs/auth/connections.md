@@ -56,10 +56,12 @@ same app's desktop connection usable. The lifetime choice applies to the new fam
 consent on the phone neither shortens nor revokes the desktop's durable family.
 
 The pod bounds live families per pod, client ID and person, including derivable WebID aliases.
-After writing the new family, it retires excess families among the other connections in order of
-their last rotation, or issuance if never rotated. The new family counts toward the limit but is
-protected from its own exchange's cleanup, even if another connection rotates meanwhile.
-Expired and revoked families do not count. The
+After writing a new family, cleanup protects the newest live family and retires excess families
+among the others in order of their last rotation, or issuance if never rotated. MongoDB assigns
+an immutable issuance order shared across replicas, so simultaneous exchanges agree on the family
+to keep even when clocks tie or an older connection rotates. Expired and revoked families do not
+count. At limit 1, a concurrent newer exchange can displace an earlier one; the earlier exchange
+checks before returning and answers `invalid_grant` if its family has already been retired. The
 [family-limit setting](operations.md#connection-family-limit) controls the bound. Refreshing a
 family retired by this limit returns `invalid_grant` with
 `error_description=refresh token retired: connection limit`.

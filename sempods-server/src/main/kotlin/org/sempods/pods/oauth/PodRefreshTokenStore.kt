@@ -4,6 +4,8 @@ import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Aggregates
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.FindOneAndUpdateOptions
+import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -34,31 +36,39 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions"
  *   states.
+ * @param sequenceCollectionName stores the issuance counter for this token collection. Keep it
+ *   with the token collection when restoring data; it is retained when tokens expire.
  */
 class PodRefreshTokenStore internal constructor(
   db: MongoDatabase,
   collectionName: String,
   config: SempodsConfig,
+  sequenceCollectionName: String = "$collectionName.sequence",
 ) {
 
   @Inject
   internal constructor(db: MongoDatabase, config: SempodsConfig) :
-    this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config)
+    this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config, SempodsCollections.OAUTH_REFRESH_FAMILY_SEQUENCE)
 
   /**
    * @param pod the pod the token is good for, and the key everything bulk-revoking starts from.
    * @param podName carried for the caller's benefit and never queried on, which is why it is not in
    *   the compound index.
    * @param webId the person, as their WebID — the token's subject.
+   * @param familyOrder the immutable issuance order, shared by every row of a family. Allocated
+   *   atomically in MongoDB before seeding, independent of clocks and rotations. Zero denotes a
+   *   family issued before this field existed; new families always sort after those families.
    */
   internal data class Owner(
     val pod: PodId,
     val podName: String,
     val clientId: String,
     val webId: String,
+    val familyOrder: Long = 0,
   )
 
   private val tokens = db.getCollection(collectionName)
+  private val sequence = db.getCollection(sequenceCollectionName)
   private val maxFamilies = config.connectionMaxFamilies
 
   private val store = RefreshTokenStore<Owner>(
@@ -70,6 +80,7 @@ class PodRefreshTokenStore internal constructor(
       put(FIELD_POD_NAME, it.podName)
       put(FIELD_CLIENT_ID, it.clientId)
       put(FIELD_WEB_ID, it.webId)
+      put(FIELD_FAMILY_ORDER, it.familyOrder)
     },
     readOwner = {
       Owner(
@@ -77,6 +88,7 @@ class PodRefreshTokenStore internal constructor(
         podName = getString(FIELD_POD_NAME),
         clientId = getString(FIELD_CLIENT_ID),
         webId = getString(FIELD_WEB_ID),
+        familyOrder = getLong(FIELD_FAMILY_ORDER) ?: 0L,
       )
     },
   )
@@ -137,13 +149,20 @@ class PodRefreshTokenStore internal constructor(
   ): RefreshTokenStore.Issued<Owner> {
     val terms = termsOf(lifetime)
     return store.issueNewFamily(
-      owner = Owner(pod = pod, podName = podName, clientId = clientId, webId = webId),
+      owner = Owner(pod = pod, podName = podName, clientId = clientId, webId = webId, familyOrder = nextFamilyOrder()),
       scopes = scopes,
       kind = lifetime.kind,
       endsAt = Instant.now().plus(terms.absolute),
       ttlSeconds = terms.idle.seconds,
     )
   }
+
+  /** One persistent counter per token collection; gaps from failed exchanges are harmless. */
+  private fun nextFamilyOrder(): Long = checkNotNull(sequence.findOneAndUpdate(
+    Filters.eq("_id", "familyOrder"),
+    Updates.inc("value", 1L),
+    FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
+  )).getLong("value")
 
   /**
    * The successor in an existing family, on its class's idle window, and **under a deadline
@@ -240,12 +259,13 @@ class PodRefreshTokenStore internal constructor(
     else revokeWhere(Filters.`in`(Field.FAMILY_ID, familyIds), reason = "reauthorization")
 
   /**
-   * Retires excess live families after a successful code exchange has inserted its new family.
+   * Retires excess live families after a code exchange has inserted its new family.
    * [webIds] must include the person's derivable aliases. Expired and revoked rows do not count.
-   * [newFamilyId] counts toward the limit but is excluded from this sweep's victims. Among the
-   * other families, the last rotation (or issuance for an unused family) orders victims, and the
-   * id breaks ties. If the new family has already ended, this sweep does nothing. Rotated rows
-   * count while their successor is being inserted, so a rotation cannot hide a family from the cap.
+   * Every sweep protects the live family with the highest [Owner.familyOrder]. Concurrent
+   * exchanges therefore agree on one survivor; an older exchange may itself be retired and must
+   * check its token before returning success. Among the others, last rotation (or issuance for an
+   * unused family) orders victims, with the id breaking ties. If [newFamilyId] has already ended,
+   * this sweep does nothing. Rotated rows count while their successor is being inserted.
    * Any revoked row excludes its family, including a tip revoked by the grant cascade while
    * rotated predecessors remain for reuse detection.
    */
@@ -255,7 +275,17 @@ class PodRefreshTokenStore internal constructor(
     webIds: Collection<String>,
     newFamilyId: String,
   ) {
-    val owner = ownerFilter(pod, clientId, webIds) ?: return
+    connectionLimitVictims(pod, clientId, webIds, newFamilyId).forEach { revokeFamily(it, reason = "limit") }
+  }
+
+  /** A snapshot of the families selected for retirement; rotations of those families share their fate. */
+  internal fun connectionLimitVictims(
+    pod: PodId,
+    clientId: String,
+    webIds: Collection<String>,
+    newFamilyId: String,
+  ): List<String> {
+    val owner = ownerFilter(pod, clientId, webIds) ?: return emptyList()
     val families = tokens.aggregate(listOf(
       Aggregates.match(Filters.and(
         owner,
@@ -263,15 +293,19 @@ class PodRefreshTokenStore internal constructor(
       )),
       Document("\$group", Document("_id", "\$${Field.FAMILY_ID}")
         .append("lastUsed", Document("\$max", Document("\$ifNull", listOf("\$${Field.ROTATED_AT}", "\$${Field.ISSUED_AT}"))))
-        .append("revokedAt", Document("\$max", "\$${Field.REVOKED_AT}"))),
+        .append("revokedAt", Document("\$max", "\$${Field.REVOKED_AT}"))
+        .append(FIELD_FAMILY_ORDER, Document("\$max", "\$$FIELD_FAMILY_ORDER"))),
       Aggregates.match(Filters.eq("revokedAt", null)),
       Document("\$sort", Document("lastUsed", 1).append("_id", 1)),
-    )).map { it.getString("_id") }.toList()
-    if (newFamilyId !in families) return
-    families.filterNot { it == newFamilyId }
+    )).map { Family(it.getString("_id"), it.getLong(FIELD_FAMILY_ORDER) ?: 0L) }.toList()
+    if (families.none { it.id == newFamilyId }) return emptyList()
+    val protected = families.maxWith(compareBy<Family> { it.order }.thenBy { it.id }).id
+    return families.filterNot { it.id == protected }
       .take((families.size - maxFamilies).coerceAtLeast(0))
-      .forEach { revokeFamily(it, reason = "limit") }
+      .map { it.id }
   }
+
+  private data class Family(val id: String, val order: Long)
 
   /** The first recorded reason survives later sweeps, including the cleanup of an in-flight rotation. */
   internal fun revocationReason(familyId: String): String? = tokens.find(Filters.and(
@@ -391,5 +425,6 @@ class PodRefreshTokenStore internal constructor(
     const val FIELD_POD_NAME = "podName"
     const val FIELD_CLIENT_ID = "clientId"
     const val FIELD_WEB_ID = "webId"
+    const val FIELD_FAMILY_ORDER = "familyOrder"
   }
 }
