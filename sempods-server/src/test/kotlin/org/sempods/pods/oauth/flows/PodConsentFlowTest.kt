@@ -11,6 +11,8 @@ import org.sempods.pods.grants.GrantRecipient
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
 import java.time.Instant
 import kotlin.test.Test
@@ -46,6 +48,9 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Inject
   private lateinit var consentSelection: ConsentSelection
+
+  @Inject
+  private lateinit var refreshTokenStore: PodRefreshTokenStore
 
   private fun form(
     csrf: String?,
@@ -218,7 +223,15 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     owned.grant(owned.readScope)
     val before = owned.answered(durable = true)
 
-    val result = flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session)
+    val family = refreshTokenStore.issueNewFamily(
+      owned.pod.id, owned.pod.name, clientId, owned.webId, emptySet(), PodRefreshTokenStore.Lifetime.DURABLE,
+    )
+    lateinit var result: PodConsentResult
+    val lines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
+      result = flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session)
+    }
+    assertEquals(PodRefreshTokenStore.RevocationReason.DISCONNECT, refreshTokenStore.revocationReason(family.token.familyId))
+    assertTrue(lines.any { "cause='disconnect'" in it && "familyId='${family.token.familyId}'" in it })
 
     val delivery = redirectedError(result)
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
@@ -322,12 +335,21 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
   }
 
   @Test
-  fun `withholding durability revokes what the authorization already had`() {
-    // Withholding is not merely declining to extend: the families would otherwise keep rotating
-    // and the person would have changed nothing they can observe.
+  fun `an unticked consent leaves existing families untouched`() {
     val owned = Owned()
     owned.grant(owned.readScope)
     owned.answered(durable = true)
+
+    val families = PodRefreshTokenStore.Lifetime.entries.map { lifetime ->
+      refreshTokenStore.issueNewFamily(
+        pod = owned.pod.id,
+        podName = owned.pod.name,
+        clientId = clientId,
+        webId = owned.webId,
+        scopes = emptySet(),
+        lifetime = lifetime,
+      )
+    }
 
     issuedCode(
       flow.submit(
@@ -339,6 +361,11 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
     val decision = assertNotNull(consentDecisionStore.find(owned.pod.id, clientId, listOf(owned.webId)))
     assertEquals(false, decision.durable, "the ordinary dialog asked, and this is the answer")
+    families.forEach {
+      val stored = refreshTokenStore.lookup(it.plaintext)
+      assertEquals(RefreshTokenStore.LookupState.ACTIVE, stored.state)
+      assertEquals(it.token, stored.token)
+    }
   }
 
   @Test
@@ -654,10 +681,7 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
 
   @Test
   fun `a management authority leaves the lifetime answer this app already carries`() {
-    // What this closes: the management screen shares a consent document with the ordinary one.
-    // Writing `durable = false` into it for a question nobody was asked is a withdrawal, and
-    // `PodTokenExchange.endsOnRefusal` reads it as one — the app's durable family dies at its next
-    // refresh because its owner approved a management authority.
+    // A management screen does not answer the lifetime question for later ordinary connections.
     val owned = Owned()
     owned.grant(owned.readScope)
     owned.answered(durable = true)

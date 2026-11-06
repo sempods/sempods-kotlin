@@ -1,6 +1,11 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import io.mockk.every
+import io.mockk.spyk
+import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.commons.logging.CapturedLog
+import org.sempods.pods.oauth.DynamicClientStore
 import com.nimbusds.jwt.SignedJWT
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
@@ -140,6 +145,35 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   // ── the authorization code ────────────────────────────────────────────────
 
   @Test
+  fun `unticked consent during code exchange reports supersession and keeps existing durable families`() {
+    val authorized = Authorized()
+    val generation = authorized.answer(durable = true)
+    val existing = issued(authorized.redeem(authorized.code(generation)))
+    val observedStore = spyk(refreshTokenStore)
+    every { observedStore.issueNewFamily(any(), any(), any(), any(), any(), any()) } answers {
+      val issued = callOriginal()
+      authorized.answer(durable = false)
+      issued
+    }
+    val racingExchange = PodTokenExchange(
+      authorizationCodeStore, observedStore, consentDecisionStore, podGrantsFacade,
+      injector.getInstance(DynamicClientStore::class.java), injector.getInstance(PodTokenIssuer::class.java),
+      serviceClients, managementAuthorities, injector.getInstance(WebIdUriDeriver::class.java),
+    )
+    lateinit var result: PodTokenResult
+    val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {
+      result = racingExchange.redeemCode(authorized.podId, authorized.pod.name, authorized.code(generation), redirectUri, clientId, null)
+    }
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refused(result).code)
+    assertEquals("authorization code superseded by a later consent", refused(result).description)
+    assertTrue(lines.none { "durableWithheld" in it })
+    val refreshed = issued(authorized.refresh(assertNotNull(existing.refreshToken)))
+    val held = assertNotNull(refreshTokenStore.lookup(assertNotNull(refreshed.refreshToken)).token)
+    assertEquals(PodRefreshTokenStore.Lifetime.DURABLE, refreshTokenStore.lifetimeOf(held))
+  }
+
+  @Test
   fun `a code is spent once`() {
     val authorized = Authorized()
     val code = authorized.code(authorized.answer(durable = false))
@@ -230,12 +264,12 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a reconnect retires the family it supersedes`() {
+  fun `two code exchanges leave both families refreshable`() {
     val authorized = Authorized()
     val first = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
     val second = issued(authorized.redeem(authorized.code(authorized.answer(durable = true))))
 
-    assertEquals(OAuthErrorCode.INVALID_GRANT, refused(authorized.refresh(checkNotNull(first.refreshToken))).code)
+    assertIs<PodTokenResult.Issued>(authorized.refresh(checkNotNull(first.refreshToken)))
     assertIs<PodTokenResult.Issued>(authorized.refresh(checkNotNull(second.refreshToken)))
   }
 
@@ -376,20 +410,20 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   }
 
   @Test
-  fun `a withdrawal ends a durable family and leaves a session one alone`() {
-    // A session family exists because the answer was "no", so a refusal on record cannot be what
-    // ends it — that would make the control do nothing at all.
+  fun `a later shorter choice preserves each existing family lifetime`() {
     for (durable in listOf(true, false)) {
       val authorized = Authorized()
       val token = checkNotNull(issued(authorized.redeem(authorized.code(authorized.answer(durable)))).refreshToken)
+      val original = checkNotNull(refreshTokenStore.lookup(token).token)
       authorized.answer(durable = false)
 
-      val result = authorized.refresh(token)
-      if (durable) {
-        assertEquals("the durable connection was withdrawn", refused(result).description)
-      } else {
-        assertIs<PodTokenResult.Issued>(result)
-      }
+      val result = issued(authorized.refresh(token))
+      val successor = checkNotNull(refreshTokenStore.lookup(checkNotNull(result.refreshToken)).token)
+      assertEquals(original.kind, successor.kind)
+      assertEquals(original.endsAt, successor.endsAt)
+      assertEquals(original.familyId, successor.familyId)
+      val terms = refreshTokenStore.termsOf(refreshTokenStore.lifetimeOf(original))
+      assertEquals(minOf(successor.issuedAt.plus(terms.idle), checkNotNull(original.endsAt)), successor.expiresAt)
     }
   }
 

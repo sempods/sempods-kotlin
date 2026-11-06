@@ -2,17 +2,26 @@ package org.sempods.pods.oauth
 
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Aggregates
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.FindOneAndUpdateOptions
+import com.mongodb.client.model.ReturnDocument
+import com.mongodb.client.model.Sorts
+import com.mongodb.client.model.Updates
+import io.github.oshai.kotlinlogging.KotlinLogging
+import org.bson.Document
 import org.bson.conversions.Bson
-import org.bson.types.ObjectId
 import org.sempods.SempodsCollections
 import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
+import org.sempods.auth.core.RefreshTokenStore.Field
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
+import java.util.UUID
 
 /** A refresh token of this pod server, with the owner already resolved. */
 internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStore.Owner>
@@ -28,29 +37,42 @@ internal typealias PodRefreshToken = RefreshTokenStore.Token<PodRefreshTokenStor
  * @param collectionName the production name sits on the `@Inject` constructor; a test points an
  *   instance at a collection of its own, for the reason `sempods-commons-mongo/docs/document-contract.md` §"Conventions"
  *   states.
+ * @param sequenceCollectionName stores the issuance counter for this token collection. Keep it
+ *   with the token collection when restoring data; it is retained when tokens expire.
+ * @param clock shared with the token mechanism for issuance, expiry, rotation and revocation.
  */
 class PodRefreshTokenStore internal constructor(
   db: MongoDatabase,
   collectionName: String,
   config: SempodsConfig,
+  sequenceCollectionName: String = "$collectionName.sequence",
+  private val clock: () -> Instant = Instant::now,
 ) {
 
   @Inject
   internal constructor(db: MongoDatabase, config: SempodsConfig) :
-    this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config)
+    this(db, SempodsCollections.OAUTH_REFRESH_TOKENS, config, SempodsCollections.OAUTH_REFRESH_FAMILY_SEQUENCE)
 
   /**
    * @param pod the pod the token is good for, and the key everything bulk-revoking starts from.
    * @param podName carried for the caller's benefit and never queried on, which is why it is not in
    *   the compound index.
    * @param webId the person, as their WebID — the token's subject.
+   * @param familyOrder the immutable issuance order, shared by every row of a family. Allocated
+   *   atomically in MongoDB before seeding, independent of clocks and rotations. Zero denotes a
+   *   family issued before this field existed; new families always sort after those families.
    */
   internal data class Owner(
     val pod: PodId,
     val podName: String,
     val clientId: String,
     val webId: String,
+    val familyOrder: Long = 0,
   )
+
+  private val tokens = db.getCollection(collectionName)
+  private val sequence = db.getCollection(sequenceCollectionName)
+  private val maxFamilies = config.connectionMaxFamilies
 
   private val store = RefreshTokenStore<Owner>(
     db = db,
@@ -61,13 +83,16 @@ class PodRefreshTokenStore internal constructor(
       put(FIELD_POD_NAME, it.podName)
       put(FIELD_CLIENT_ID, it.clientId)
       put(FIELD_WEB_ID, it.webId)
+      put(FIELD_FAMILY_ORDER, it.familyOrder)
     },
+    clock = clock,
     readOwner = {
       Owner(
         pod = getObjectId(FIELD_POD_ID).toPodId(),
         podName = getString(FIELD_POD_NAME),
         clientId = getString(FIELD_CLIENT_ID),
         webId = getString(FIELD_WEB_ID),
+        familyOrder = getLong(FIELD_FAMILY_ORDER) ?: 0L,
       )
     },
   )
@@ -75,15 +100,28 @@ class PodRefreshTokenStore internal constructor(
   /**
    * Which lifetime a family was minted under, as this server's consent control decides it.
    *
-   * The class is stored on every row as [RefreshTokenStore.Token.kind] and inherited by each
-   * rotation, so a rotation reads the class off the credential rather than off the consent decision
-   * — that document is the person's to edit, and a durable family a withdrawal has not yet swept
-   * would otherwise be read as a session family: the short window **and** an escape from the
-   * withdrawal. How long each class lives is [termsOf]'s answer.
+   * Every rotation inherits the stored class, so later consent choices affect only new families.
+   * How long each class lives is [termsOf]'s answer.
    */
   internal enum class Lifetime(val kind: String) {
     SESSION("session"),
     DURABLE("durable"),
+  }
+
+  /**
+   * Stable codes persisted in `revocationReason` and emitted in logs. Keep these codes when
+   * renaming an enum entry. Missing causes on legacy rows stay unknown; unrecognized codes read
+   * as [RevocationReason.RETIRED] and receive the generic refusal description.
+   */
+  internal enum class RevocationReason(val code: String, val description: String = "refresh token revoked") {
+    LIMIT("limit", "refresh token retired: connection limit"),
+    REUSE("reuse"),
+    WITHDRAWN_GRANT("withdrawn grant"),
+    CONSENT_CHANGED("consent changed"),
+    RETIRED("retired"),
+    SIGN_OUT("sign-out"),
+    REAUTHORIZATION("reauthorization"),
+    DISCONNECT("disconnect"),
   }
 
   private val sessionTerms = ConnectionTerms(
@@ -107,13 +145,8 @@ class PodRefreshTokenStore internal constructor(
    * this family.
    *
    * A row carrying no [RefreshTokenStore.Token.kind] predates the field, and it is [Lifetime.DURABLE]:
-   * back then the pod minted a family only where the person ticked the connection, so every one that
-   * exists was ticked. Reading such a row as [Lifetime.SESSION] would hand it both halves of the
-   * failure the class exists to prevent. Every row written from here on names its own class, so this
-   * answers for rows older than that and for nothing else.
-   *
-   * An unrecognised value falls to [Lifetime.DURABLE] too, and that direction is the point: a class
-   * added later is ended by a refusal rather than quietly spared by one.
+   * only durable connections were issued before the field existed. Unknown classes also use the
+   * durable terms; the stored absolute deadline still bounds every rotation.
    */
   internal fun lifetimeOf(token: PodRefreshToken): Lifetime =
     Lifetime.entries.firstOrNull { it.kind == token.kind } ?: Lifetime.DURABLE
@@ -136,13 +169,20 @@ class PodRefreshTokenStore internal constructor(
   ): RefreshTokenStore.Issued<Owner> {
     val terms = termsOf(lifetime)
     return store.issueNewFamily(
-      owner = Owner(pod = pod, podName = podName, clientId = clientId, webId = webId),
+      owner = Owner(pod = pod, podName = podName, clientId = clientId, webId = webId, familyOrder = nextFamilyOrder()),
       scopes = scopes,
       kind = lifetime.kind,
-      endsAt = Instant.now().plus(terms.absolute),
+      endsAt = clock().plus(terms.absolute),
       ttlSeconds = terms.idle.seconds,
     )
   }
+
+  /** One persistent counter per token collection; gaps from failed exchanges are harmless. */
+  private fun nextFamilyOrder(): Long = checkNotNull(sequence.findOneAndUpdate(
+    Filters.eq("_id", "familyOrder"),
+    Updates.inc("value", 1L),
+    FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER),
+  )).getLong("value")
 
   /**
    * The successor in an existing family, on its class's idle window, and **under a deadline
@@ -175,26 +215,26 @@ class PodRefreshTokenStore internal constructor(
 
   internal fun markRotated(tokenHash: String): Boolean = store.markRotated(tokenHash)
 
-  internal fun revokeFamily(familyId: String): Long = store.revokeFamily(familyId)
+  internal fun revokeFamily(familyId: String, reason: RevocationReason): Long =
+    revokeWhere(Filters.eq(Field.FAMILY_ID, familyId), reason)
 
   /**
    * Revokes what one app holds for one person on one pod — the consent-withdrawal and disconnect
-   * paths. The MCP surface's explicit re-authorization uses [revokeLiveFamiliesFor] instead, for
-   * the reason stated there.
+   * paths. Callers supply the cause of the action. The MCP surface's explicit re-authorization
+   * uses [revokeLiveFamiliesFor] instead, for the reason stated there.
    */
-  internal fun revokeForUser(pod: PodId, clientId: String, webId: String): Long =
-    revokeForUser(pod, clientId, listOf(webId))
+  internal fun revokeForUser(pod: PodId, clientId: String, webId: String, reason: RevocationReason): Long =
+    revokeForUser(pod, clientId, listOf(webId), reason)
 
   /**
    * The same, for every URI that names the same person.
    *
    * A pod stores whichever WebID authenticated at the time, so an authorization can hold families
    * under an alias while its owner is signed in under their canonical URI. Revoking one of them and
-   * calling that a withdrawal leaves the connection the person meant to end running — and the
-   * survivor then reads as an authorization with nothing recorded, which is grandfathered.
+   * calling that a withdrawal leaves the connection the person meant to end running.
    */
-  internal fun revokeForUser(pod: PodId, clientId: String, webIds: Collection<String>): Long =
-    ownerFilter(pod, clientId, webIds)?.let(store::revokeWhere) ?: 0
+  internal fun revokeForUser(pod: PodId, clientId: String, webIds: Collection<String>, reason: RevocationReason): Long =
+    ownerFilter(pod, clientId, webIds)?.let { revokeWhere(it, reason) } ?: 0
 
   /**
    * Revokes every row this person holds on the pod, whichever app it belongs to — the sign-out path.
@@ -207,11 +247,12 @@ class PodRefreshTokenStore internal constructor(
   internal fun revokeForPerson(pod: PodId, webIds: Collection<String>): Long {
     val distinct = webIds.filter { it.isNotBlank() }.distinct()
     if (distinct.isEmpty()) return 0
-    return store.revokeWhere(
+    return revokeWhere(
       Filters.and(
         podFilter(pod),
         Filters.`in`(FIELD_WEB_ID, distinct),
       ),
+      reason = RevocationReason.SIGN_OUT,
     )
   }
 
@@ -226,38 +267,101 @@ class PodRefreshTokenStore internal constructor(
    * this look is still taken; removing that needs the family to carry its own generation.
    */
   internal fun revokeLiveFamiliesFor(pod: PodId, clientId: String, webIds: Collection<String>): Long =
-    revokeFamilies(liveFamilies(pod, clientId, webIds))
+    revokeFamilies(liveFamilies(pod, clientId, webIds), reason = RevocationReason.REAUTHORIZATION)
 
-  /**
-   * The live families this app holds for this person — what a consent about to mint one supersedes.
-   *
-   * A reconnect answers the lifetime question again, and **either answer mints a family**, so either
-   * answer has to replace what it supersedes — that is this pair. Withholding sweeps them through
-   * [revokeForUser] as well, which is the same retirement from the other end. Without this one every
-   * reconnect leaves another family behind that nobody counted, each renewing a window of its own;
-   * an auto-granted reconnect records no new decision and so revokes nothing, which is how they
-   * accumulate one per visit.
-   *
-   * **Measured before the successor is minted, and that ordering is the correctness argument.** Two
-   * exchanges can run under one standing consent — auto-grant issues a code without recording a new
-   * decision — and a sweep phrased as "everything but my own family" would have each of them revoke
-   * the other's, handing both clients a refresh token that is already dead. A set read beforehand
-   * cannot name a family minted after it, and each caller reads before it inserts, so at most one of
-   * the two can have observed the other: either one retires the other, or neither does.
-   */
+  /** Families selected for an explicit re-authorization, including rotated rows. */
   internal fun liveFamilies(pod: PodId, clientId: String, webIds: Collection<String>): Set<String> =
     ownerFilter(pod, clientId, webIds)?.let(store::familiesWhere) ?: emptySet()
 
-  /**
-   * Revokes each of [familyIds] — the sweep [liveFamilies] measured, successors included.
-   *
-   * The reach past what was measured is wanted here: a reconnect replaces the whole connection, so
-   * a rotation of a family it is retiring belongs to the connection being replaced. Where the reason
-   * to revoke is an observation that a later rotation would falsify, use [liveTokens] instead.
-   */
-  internal fun revokeFamilies(familyIds: Collection<String>): Long =
+  /** Ends the named families, including successors inserted since the caller selected them. */
+  internal fun revokeFamilies(familyIds: Collection<String>, reason: RevocationReason): Long =
     if (familyIds.isEmpty()) 0
-    else store.revokeWhere(Filters.`in`(RefreshTokenStore.Field.FAMILY_ID, familyIds))
+    else revokeWhere(Filters.`in`(Field.FAMILY_ID, familyIds), reason)
+
+  /**
+   * Retires excess live families after a code exchange has inserted its new family.
+   * [webIds] must include the person's derivable aliases. Expired and revoked rows do not count.
+   * Every sweep protects the live family with the highest [Owner.familyOrder]. Concurrent
+   * exchanges therefore agree on one survivor; an older exchange may itself be retired and must
+   * check its token before returning success. Among the others, last rotation (or issuance for an
+   * unused family) orders victims, with the id breaking ties. If [newFamilyId] has already ended,
+   * this sweep does nothing. Rotated rows count while their successor is being inserted.
+   * Any revoked row excludes its family, including a tip revoked by the grant cascade while
+   * rotated predecessors remain for reuse detection.
+   */
+  internal fun enforceConnectionLimit(
+    pod: PodId,
+    clientId: String,
+    webIds: Collection<String>,
+    newFamilyId: String,
+  ) {
+    revokeFamilies(connectionLimitVictims(pod, clientId, webIds, newFamilyId), reason = RevocationReason.LIMIT)
+  }
+
+  /** A snapshot of the families selected for retirement; rotations of those families share their fate. */
+  internal fun connectionLimitVictims(
+    pod: PodId,
+    clientId: String,
+    webIds: Collection<String>,
+    newFamilyId: String,
+  ): List<String> {
+    val owner = ownerFilter(pod, clientId, webIds) ?: return emptyList()
+    val families = tokens.aggregate(listOf(
+      Aggregates.match(Filters.and(
+        owner,
+        Filters.gt(Field.EXPIRES_AT, clock()),
+      )),
+      Document("\$group", Document("_id", "\$${Field.FAMILY_ID}")
+        .append("lastUsed", Document("\$max", Document("\$ifNull", listOf("\$${Field.ROTATED_AT}", "\$${Field.ISSUED_AT}"))))
+        .append("revokedAt", Document("\$max", "\$${Field.REVOKED_AT}"))
+        .append(FIELD_FAMILY_ORDER, Document("\$max", "\$$FIELD_FAMILY_ORDER"))),
+      Aggregates.match(Filters.eq("revokedAt", null)),
+      Document("\$sort", Document("lastUsed", 1).append("_id", 1)),
+    )).map { Family(it.getString("_id"), it.getLong(FIELD_FAMILY_ORDER) ?: 0L) }.toList()
+    if (families.none { it.id == newFamilyId }) return emptyList()
+    val protected = families.maxWith(compareBy<Family> { it.order }.thenBy { it.id }).id
+    return families.filterNot { it.id == protected }
+      .take((families.size - maxFamilies).coerceAtLeast(0))
+      .map { it.id }
+  }
+
+  private data class Family(val id: String, val order: Long)
+
+  /** The first recorded reason survives later sweeps, including the cleanup of an in-flight rotation. */
+  internal fun revocationReason(familyId: String): RevocationReason? = tokens.find(Filters.and(
+    Filters.eq(Field.FAMILY_ID, familyId),
+    Filters.ne(Field.REVOKED_AT, null),
+  )).sort(Sorts.ascending(Field.REVOKED_AT)).first()?.getString(FIELD_REVOCATION_REASON)?.let { code ->
+    RevocationReason.entries.firstOrNull { it.code == code } ?: RevocationReason.RETIRED
+  }
+
+  internal fun revocationDescription(familyId: String): String =
+    revocationReason(familyId)?.description ?: RevocationReason.RETIRED.description
+
+  /** Records the cause atomically with revocation and logs every affected family. */
+  private fun revokeWhere(filter: Bson, reason: RevocationReason): Long {
+    val now = clock().truncatedTo(ChronoUnit.MILLIS)
+    val operation = UUID.randomUUID().toString()
+    val changed = tokens.updateMany(
+      Filters.and(filter, Filters.eq(Field.REVOKED_AT, null)),
+      Updates.combine(
+        Updates.set(Field.REVOKED_AT, now),
+        Updates.set(FIELD_REVOCATION_REASON, reason.code),
+        Updates.set(FIELD_REVOCATION_OPERATION, operation),
+      ),
+    ).modifiedCount
+    if (changed > 0) {
+      tokens.find(Filters.and(filter, Filters.eq(FIELD_REVOCATION_OPERATION, operation)))
+        .projection(Document(Field.FAMILY_ID, 1).append(FIELD_CLIENT_ID, 1).append(FIELD_POD_NAME, 1))
+        .toList().distinctBy { it.getString(Field.FAMILY_ID) }.forEach { row ->
+          logger.info {
+            "[oauth] family revoked: cause='${reason.code}', pod='${row.getString(FIELD_POD_NAME)}', " +
+                "clientId='${row.getString(FIELD_CLIENT_ID)}', familyId='${row.getString(Field.FAMILY_ID)}'"
+          }
+        }
+    }
+    return changed
+  }
 
   /**
    * The live rows this app holds for this person, named one by one — the snapshot for a caller
@@ -287,11 +391,12 @@ class PodRefreshTokenStore internal constructor(
    */
   internal fun revokeTokens(tokenHashes: Collection<String>): Long =
     if (tokenHashes.isEmpty()) 0
-    else store.revokeWhere(
+    else revokeWhere(
       Filters.and(
         Filters.`in`(RefreshTokenStore.Field.TOKEN_HASH, tokenHashes),
         Filters.eq(RefreshTokenStore.Field.ROTATED_AT, null),
       ),
+      reason = RevocationReason.WITHDRAWN_GRANT,
     )
 
   /**
@@ -335,6 +440,13 @@ class PodRefreshTokenStore internal constructor(
   private fun podFilter(pod: PodId): Bson = Filters.eq(FIELD_POD_ID, pod.objectId())
 
   private companion object {
+    val logger = KotlinLogging.logger {}
+
+    /** Optional cause on revoked rows; absent on credentials written before cause tracking. */
+    const val FIELD_REVOCATION_REASON = "revocationReason"
+
+    /** Identifies rows changed by one update, so same-millisecond revocations log only their own rows. */
+    const val FIELD_REVOCATION_OPERATION = "revocationOperation"
 
     // The owner's field names, which are this class's rather than the shared store's. The order of
     // the four is the order they are written in, and a row on disk carries it.
@@ -342,5 +454,6 @@ class PodRefreshTokenStore internal constructor(
     const val FIELD_POD_NAME = "podName"
     const val FIELD_CLIENT_ID = "clientId"
     const val FIELD_WEB_ID = "webId"
+    const val FIELD_FAMILY_ORDER = "familyOrder"
   }
 }

@@ -23,13 +23,9 @@ import java.util.Date
  * What a person decided about an app's credential lifetime, one document per authorization
  * `(podId, appId, webId)`.
  *
- * There are three answers and only two of them are a decision: **granted**, **refused**, and
- * **nothing recorded** — every authorization made before the consent dialog offered the choice, and
- * every one whose dialog did not ask ([recordWithoutLifetime]). An absent document is that third
- * state, and so is a document carrying no `durable` field, which is why this is a document of its
- * own rather than a flag on a grant row: nothing has to be written for the pods that already exist,
- * and a refusal stays distinguishable from a silence. Reading them as the same thing is a bug in
- * both directions — it either ends connections nobody ended, or lets a withdrawal be ignored.
+ * A lifetime answer is durable, shorter, or absent. An absent document or `durable` field means
+ * no dialog has answered the lifetime question ([recordWithoutLifetime]). Only new families read
+ * this choice; existing families keep their own stored lifetime class.
  *
  * [Decision.generation] rises with every answer, a refusal included, and with every other event
  * that resets what the authorization stands at — see [bumpGeneration]. It is written from the
@@ -55,7 +51,7 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
   }
 
   /**
-   * @param durable whether the person granted a connection that outlives the access token, or
+   * @param durable whether new families use the durable lifetime, or
    *   `null` where this authorization has never been asked — see the note on this class.
    * @param generation how many times this authorization has been answered. Rises on every write.
    * @param disconnects how many times the person has ended this app's access outright. A consent
@@ -154,8 +150,8 @@ class PodConsentDecisionStore internal constructor(db: MongoDatabase, collection
    * The same write, for a dialog that asked the person something other than the lifetime question.
    *
    * A privileged screen is the one that does: it carries no lifetime control, so it has no
-   * answer to write, and writing `false` anyway would be a refusal nobody gave — enough to revoke
-   * a durable family this app already holds ([Decision.durable] is what `endsOnRefusal` reads).
+   * answer to write. Writing `false` would select a shorter lifetime for later families without
+   * asking the person.
    * The field is therefore left exactly as it stands: preserved where an answer is on record,
    * absent where none is.
    *

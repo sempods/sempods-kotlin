@@ -100,6 +100,9 @@ class SempodsConfigTest {
     assertEquals(7, SempodsModule.DEFAULT_SESSION_CONNECTION_ABSOLUTE_DAYS)
     assertEquals(90, SempodsModule.DEFAULT_DURABLE_CONNECTION_IDLE_DAYS)
     assertEquals(180, SempodsModule.DEFAULT_DURABLE_CONNECTION_ABSOLUTE_DAYS)
+    assertEquals(10, SempodsModule.DEFAULT_CONNECTION_MAX_FAMILIES)
+    assertEquals(10, withoutOpinion.connectionMaxFamilies)
+    assertEquals("SEMPODS_CONNECTION_MAX_FAMILIES", SempodsModule.CONNECTION_MAX_FAMILIES_ENV_VARIABLE)
     assertEquals(96, withoutOpinion.sessionConnectionIdleHours)
     assertEquals(7, withoutOpinion.sessionConnectionAbsoluteDays)
     assertEquals(90, withoutOpinion.durableConnectionIdleDays)
@@ -122,6 +125,17 @@ class SempodsConfigTest {
     // A window as long as its ceiling is a family that ends at its deadline whether used or not.
     assertEquals(168, connectionConfig(sessionIdleHours = 168).sessionConnectionIdleHours)
     assertEquals(180, connectionConfig(durableIdleDays = 180).durableConnectionIdleDays)
+  }
+
+  @Test
+  fun `the connection family limit must be positive`() {
+    val config = connectionConfig()
+    for (limit in listOf(0, -1)) {
+      val failure = assertFailsWith<IllegalArgumentException> { config.copy(connectionMaxFamilies = limit) }
+      assertContains(failure.message.orEmpty(), "connectionMaxFamilies")
+    }
+    assertEquals(1, config.copy(connectionMaxFamilies = 1).connectionMaxFamilies)
+    assertEquals(25, config.copy(connectionMaxFamilies = 25).connectionMaxFamilies)
   }
 
   private fun connectionConfig(

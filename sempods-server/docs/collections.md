@@ -19,24 +19,31 @@ and they are shared with the other two services rather than particular to this o
 There is no ODM. Each collection has a DAO that maps `Document` ↔ DBO by hand, using the helpers in
 `sempods-commons-mongo`, and issues `com.mongodb.client.model.*` filters and updates directly. The
 feature surface that turned out to be needed is small — `eq`, `in`, `set`, `multi`, sort,
-projection, upsert, `setOnInsert`, `pullAll`, `size`, `or`. No aggregation, no transactions, no
+projection, upsert, `setOnInsert`, `pullAll`, `size`, `or`, aggregation. No transactions, no
 GridFS, no references, no lifecycle hooks. `sempods-auth` and `sempods-mcp` are written the same
 way, and what it buys is in
 [`../../docs/concepts/modularity.md`](../../docs/concepts/modularity.md) §"Open-source readiness".
 
-`oauth.authCodes`, `oauth.reauthChallenges` and `oauth.refreshTokens` are the collections this
-module owns no DAO for: the stores belong to `sempods-auth-core` and `sempods-mcp-core`, shared with
-the hosted MCP service. The first two are named in the shared module itself and the default is what
+The stores behind `oauth.authCodes`, `oauth.reauthChallenges` and `oauth.refreshTokens` belong to
+`sempods-auth-core` and `sempods-mcp-core`, shared with the hosted MCP service. The first two are
+named in the shared module itself and the default is what
 every service gets; the third is supplied by the wrapper, because the two services store different
 fields in it.
 
 The refresh tokens are the one of the three where the two services store **different fields**, and
 they are shared anyway. `RefreshTokenStore` takes the owner as a type parameter and a pair of codec
-lambdas: this server's `(podId, podName, clientId, webId)` against the hosted service's
+lambdas: this server's pod owner and family issuance order against the hosted service's
 `(user, profile, clientId)`. The lambdas write into the same document between `familyId` and
 `scopes`, which is where both collections already carried their owner, so one writer reproduces both
 layouts and neither had a row rewritten. The compound index over the owner is a third parameter and
 not derived from the codec — this server stores `podName` without ever querying on it.
+
+The [pod refresh store](../src/main/kotlin/org/sempods/pods/oauth/PodRefreshTokenStore.kt) also
+queries and revokes its token rows for the family limit. Revocation records carry a stable cause
+and an operation identifier so overlapping writes can log their own changes. The wrapper and the
+shared token mechanism use the same clock. Its separate issuance counter orders new
+families across replicas; it is retained when tokens expire. Keep the counter with the token
+collection in backups so restored families and new issuances share the same order.
 
 `oauth.loginStates` and `oauth.consentTransactions` do not own their mechanism either: both are
 `sempods-auth-core`'s `OneTimeStore` with a payload codec, the first through `BrowserSignIn`, which

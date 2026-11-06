@@ -36,6 +36,7 @@ class SempodsCollectionsTest {
         "oauth.signingKeys",
         "oauth.consentDecisions",
         "oauth.refreshTokens",
+        "oauth.refreshFamilySequence",
         "oauth.signOuts",
         "oauth.loginStates",
         "oauth.consentTransactions",

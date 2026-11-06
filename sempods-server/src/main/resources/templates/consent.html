@@ -299,11 +299,14 @@
          Ticked when the client asked for it, or when this person granted it here before; what the
          client asks only preselects, the tick is what decides.
 
+         The answer sets the terms of the family this sign-in starts. The app's other families, on
+         another device for example, keep the terms they were issued under.
+
          Absent from a privileged screen. The authority granted there lasts an hour; a box that
          could keep it connected would turn it into a renewable one, and the server refusing that
          afterwards is not the same as never offering it. -->
     <div class="public-read-section" th:if="${lifetimeAvailable}">
-      <h2>How long this app stays connected</h2>
+      <h2>How long this sign-in stays connected</h2>
       <label class="public-read-toggle">
         <input type="checkbox"
                id="durableToggle"
@@ -318,7 +321,8 @@
             Unticked, for up to <th:block th:text="${sessionAbsolute}">7 days</th:block>
             — or until it goes <th:block th:text="${sessionIdle}">4 days</th:block> unused. Either way it
             renews its own access until then, and either way you can disconnect it here at
-            any time.
+            any time. This choice applies to this sign-in only: the app's connections on other
+            devices keep their own terms.
           </span>
         </span>
       </label>

@@ -16,7 +16,7 @@ preserves their decisions.
 
 ## The durable connection is the person's
 
-Consent carries a control for how long the app stays connected, beside the context grants, and it
+Consent carries a control for how long this sign-in stays connected, beside the context grants, and it
 names a lifetime class rather than a scope — two classes, one measured in days and one in months.
 Both are issued a refresh token; what the answer picks is the family's terms.
 `offline_access` in the request preselects that control and settles nothing else;
