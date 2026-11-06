@@ -1,6 +1,11 @@
 package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
+import io.mockk.every
+import io.mockk.spyk
+import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.commons.logging.CapturedLog
+import org.sempods.pods.oauth.DynamicClientStore
 import com.nimbusds.jwt.SignedJWT
 import org.sempods.SempodsStoreTest
 import org.sempods.SempodsTestFactory
@@ -138,6 +143,35 @@ class PodTokenExchangeTest : SempodsStoreTest() {
   private fun issued(result: PodTokenResult): PodTokenResult.Issued = assertIs(result)
 
   // ── the authorization code ────────────────────────────────────────────────
+
+  @Test
+  fun `unticked consent during code exchange reports supersession and keeps existing durable families`() {
+    val authorized = Authorized()
+    val generation = authorized.answer(durable = true)
+    val existing = issued(authorized.redeem(authorized.code(generation)))
+    val observedStore = spyk(refreshTokenStore)
+    every { observedStore.issueNewFamily(any(), any(), any(), any(), any(), any()) } answers {
+      val issued = callOriginal()
+      authorized.answer(durable = false)
+      issued
+    }
+    val racingExchange = PodTokenExchange(
+      authorizationCodeStore, observedStore, consentDecisionStore, podGrantsFacade,
+      injector.getInstance(DynamicClientStore::class.java), injector.getInstance(PodTokenIssuer::class.java),
+      serviceClients, managementAuthorities, injector.getInstance(WebIdUriDeriver::class.java),
+    )
+    lateinit var result: PodTokenResult
+    val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {
+      result = racingExchange.redeemCode(authorized.podId, authorized.pod.name, authorized.code(generation), redirectUri, clientId, null)
+    }
+
+    assertEquals(OAuthErrorCode.INVALID_GRANT, refused(result).code)
+    assertEquals("authorization code superseded by a later consent", refused(result).description)
+    assertTrue(lines.none { "durableWithheld" in it })
+    val refreshed = issued(authorized.refresh(assertNotNull(existing.refreshToken)))
+    val held = assertNotNull(refreshTokenStore.lookup(assertNotNull(refreshed.refreshToken)).token)
+    assertEquals(PodRefreshTokenStore.Lifetime.DURABLE, refreshTokenStore.lifetimeOf(held))
+  }
 
   @Test
   fun `a code is spent once`() {

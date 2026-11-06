@@ -490,7 +490,9 @@ class PodConsentFlow @Inject internal constructor(
       )
     }
     val decision = recordDisconnect(pod, clientId, identity)
-    val revoked = refreshTokenStore.revokeForUser(pod.id, clientId, identity.allUris)
+    val revoked = refreshTokenStore.revokeForUser(
+      pod.id, clientId, identity.allUris, reason = PodRefreshTokenStore.RevocationReason.DISCONNECT,
+    )
     logger.info {
       "[oauth/consent] App disconnected: pod='${pod.name}', clientId='$clientId', " +
           "webId='${identity.webId}', revokedRows=$revoked, generation=${decision.generation}"

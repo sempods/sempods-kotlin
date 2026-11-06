@@ -13,6 +13,7 @@ import org.sempods.SempodsStoreTest
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.logging.CapturedLog
 import org.sempods.pods.PodId
+import org.sempods.pods.oauth.PodRefreshTokenStore.RevocationReason
 import org.sempods.pods.mongo.persist.toPodId
 import java.time.Instant
 import java.util.concurrent.Callable
@@ -91,7 +92,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
       Updates.set(RefreshTokenStore.Field.EXPIRES_AT, Instant.now().minusSeconds(1)),
     )
     val revoked = issue()
-    store.revokeFamily(revoked.token.familyId, reason = "reuse")
+    store.revokeFamily(revoked.token.familyId, reason = RevocationReason.REUSE)
     val live = issue()
     val newest = issue()
 
@@ -195,7 +196,7 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     val first = issue()
     val second = issue()
     val newest = issue()
-    store.revokeFamily(newest.token.familyId, reason = "limit")
+    store.revokeFamily(newest.token.familyId, reason = RevocationReason.LIMIT)
 
     store.enforceConnectionLimit(pod, client, listOf(person), newFamilyId = newest.token.familyId)
 
@@ -212,8 +213,8 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
     val firstVictims = store.connectionLimitVictims(pod, client, listOf(person, alias), first.token.familyId)
     val secondVictims = replica.connectionLimitVictims(pod, client, listOf(person, alias), newest.token.familyId)
 
-    firstVictims.forEach { store.revokeFamily(it, reason = "limit") }
-    secondVictims.forEach { replica.revokeFamily(it, reason = "limit") }
+    firstVictims.forEach { store.revokeFamily(it, reason = RevocationReason.LIMIT) }
+    secondVictims.forEach { replica.revokeFamily(it, reason = RevocationReason.LIMIT) }
 
     assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
     assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(first.plaintext).state)
@@ -274,19 +275,106 @@ class PodRefreshTokenStoreTest : SempodsStoreTest() {
   }
 
   @Test
+  fun `overlapping revocations in the same millisecond log only the rows each changed`() {
+    val now = Instant.parse("2035-01-01T00:00:00Z")
+    store = PodRefreshTokenStore(db, collection, SempodsModule.config, clock = { now })
+    val first = issue()
+    val second = issue()
+
+    val firstLines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
+      assertEquals(1L, store.revokeFamily(first.token.familyId, reason = RevocationReason.LIMIT))
+    }
+    val secondLines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
+      assertEquals(1L, store.revokeFamilies(listOf(first.token.familyId, second.token.familyId), reason = RevocationReason.LIMIT))
+    }
+
+    assertEquals(1, firstLines.count { "family revoked:" in it })
+    assertEquals(1, secondLines.count { "family revoked:" in it })
+    assertTrue(secondLines.any { "familyId='${second.token.familyId}'" in it })
+    assertTrue(secondLines.none { "familyId='${first.token.familyId}'" in it })
+    assertEquals(now, store.findByFamily(second.token.familyId).single().revokedAt)
+  }
+
+  @Test
+  fun `a lowered limit retires all excess families and logs each once`() {
+    val families = (1..10).map { issue() }
+    store = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 2))
+    val newest = issue()
+
+    val lines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
+      store.enforceConnectionLimit(pod, client, listOf(person), newest.token.familyId)
+    }
+
+    val retired = families.filter { store.lookup(it.plaintext).state == RefreshTokenStore.LookupState.REVOKED }
+    assertEquals(9, retired.size)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(2, store.liveFamilies(pod, client, listOf(person)).size)
+    assertEquals(9, lines.count { "family revoked:" in it })
+    retired.forEach { family ->
+      assertEquals(1, lines.count { "cause='limit'" in it && "familyId='${family.token.familyId}'" in it })
+    }
+  }
+
+  @Test
+  fun `lookup family selection and revocation share the injected clock`() {
+    var now = Instant.parse("2035-01-01T00:00:00Z")
+    store = PodRefreshTokenStore(db, collection, SempodsModule.config.copy(connectionMaxFamilies = 2), clock = { now })
+    val expired = issue()
+    now = expired.token.expiresAt.plusSeconds(1)
+    val live = issue()
+    val newest = issue()
+
+    assertEquals(RefreshTokenStore.LookupState.EXPIRED, store.lookup(expired.plaintext).state)
+    store.enforceConnectionLimit(pod, client, listOf(person), newest.token.familyId)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(live.plaintext).state)
+    assertEquals(RefreshTokenStore.LookupState.ACTIVE, store.lookup(newest.plaintext).state)
+    assertEquals(now, live.token.issuedAt)
+    assertEquals(now.plus(store.termsOf(PodRefreshTokenStore.Lifetime.DURABLE).absolute), live.token.endsAt)
+
+    store.revokeFamily(live.token.familyId, reason = RevocationReason.DISCONNECT)
+    assertEquals(now, store.findByFamily(live.token.familyId).single().revokedAt)
+  }
+
+  @Test
+  fun `revocation codes stay compatible with stored rows and unknown causes remain revoked`() {
+    val codes = listOf("limit", "reuse", "withdrawn grant", "consent changed", "retired", "sign-out", "reauthorization", "disconnect")
+    assertEquals(codes, RevocationReason.entries.map { it.code })
+    for (reason in RevocationReason.entries) {
+      val family = issue()
+      store.revokeFamily(family.token.familyId, reason)
+      val row = assertNotNull(db.getCollection(collection).find(Filters.eq("familyId", family.token.familyId)).first())
+      assertEquals(reason.code, row.getString("revocationReason"))
+      assertEquals(reason, store.revocationReason(family.token.familyId))
+      store.revokeFamily(family.token.familyId, RevocationReason.RETIRED)
+      assertEquals(reason, store.revocationReason(family.token.familyId), "later calls preserve the first cause")
+    }
+    val unknown = issue()
+    db.getCollection(collection).updateOne(
+      Filters.eq("familyId", unknown.token.familyId),
+      Updates.combine(Updates.set("revokedAt", Instant.now()), Updates.set("revocationReason", "future cause")),
+    )
+    assertEquals(RevocationReason.RETIRED, store.revocationReason(unknown.token.familyId))
+    assertEquals("refresh token revoked", store.revocationDescription(unknown.token.familyId))
+    db.getCollection(collection).updateOne(Filters.eq("familyId", unknown.token.familyId), Updates.unset("revocationReason"))
+    assertEquals(null, store.revocationReason(unknown.token.familyId))
+    assertEquals(RefreshTokenStore.LookupState.REVOKED, store.lookup(unknown.plaintext).state)
+    assertEquals("refresh token revoked", store.revocationDescription(unknown.token.familyId))
+  }
+
+  @Test
   fun `bulk revocations log each family with client and cause`() {
-    for (cause in listOf("sign-out", "reuse", "withdrawn grant")) {
+    for (cause in listOf(RevocationReason.SIGN_OUT, RevocationReason.REUSE, RevocationReason.WITHDRAWN_GRANT, RevocationReason.DISCONNECT)) {
       val first = issue()
       val second = issue()
       val lines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
         when (cause) {
-          "sign-out" -> store.revokeForPerson(pod, listOf(person))
-          "reuse" -> listOf(first, second).forEach { store.revokeFamily(it.token.familyId, reason = cause) }
-          else -> store.revokeForUser(pod, client, person)
+          RevocationReason.SIGN_OUT -> store.revokeForPerson(pod, listOf(person))
+          RevocationReason.REUSE -> listOf(first, second).forEach { store.revokeFamily(it.token.familyId, reason = cause) }
+          else -> store.revokeForUser(pod, client, person, reason = cause)
         }
       }
       for (issued in listOf(first, second)) {
-        assertTrue(lines.any { "cause='$cause'" in it && "clientId='$client'" in it && "familyId='${issued.token.familyId}'" in it })
+        assertTrue(lines.any { "cause='${cause.code}'" in it && "clientId='$client'" in it && "familyId='${issued.token.familyId}'" in it })
       }
     }
   }

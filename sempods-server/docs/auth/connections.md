@@ -66,8 +66,11 @@ checks before returning and answers `invalid_grant` if its family has already be
 family retired by this limit returns `invalid_grant` with
 `error_description=refresh token retired: connection limit`.
 
-Family revocations are logged with their cause, client ID and family ID. Sign-out, reuse and
-withdrawn grants still end the affected families. The specification proposal for coexistence and
+Family revocations are logged with their cause, client ID and family ID. Explicit disconnects
+are distinguished from withdrawals of the app's last grant. Sign-out, reuse and withdrawn grants
+still end the affected families. A consent change during code exchange returns `invalid_grant`
+with `authorization code superseded by a later consent`, including a later unticked lifetime choice.
+The specification proposal for coexistence and
 per-family lifetime choices is [sempods-spec#142](https://github.com/sempods/sempods-spec/issues/142).
 
 ## The `prompt` parameter

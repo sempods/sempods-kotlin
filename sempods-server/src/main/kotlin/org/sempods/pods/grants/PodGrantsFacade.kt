@@ -665,6 +665,7 @@ class PodGrantsFacade @Inject constructor(
           pod = pod.id,
           clientId = appId,
           webId = appWebId,
+          reason = PodRefreshTokenStore.RevocationReason.WITHDRAWN_GRANT,
         )
       }
     }

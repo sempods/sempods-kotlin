@@ -22,6 +22,7 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodManagementAuthorityStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
+import org.sempods.pods.oauth.PodRefreshTokenStore.RevocationReason
 import java.time.Duration
 import java.time.Instant
 
@@ -210,11 +211,9 @@ class PodTokenExchange @Inject internal constructor(
       familyEndsAt = issuedRefresh.token.endsAt,
     )
 
-    // The decision is read once more, after the insert, and it is the only gate this path needs.
-    // Every write to it raises the generation, so a withdrawal landing mid-exchange has already
-    // moved what this code carries — asking about `durable` separately beforehand could not fire on
-    // anything the comparison misses. The message still tells the two apart, because a person who
-    // withheld the durable connection is owed a different sentence than one whose consent moved.
+    // The decision is read once more after the insert. Every write raises the generation,
+    // so a consent change landing mid-exchange has already moved what this code carries.
+    // A later lifetime choice applies only to its own new family.
     //
     // **Every exchange passes here, whatever lifetime it carries.** A consent change cannot recall an
     // access token, so the only moment to refuse one is before it goes out (`SPS-AUTH-062`,
@@ -226,20 +225,18 @@ class PodTokenExchange @Inject internal constructor(
     // are two moments, and the raise is one `updateMany` over the person's alias documents, atomic
     // per document. Closing them needs a generation spanning a person rather than a URI, bound to
     // issuance rather than compared before it; `recordDecision` keeps one answer per URI so a code
-    // issued under an alias can go stale on its own. No test reaches either — the check before the
-    // exchange answers anything a test can set up.
+    // issued under an alias can go stale on its own.
     val standing = consentDecisionStore.find(pod, entry.clientId, listOf(entry.subject))
     if (standing?.generation != issuedUnder) {
-      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId, reason = "consent changed")
-      val withdrawn = standing?.durable == false
+      val revoked = refreshTokenStore.revokeFamily(issuedRefresh.token.familyId, reason = RevocationReason.CONSENT_CHANGED)
       logger.info {
         "[oauth/token] consent moved mid-exchange — nothing issued for this code: " +
             "pod='${podName}', clientId='${entry.clientId}', webId='${entry.subject}', " +
-            "codeGeneration=$issuedUnder, durableWithheld=$withdrawn, revokedRows=$revoked"
+            "codeGeneration=$issuedUnder, revokedRows=$revoked"
       }
       return PodTokenResult.Refused(
         OAuthErrorCode.INVALID_GRANT,
-        if (withdrawn) "the durable connection was withdrawn" else "authorization code superseded by a later consent",
+        "authorization code superseded by a later consent",
       )
     }
 
@@ -474,7 +471,7 @@ class PodTokenExchange @Inject internal constructor(
         // behaving client keeps only the successor — whatever presented it again is stale
         // state or a thief. Kill the whole family to pull the plug on any in-flight child
         // token the attacker might already be holding.
-        val revoked = refreshTokenStore.revokeFamily(token!!.familyId, reason = "reuse")
+        val revoked = refreshTokenStore.revokeFamily(token!!.familyId, reason = RevocationReason.REUSE)
         logger.warn {
           "[oauth/token] refresh_token reuse detected — revoking family: pod='${podName}', " +
               "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
@@ -509,7 +506,7 @@ class PodTokenExchange @Inject internal constructor(
     // then force re-consent and revoke the family so a stray rotation cannot re-hydrate it.
     val currentGrants = podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId))
     if (currentGrants.isEmpty()) {
-      refreshTokenStore.revokeFamily(token.familyId, reason = "withdrawn grant")
+      refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.WITHDRAWN_GRANT)
       logger.info {
         "[oauth/token] refresh_token grants revoked since issue — forcing re-consent: " +
             "pod='${podName}', clientId='$normalizedClientId', webId='${token.owner.webId}', " +
@@ -556,14 +553,14 @@ class PodTokenExchange @Inject internal constructor(
     // is reuse, including a second caller racing to rotate the same token.
     if (!refreshTokenStore.markRotated(token.tokenHash)) {
       val retirement = refreshTokenStore.revocationReason(token.familyId)
-      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: "reuse")
+      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = retirement ?: RevocationReason.REUSE)
       logger.warn {
-        "[oauth/token] refresh_token rotation refused: cause='${retirement ?: "reuse"}', pod='${podName}', " +
+        "[oauth/token] refresh_token rotation refused: cause='${(retirement ?: RevocationReason.REUSE).code}', pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
       return PodTokenResult.Refused(
         OAuthErrorCode.INVALID_GRANT,
-        if (retirement != null) refreshTokenStore.revocationDescription(token.familyId) else "refresh token reuse detected",
+        retirement?.description ?: "refresh token reuse detected",
       )
     }
 
@@ -590,15 +587,16 @@ class PodTokenExchange @Inject internal constructor(
     // between two statements and has no test; `a family the retirement swept cannot be refreshed
     // back to life` covers the ordinary path and says so.
     if (refreshTokenStore.noLongerStands(token.tokenHash)) {
+      val retirement = refreshTokenStore.revocationReason(token.familyId) ?: RevocationReason.RETIRED
       val revoked = refreshTokenStore.revokeFamily(
         token.familyId,
-        reason = refreshTokenStore.revocationReason(token.familyId) ?: "retired",
+        reason = retirement,
       )
       logger.info {
         "[oauth/token] family retired mid-rotation — successor revoked: pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"
       }
-      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, refreshTokenStore.revocationDescription(token.familyId))
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_GRANT, retirement.description)
     }
 
     // The grant cascade also needs a check after insertion. `currentGrants` was read before
@@ -608,7 +606,7 @@ class PodTokenExchange @Inject internal constructor(
     // app holding nothing, and this is the last moment it can be answered for. Untestable for the
     // same reason as the predecessor check; the check before the insert covers the ordinary case.
     if (podGrantsFacade.appGrants(pod, token.owner.clientId, listOf(token.owner.webId)).isEmpty()) {
-      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = "withdrawn grant")
+      val revoked = refreshTokenStore.revokeFamily(token.familyId, reason = RevocationReason.WITHDRAWN_GRANT)
       logger.info {
         "[oauth/token] grants revoked mid-rotation — successor revoked: pod='${podName}', " +
             "clientId='$normalizedClientId', familyId='${token.familyId}', revokedRows=$revoked"

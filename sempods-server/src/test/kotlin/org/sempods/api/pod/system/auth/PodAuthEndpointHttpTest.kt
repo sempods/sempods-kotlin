@@ -1617,7 +1617,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
     val held = seedRefreshToken(pod, webId = ownerWebId)
 
     // An explicit re-authorization retires the family.
-    refreshTokenStore.revokeFamilies(setOf(held.token.familyId))
+    refreshTokenStore.revokeFamilies(
+      setOf(held.token.familyId), reason = PodRefreshTokenStore.RevocationReason.REAUTHORIZATION,
+    )
 
     val refreshed = postForm(
       tokenUrl(pod.name),

@@ -39,7 +39,9 @@ layouts and neither had a row rewritten. The compound index over the owner is a 
 not derived from the codec — this server stores `podName` without ever querying on it.
 
 The [pod refresh store](../src/main/kotlin/org/sempods/pods/oauth/PodRefreshTokenStore.kt) also
-queries and revokes its token rows for the family limit. Its separate issuance counter orders new
+queries and revokes its token rows for the family limit. Revocation records carry a stable cause
+and an operation identifier so overlapping writes can log their own changes. The wrapper and the
+shared token mechanism use the same clock. Its separate issuance counter orders new
 families across replicas; it is retained when tokens expire. Keep the counter with the token
 collection in backups so restored families and new issuances share the same order.
 

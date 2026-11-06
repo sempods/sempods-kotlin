@@ -223,7 +223,15 @@ internal class PodConsentFlowTest : PodBrowserFlowTest() {
     owned.grant(owned.readScope)
     val before = owned.answered(durable = true)
 
-    val result = flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session)
+    val family = refreshTokenStore.issueNewFamily(
+      owned.pod.id, owned.pod.name, clientId, owned.webId, emptySet(), PodRefreshTokenStore.Lifetime.DURABLE,
+    )
+    lateinit var result: PodConsentResult
+    val lines = CapturedLog.linesFrom(PodRefreshTokenStore::class.java) {
+      result = flow.submit(owned.pod, form(csrf = owned.ticket(), action = "disconnect"), owned.session)
+    }
+    assertEquals(PodRefreshTokenStore.RevocationReason.DISCONNECT, refreshTokenStore.revocationReason(family.token.familyId))
+    assertTrue(lines.any { "cause='disconnect'" in it && "familyId='${family.token.familyId}'" in it })
 
     val delivery = redirectedError(result)
     assertEquals(OAuthErrorCode.ACCESS_DENIED, delivery.code)
