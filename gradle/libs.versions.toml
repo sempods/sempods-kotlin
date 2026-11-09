@@ -1,5 +1,5 @@
 [versions]
-awsSdk = "2.57.8"
+awsSdk = "2.57.10"
 coroutines = "1.11.0"
 jackson3 = "3.2.4"
 jersey = "4.0.3"
@@ -77,11 +77,11 @@ jerseyJettyHttp = { module = "org.glassfish.jersey.containers:jersey-container-j
 jwt = "com.nimbusds:nimbus-jose-jwt:10.10"
 # The OAuth/OIDC message layer, from the same house as `jwt` above. Parsing and building
 # protocol messages only — storage, client policy and identity derivation stay ours.
-oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.38.2"
+oidcSdk = "com.nimbusds:oauth2-oidc-sdk:11.39"
 # Logging. The facade is what every module compiles against; the binding is what exactly one
 # artifact per process supplies. Keeping them apart is what lets `sempods-client` and the other
 # publishable modules ship without forcing logback on a consumer — see `docs/logging.md`.
-kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.4"
+kotlinLogging = "io.github.oshai:kotlin-logging-jvm:8.0.6"
 logbackClassic = "ch.qos.logback:logback-classic:1.6.6"
 mongodb = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb" }
 # `ObjectId` and `Document`. Separate from the driver above so a module can export the types
