@@ -22,7 +22,7 @@ import java.net.URI
  *   set onto its own index.
  * @property contextFilter the optional caller-requested **downscope** within [visibleContexts]
  *   (`null` = no downscope → search pod-wide inside the ceiling). It is always already intersected
- *   with the readable set by the endpoint (`requested ∩ readable`, unknown/unreadable contexts
+ *   with the readable set by the HTTP handler (`requested ∩ readable`, unknown/unreadable contexts
  *   silently dropped — `SPS-CRUD-015`), so it can be empty ("everything the
  *   caller asked for is unreadable/unknown" → empty result) and can never exceed the ceiling.
  *   Kept separate from [visibleContexts] because a search/vector adapter needs the explicit filter

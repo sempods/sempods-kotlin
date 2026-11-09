@@ -174,19 +174,8 @@ open class SempodsBaseEndpoint(
     }
   }
 
-  protected fun parseIncludeContextsOrThrow(raw: String?): Boolean {
-    val value = raw?.trim()?.takeIf(String::isNotEmpty) ?: return false
-    return when (value.lowercase()) {
-      "true" -> true
-      "false" -> false
-      else -> throw WebApplicationException(
-        Response.status(400)
-          .entity("include_contexts must be 'true' or 'false'")
-          .type(MediaType.TEXT_PLAIN)
-          .build()
-      )
-    }
-  }
+  protected fun parseIncludeContextsOrThrow(raw: String?): Boolean =
+    IncludeContextsParameter.parseOrThrow(raw)
 
   /**
    * [PodRequestVerifier.verify], and a verified token whose person has signed out of the pod

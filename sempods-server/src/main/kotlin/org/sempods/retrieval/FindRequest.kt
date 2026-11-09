@@ -14,7 +14,7 @@ import org.eclipse.rdf4j.model.IRI
  *                   and case cannot be recovered once discarded.
  * @property types   optional `rdf:type` constraint, OR-combined. Empty = no type constraint
  *                   (pure text search). A return-type constraint, not a match-scope.
- * @property limit   max distinct hit resources; already clamped to `1..100` by the endpoint.
+ * @property limit   max distinct hit resources; already clamped to `1..100` by [FindRequestParser].
  */
 data class FindRequest(
   val tokens: List<String>,
