@@ -24,14 +24,10 @@ dependencies {
   // `SempodsUriBuilder` logs.
   implementation(libs.bundles.logging)
 
-  // `RdfWriterUtil` names Jackson's `TypeReference` when it reads RDF4J's JSON-LD into maps.
-  implementation(libs.jackson3Databind)
-
   // No application framework. This module is the pod contract, and its consumers depend on it — an
   // edge to a framework here would put Jersey, an object mapper and a user model behind all of them. The last symbol was `SempodsUriBuilder`'s injected
   // application-config constructor.
   implementation(project(":sempods-commons"))
-  implementation(project(":sempods-commons-json"))
 
   // No test fixtures, and no DI container anywhere: this module ships ontologies, view definitions
   // and a URI builder that takes its base URL as a plain argument. No pod service to program
@@ -40,4 +36,6 @@ dependencies {
   // runs one (`:sempods-server`); one that wants to reach a pod takes `:sempods-client`.
 
   testImplementation(libs.bundles.test)
+  testImplementation(project(":sempods-commons-json"))
+  testImplementation(libs.jackson3Databind)
 }

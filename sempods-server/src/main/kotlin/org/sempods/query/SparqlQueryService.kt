@@ -196,12 +196,6 @@ class SparqlQueryService @Inject constructor(
     }
   }
 
-  fun executeTupleAsJson(pod: String, query: String, dataset: Dataset?): String {
-    val out = ByteArrayOutputStream()
-    executeTuple(pod = pod, query = query, dataset = dataset, out = out)
-    return out.toString(Charsets.UTF_8)
-  }
-
   fun executeTupleAsJsonOnEmptyStore(query: String): String {
     val out = ByteArrayOutputStream()
     withEmptyConnection { conn ->

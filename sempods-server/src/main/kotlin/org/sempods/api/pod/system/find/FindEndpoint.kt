@@ -2,7 +2,6 @@ package org.sempods.api.pod.system.find
 
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
-import org.sempods.SempodsUriBuilder
 import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.system.sparql.GraphResultFormat
@@ -51,7 +50,6 @@ import jakarta.ws.rs.core.Response
 class FindEndpoint @Inject constructor(
   private val findService: FindService,
   private val podResourceReadService: PodResourceReadService,
-  private val sempodsUriBuilder: SempodsUriBuilder,
   podFacade: PodFacade,
   podDao: PodDao,
 ) : SempodsBaseEndpoint(podFacade = podFacade, podDao = podDao) {
