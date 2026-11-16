@@ -9,6 +9,8 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
+import org.sempods.rdf.stream.RdfSource
+import org.sempods.rdf.stream.toStreamingOutput
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
@@ -24,9 +26,9 @@ import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.Response
-import jakarta.ws.rs.core.StreamingOutput
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.net.URI
+import org.eclipse.rdf4j.rio.RDFFormat
 
 @Path("{pod: [^/]+}")
 class PodResourceEndpoint @Inject constructor(
@@ -193,10 +195,7 @@ class PodResourceEndpoint @Inject constructor(
     val entityTag = RepresentationTags.resource(model, scope.selection, RepresentationTags.Form.N_QUADS)
     evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
-    val streamingOutput = StreamingOutput { out ->
-      RdfWriterUtil.streamNQuads(model = model, outputStream = out)
-    }
-    return Response.ok(streamingOutput).tag(entityTag).revalidatedPrivately().build()
+    return Response.ok(RdfSource.of(model).toStreamingOutput(RDFFormat.NQUADS)).tag(entityTag).revalidatedPrivately().build()
   }
 
   // HEAD is automatically routed to the matching @GET handler by JAX-RS, which discards the

@@ -1,5 +1,6 @@
 package org.sempods.rdf
 
+import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.ontologies.Ontologies
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
@@ -11,6 +12,8 @@ import java.net.URI
 import kotlin.test.assertEquals
 
 class RdfWriterUtilTest {
+
+  private val jsonUtil = JsonUtil(JsonMappers.default())
 
   @Test
   fun `the context names the default vocabulary and prefixes every foreign term`() {
@@ -39,7 +42,7 @@ class RdfWriterUtilTest {
       resource = subject,
       contextBuilder = JsonLdContextBuilder(Ontologies.SCHEMA_ORG.NS),
     )
-    val expected = RdfWriterUtil.jsonUtil.read(
+    val expected = jsonUtil.read(
       """
         {
             "@context": {
@@ -79,7 +82,7 @@ class RdfWriterUtilTest {
 
     val jsonLdGraphs = RdfWriterUtil.toJsonLdNamedGraphs(model = model, resource = subject)
 
-    val expected = RdfWriterUtil.jsonUtil.read(
+    val expected = jsonUtil.read(
       """
         [
           {

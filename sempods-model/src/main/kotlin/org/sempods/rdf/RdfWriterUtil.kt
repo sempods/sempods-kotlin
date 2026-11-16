@@ -1,20 +1,17 @@
 package org.sempods.rdf
 
-import org.sempods.commons.json.JsonMappers
-import org.sempods.commons.json.JsonUtil
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
-import org.eclipse.rdf4j.model.Namespace
 import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.ModelBuilder
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.eclipse.rdf4j.rio.RDFFormat
+import org.eclipse.rdf4j.rio.RDFWriter
 import org.eclipse.rdf4j.rio.Rio
 import java.io.InputStream
-import java.io.OutputStream
 import java.io.StringReader
 import java.io.StringWriter
 
@@ -24,41 +21,19 @@ object RdfWriterUtil {
     return Rio.parse(inputStream, RDFFormat.NQUADS)
   }
 
-  fun streamNQuads(outputStream: OutputStream, model: Model) {
-    val writer = Rio.createWriter(RDFFormat.NQUADS, outputStream)
-    outputStream.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
-  }
+  fun writeNQuads(model: Model): String = writeToString(RDFFormat.NQUADS, model)
 
-  fun writeNQuads(model: Model): String {
+  private fun writeToString(format: RDFFormat, model: Model): String {
     val sw = StringWriter()
-    val writer = Rio.createWriter(RDFFormat.NQUADS, sw)
-    sw.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
+    sw.use { write(Rio.createWriter(format, it), model) }
     return sw.toString()
   }
 
-  fun writeJsonLd(model: Model): String {
-    val sw = StringWriter()
-    val writer = Rio.createWriter(RDFFormat.JSONLD, sw)
-    sw.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
-    return sw.toString()
+  // The statements alone. `Rio.write(model, …)` would hand the writer the model's namespaces too.
+  private fun write(writer: RDFWriter, model: Model) {
+    writer.startRDF()
+    model.forEach(writer::handleStatement)
+    writer.endRDF()
   }
 
   fun readJsonLd(jsonLd: String, targetContext: Resource? = null): Model {
@@ -67,10 +42,6 @@ object RdfWriterUtil {
     } else {
       Rio.parse(StringReader(jsonLd), RDFFormat.JSONLD, targetContext)
     }
-  }
-
-  fun readJsonLd(jsonLdMap: List<Map<String, Any?>>): Model {
-    return readJsonLd(jsonUtil.write(jsonLdMap))
   }
 
   fun toJsonLdEntry(
@@ -130,10 +101,6 @@ object RdfWriterUtil {
     }
 
     return entry
-  }
-
-  fun toJsonLdGraph(model: Model): List<Map<String, Any?>> {
-    return jsonUtil.read(writeJsonLd(model), JsonUtil.dynamicTypeListRef)
   }
 
   /**
@@ -232,7 +199,6 @@ object RdfWriterUtil {
    */
   fun toJsonLdNamedGraphs(model: Model, resource: Resource): List<Map<String, Any>> {
     return model
-      .asSequence()
       .groupBy { it.context }
       .entries
       .sortedBy { (context, _) -> context?.stringValue() ?: "" }
@@ -265,7 +231,6 @@ object RdfWriterUtil {
    */
   fun toJsonLdNamedGraphs(model: Model): List<Map<String, Any>> {
     return model
-      .asSequence()
       .groupBy { it.context }
       .entries
       .sortedBy { (context, _) -> context?.stringValue() ?: "" }
@@ -299,8 +264,4 @@ object RdfWriterUtil {
     model.forEach { stmt -> flat.add(stmt.subject, stmt.predicate, stmt.`object`) }
     return flat
   }
-
-  // `internal`: public, this puts `JsonUtil` in the module's signature while `:commons-json` is
-  // `implementation` — a visible property of an unreachable type.
-  internal val jsonUtil = JsonUtil(JsonMappers.default())
 }

@@ -2,8 +2,14 @@ package org.sempods.query
 
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.PodRepositoryCache
+import io.mockk.every
 import io.mockk.mockk
+import org.sempods.commons.jaxrs.errors.ApiException
+import org.sempods.rdf.stream.write
+import org.eclipse.rdf4j.rio.RDFFormat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import java.io.ByteArrayOutputStream
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -34,5 +40,24 @@ class SparqlQueryServiceTest {
 
     assertEquals(listOf("b", "a"), head["vars"])
     assertTrue((results["bindings"] as List<*>).isEmpty())
+  }
+
+  @Test
+  fun `empty store CONSTRUCT writes the data-independent template`() {
+    val nQuads = service.executeGraphAsStringOnEmptyStore(
+      "CONSTRUCT { <urn:s> <urn:p> \"o\" } WHERE {}",
+      RDFFormat.NQUADS,
+    )
+
+    assertEquals("<urn:s> <urn:p> \"o\" .", nQuads.trim())
+  }
+
+  @Test
+  fun `a graph source reaches the pod only when it is written`() {
+    val cache = mockk<PodRepositoryCache>()
+    every { cache.get(any()) } returns null
+    val source = SparqlQueryService(cache).graphSource(pod = "missing", query = "CONSTRUCT WHERE { ?s ?p ?o }", dataset = null)
+
+    assertThrows<ApiException> { source.write(RDFFormat.NQUADS, ByteArrayOutputStream()) }
   }
 }

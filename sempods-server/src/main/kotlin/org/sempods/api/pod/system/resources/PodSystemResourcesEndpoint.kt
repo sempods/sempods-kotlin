@@ -13,10 +13,13 @@ import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
+import org.sempods.rdf.stream.RdfSource
+import org.sempods.rdf.stream.toStreamingOutput
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.*
 import org.eclipse.rdf4j.model.*
 import org.eclipse.rdf4j.model.vocabulary.XSD
+import org.eclipse.rdf4j.rio.RDFFormat
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.net.URI
 
@@ -370,10 +373,7 @@ class PodSystemResourcesEndpoint @Inject constructor(
     val entityTag = RepresentationTags.resource(model, scope.selection, RepresentationTags.Form.N_QUADS)
     evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
-    val streamingOutput = StreamingOutput { out ->
-      RdfWriterUtil.streamNQuads(model = model, outputStream = out)
-    }
-    return Response.ok(streamingOutput).tag(entityTag).revalidatedPrivately().build()
+    return Response.ok(RdfSource.of(model).toStreamingOutput(RDFFormat.NQUADS)).tag(entityTag).revalidatedPrivately().build()
   }
 
   // HEAD is auto-routed to the matching @GET by JAX-RS (body discarded). We declare @HEAD
