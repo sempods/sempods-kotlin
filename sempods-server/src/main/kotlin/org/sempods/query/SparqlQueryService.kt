@@ -3,6 +3,8 @@ package org.sempods.query
 import com.google.inject.Inject
 import org.sempods.commons.jaxrs.errors.ApiErrors
 import org.sempods.pods.PodRepositoryCache
+import org.sempods.rdf.stream.RdfSource
+import org.sempods.rdf.stream.write
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Resource
@@ -25,7 +27,7 @@ import org.eclipse.rdf4j.query.resultio.TupleQueryResultFormat
 import org.eclipse.rdf4j.repository.RepositoryConnection
 import org.eclipse.rdf4j.repository.sail.SailRepository
 import org.eclipse.rdf4j.rio.RDFFormat
-import org.eclipse.rdf4j.rio.Rio
+import org.eclipse.rdf4j.rio.RDFHandler
 import org.eclipse.rdf4j.sail.memory.MemoryStore
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
@@ -110,30 +112,28 @@ class SparqlQueryService @Inject constructor(
     }
   }
 
-  fun executeGraph(
-    pod: String,
-    query: String,
-    dataset: Dataset?,
-    out: OutputStream,
-    rdfFormat: RDFFormat,
-  ) {
-    withPodConnection(pod) { conn ->
-      val prepared = conn.prepareGraphQuery(QueryLanguage.SPARQL, query)
-      prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
-      if (dataset != null) prepared.dataset = dataset
-      prepared.evaluate().use { res ->
-        val writer = Rio.createWriter(rdfFormat, out)
-        writer.startRDF()
-        while (res.hasNext()) writer.handleStatement(res.next())
-        writer.endRDF()
-      }
+  /**
+   * A CONSTRUCT/DESCRIBE as an [RdfSource]: nothing runs until the source is written, and the pod
+   * connection is open only while it is. The endpoint hands it to the response body unevaluated.
+   */
+  fun graphSource(pod: String, query: String, dataset: Dataset?): RdfSource =
+    RdfSource { handler ->
+      withPodConnection(pod) { conn -> evaluateGraph(conn, query, dataset, handler) }
     }
+
+  // Statements only, not `prepared.evaluate(handler)`: that would start and end the document, and
+  // pass on the query's PREFIX declarations as namespaces.
+  private fun evaluateGraph(conn: RepositoryConnection, query: String, dataset: Dataset?, handler: RDFHandler) {
+    val prepared = conn.prepareGraphQuery(QueryLanguage.SPARQL, query)
+    prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
+    if (dataset != null) prepared.dataset = dataset
+    prepared.evaluate().use { res -> res.forEach(handler::handleStatement) }
   }
 
   /**
    * Execute a CONSTRUCT/DESCRIBE query and collect the result into an in-memory [Model].
    *
-   * Unlike [executeGraph] (which streams to an [OutputStream]) this returns a Model that
+   * Unlike [graphSource] (which streams when written) this returns a Model that
    * callers can merge / inspect — used by the retrieval layer ([org.sempods.retrieval.FindService]
    * and its adapters), which fan out several graph queries and join the results before serializing.
    *
@@ -232,29 +232,10 @@ class SparqlQueryService @Inject constructor(
     return """{"head":{},"boolean":$value}"""
   }
 
-  fun executeGraphAsString(
-    pod: String,
-    query: String,
-    dataset: Dataset?,
-    rdfFormat: RDFFormat = RDFFormat.JSONLD,
-  ): String {
-    val out = ByteArrayOutputStream()
-    executeGraph(pod = pod, query = query, dataset = dataset, out = out, rdfFormat = rdfFormat)
-    return out.toString(Charsets.UTF_8)
-  }
-
   fun executeGraphAsStringOnEmptyStore(query: String, rdfFormat: RDFFormat = RDFFormat.JSONLD): String {
     val out = ByteArrayOutputStream()
-    withEmptyConnection { conn ->
-      val prepared = conn.prepareGraphQuery(QueryLanguage.SPARQL, query)
-      prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
-      prepared.evaluate().use { res ->
-        val writer = Rio.createWriter(rdfFormat, out)
-        writer.startRDF()
-        while (res.hasNext()) writer.handleStatement(res.next())
-        writer.endRDF()
-      }
-    }
+    RdfSource { handler -> withEmptyConnection { conn -> evaluateGraph(conn, query, dataset = null, handler) } }
+      .write(rdfFormat, out)
     return out.toString(Charsets.UTF_8)
   }
 

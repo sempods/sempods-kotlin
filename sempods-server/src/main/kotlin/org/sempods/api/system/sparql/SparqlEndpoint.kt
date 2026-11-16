@@ -14,6 +14,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.InputStream
 import java.net.URI
 import org.sempods.commons.logging.LogSafeText
+import org.sempods.rdf.stream.toStreamingOutput
 
 @Path("{pod}/_system/sparql")
 class SparqlEndpoint @Inject constructor(
@@ -127,15 +128,8 @@ class SparqlEndpoint @Inject constructor(
             .type(graphResult.contentType)
             .build()
         }
-        val entity = StreamingOutput { out ->
-          sparqlQueryService.executeGraph(
-            pod = pod,
-            query = sparqlQuery,
-            dataset = dataset,
-            out = out,
-            rdfFormat = graphResult.rdfFormat,
-          )
-        }
+        val entity = sparqlQueryService.graphSource(pod = pod, query = sparqlQuery, dataset = dataset)
+          .toStreamingOutput(graphResult.rdfFormat)
         Response.ok(entity).type(graphResult.contentType).build()
       }
     }

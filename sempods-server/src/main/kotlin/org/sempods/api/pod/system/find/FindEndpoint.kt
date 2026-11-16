@@ -10,6 +10,8 @@ import org.sempods.api.system.sparql.GraphResultNegotiation
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
+import org.sempods.rdf.stream.RdfSource
+import org.sempods.rdf.stream.toStreamingOutput
 import org.sempods.retrieval.FindRequest
 import org.sempods.retrieval.FindRequestParser
 import org.sempods.retrieval.FindSandbox
@@ -25,8 +27,6 @@ import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import jakarta.ws.rs.core.StreamingOutput
-import org.eclipse.rdf4j.rio.Rio
 
 /**
  * `GET`/`POST /{pod}/_system/find` — the semantic entry to the graph retrieval pattern
@@ -162,12 +162,7 @@ class FindEndpoint @Inject constructor(
       // Flat by default (drop context deterministically); for include_contexts + N-Quads keep the
       // context as each statement's 4th term.
       val outModel = if (includeContexts) model else RdfWriterUtil.flatten(model)
-      StreamingOutput { out ->
-        val writer = Rio.createWriter(format.rdfFormat, out)
-        writer.startRDF()
-        for (statement in outModel) writer.handleStatement(statement)
-        writer.endRDF()
-      }
+      RdfSource.of(outModel).toStreamingOutput(format.rdfFormat)
     }
 
     // Permission-scoped caching (`docs/concepts/graph-retrieval.md` "GET caching is

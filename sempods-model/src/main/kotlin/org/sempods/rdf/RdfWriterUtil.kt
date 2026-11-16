@@ -12,6 +12,7 @@ import org.eclipse.rdf4j.model.util.ModelBuilder
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.eclipse.rdf4j.rio.RDFFormat
+import org.eclipse.rdf4j.rio.RDFWriter
 import org.eclipse.rdf4j.rio.Rio
 import java.io.InputStream
 import java.io.OutputStream
@@ -24,41 +25,26 @@ object RdfWriterUtil {
     return Rio.parse(inputStream, RDFFormat.NQUADS)
   }
 
+  /** Writes [model] as N-Quads and closes [outputStream]. */
   fun streamNQuads(outputStream: OutputStream, model: Model) {
-    val writer = Rio.createWriter(RDFFormat.NQUADS, outputStream)
-    outputStream.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
+    outputStream.use { write(Rio.createWriter(RDFFormat.NQUADS, it), model) }
   }
 
-  fun writeNQuads(model: Model): String {
+  fun writeNQuads(model: Model): String = writeToString(RDFFormat.NQUADS, model)
+
+  fun writeJsonLd(model: Model): String = writeToString(RDFFormat.JSONLD, model)
+
+  private fun writeToString(format: RDFFormat, model: Model): String {
     val sw = StringWriter()
-    val writer = Rio.createWriter(RDFFormat.NQUADS, sw)
-    sw.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
+    sw.use { write(Rio.createWriter(format, it), model) }
     return sw.toString()
   }
 
-  fun writeJsonLd(model: Model): String {
-    val sw = StringWriter()
-    val writer = Rio.createWriter(RDFFormat.JSONLD, sw)
-    sw.use {
-      writer.startRDF()
-      for (st in model) {
-        writer.handleStatement(st)
-      }
-      writer.endRDF()
-    }
-    return sw.toString()
+  // The statements alone. `Rio.write(model, …)` would hand the writer the model's namespaces too.
+  private fun write(writer: RDFWriter, model: Model) {
+    writer.startRDF()
+    model.forEach(writer::handleStatement)
+    writer.endRDF()
   }
 
   fun readJsonLd(jsonLd: String, targetContext: Resource? = null): Model {

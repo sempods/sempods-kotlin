@@ -26,12 +26,14 @@ import jakarta.ws.rs.core.EntityTag
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import jakarta.ws.rs.core.StreamingOutput
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.rio.RDFFormat
 import org.sempods.pods.ResourceValidator
 import org.sempods.rdf.RdfWriterUtil
+import org.sempods.rdf.stream.RdfSource
+import org.sempods.rdf.stream.toStreamingOutput
 import java.net.URI
 
 /**
@@ -392,7 +394,7 @@ class PodContextsEndpoint @Inject constructor(
   private fun registryEntity(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Any =
     when (format) {
       RegistryFormat.JSON_LD -> RdfWriterUtil.toCanonicalJsonLdEntry(model, subject, RdfWriterUtil.CanonicalJsonLd.REGISTRY)
-      RegistryFormat.N_QUADS -> StreamingOutput { out -> RdfWriterUtil.streamNQuads(out, model) }
+      RegistryFormat.N_QUADS -> RdfSource.of(model).toStreamingOutput(RDFFormat.NQUADS)
       RegistryFormat.LEGACY_JSON -> legacy()
     }
 
