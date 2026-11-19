@@ -120,6 +120,7 @@ dependencies {
   testImplementation(libs.jettyServer)
   testRuntimeOnly(libs.jerseyJettyHttp)
 
+  testImplementation(libs.rdf4jQueryalgebraEvaluation)
   testImplementation(libs.slf4jApi)
 
   // test implementation bundles
