@@ -29,4 +29,10 @@ object SempodsVocabulary {
 
   /** A context the requesting caller may manage. */
   const val MANAGEABLE_CONTEXT: String = NAMESPACE + "manageableContext"
+
+  /**
+   * Links a `find` hit to the node describing that match. Reserved, not specified, by sempods-spec
+   * `spec/core/find.md` §6; `SPS-FIND-022` keeps it out of the default response.
+   */
+  const val FIND_RESULT: String = NAMESPACE + "findResult"
 }

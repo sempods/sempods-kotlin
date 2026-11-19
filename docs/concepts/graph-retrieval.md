@@ -77,8 +77,10 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   knows a resource's type cheaply; general predicate filters are [proposed separately](../proposals/graph-retrieval.md). Exact match — a caller ORs known subtypes rather than relying on
   subclass reasoning.
 - `FindService` merges registered adapters and expands their hit subjects. When merged
-  hits exceed the limit it caps them deterministically by IRI; it has no rank fusion.
-  The caller picks no mode.
+  hits exceed the limit it keeps the best-ranked ones: the lowest `schema:position` an
+  adapter recorded behind a hit's `sps:findResult`, then the IRI. The SPARQL adapter
+  records no rank, so its hits are capped by IRI; there is no rank fusion. A kept hit
+  keeps the blank nodes reachable from it. The caller picks no mode.
 - **The context sandbox always applies** — the same permission layer as SPARQL
   and CRUD. An anonymous visitor sees public data; an authenticated owner sees
   internal contexts too. Same `find`, different depth.
@@ -152,7 +154,7 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 
 ## Implementation
 
-- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge and fixed expansion.
+- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, cap and fixed expansion.
 - [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.
 - [Inference proposal](../proposals/inference-context.md) — proposed hierarchy lookup; exact-match retrieval remains current.
