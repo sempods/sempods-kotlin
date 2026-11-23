@@ -217,6 +217,9 @@ Comments in build files, workflow files and `gradle.properties` follow writing r
 
 ## Code Review Rules
 
+When asked to review a GitHub pull request, post each actionable finding in
+English as an inline review comment on the relevant lines of the current diff.
+
 Codex's pull-request review reads this section for every changed file, so it stands on its own.
 The canonical procedure is [`docs/agents/doc-review.md`](docs/agents/doc-review.md); this is its
 registered subset (see [`docs/agents/ai-instructions.md`](docs/agents/ai-instructions.md)

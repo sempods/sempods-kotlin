@@ -10,6 +10,8 @@ import org.sempods.client.SempodsPodSparql
 import org.sempods.client.SempodsResponse
 import org.sempods.client.SempodsSparqlTermKind
 import org.eclipse.rdf4j.model.util.Values
+import org.eclipse.rdf4j.model.vocabulary.RDF
+import org.eclipse.rdf4j.model.vocabulary.XSD
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Models
 import org.eclipse.rdf4j.rio.helpers.StatementCollector
@@ -80,6 +82,73 @@ class SparqlEndpointHttpTest : SempodsIntegrationTest() {
     val objects = assertNotNull(sparql.select("SELECT ?o WHERE { <$eventUri> ?p ?o }").body).column("o")
     assertTrue(objects.any { it.kind == SempodsSparqlTermKind.LITERAL }, "$objects")
     assertEquals(true, sparql.ask("ASK { <$eventUri> ?p ?o }").body)
+  }
+
+  @Test
+  fun `a date in a mixed ORDER BY column preserves the chronological order of UTC timestamps`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val response = podAs(pod.name).sparql().select("""
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+      SELECT ?value WHERE {
+        VALUES ?value {
+          "2026-04-08T08:00:00Z"^^xsd:dateTime
+          "2026-04-08"^^xsd:date
+          "2026-04-08T12:00:00Z"^^xsd:dateTime
+        }
+      } ORDER BY ?value
+    """.trimIndent())
+
+    assertEquals(200, response.status)
+    val values = assertNotNull(response.body).column("value")
+    assertEquals(3, values.size)
+    val timestamps = values.filter { it.datatype == XSD.DATETIME.stringValue() }
+    assertEquals(listOf("2026-04-08T08:00:00Z", "2026-04-08T12:00:00Z"), timestamps.map { it.value })
+  }
+
+  @Test
+  fun `ordering task descriptions by graph and subject preserves their calendar literals`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val context = sempodsTestFactory.publicContextUri(pod.name)
+    val subjects = listOf("a", "b").map { sempodsUriBuilder.buildResourceUri(pod.name, "tasks/$it") }
+    val scheduled = Values.iri("https://schema.org/scheduledTime")
+    val modified = Values.iri("https://schema.org/dateModified")
+    val day = Values.literal("2026-04-08", XSD.DATE)
+    val timestamp = Values.literal("2026-04-08T12:00:00Z", XSD.DATETIME)
+    val action = Values.iri("https://schema.org/Action")
+    for (subject in subjects.reversed()) {
+      val model = LinkedHashModel().apply {
+        add(subject.toIri(), RDF.TYPE, action)
+        add(subject.toIri(), scheduled, day)
+        add(subject.toIri(), modified, timestamp)
+      }
+      podAccess.seed(pod.name, subject, context, model)
+    }
+    val token = mintScopedToken(pod.name, listOf("$context#read"))
+    val response = podAs(pod.name, bearer = token).sparql().select("""
+      PREFIX schema: <https://schema.org/>
+      SELECT DISTINCT ?graph ?task ?p ?o WHERE {
+        GRAPH ?graph {
+          { ?task a ?type . VALUES ?type { schema:Action schema:PlanAction schema:OrganizeAction } }
+          UNION { ?task schema:actionStatus ?status . FILTER NOT EXISTS { ?task a ?otherType } }
+          ?task ?p ?o . FILTER(isIRI(?task))
+        }
+      } ORDER BY ?graph ?task
+    """.trimIndent())
+
+    assertEquals(200, response.status)
+    val rows = assertNotNull(response.body)
+    assertEquals(subjects.flatMap { subject -> List(3) { subject.toString() } }, rows.column("task").map { it.value })
+    assertEquals(setOf(context.toString()), rows.column("graph").map { it.value }.toSet())
+    for (description in rows.solutions.chunked(3)) {
+      assertEquals(
+        setOf(
+          Triple(RDF.TYPE.stringValue(), action.stringValue(), null),
+          Triple(scheduled.stringValue(), day.label, XSD.DATE.stringValue()),
+          Triple(modified.stringValue(), timestamp.label, XSD.DATETIME.stringValue()),
+        ),
+        description.map { Triple(it["p"]?.value, it["o"]?.value, it["o"]?.datatype) }.toSet(),
+      )
+    }
   }
 
   @Test

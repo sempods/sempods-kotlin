@@ -9,7 +9,7 @@ mongodb = "5.14.0"
 okhttp = "5.5.1"
 # The instrumentation line is published as `-alpha`; only a consumer probe uses it.
 opentelemetryInstrumentation = "2.33.1-alpha"
-rdf4j = "6.1.0"
+rdf4j = "6.2.0-M2"
 slf4j = "2.0.20"
 
 [libraries]
@@ -103,6 +103,7 @@ rdf4jModelVocabulary = { module = "org.eclipse.rdf4j:rdf4j-model-vocabulary", ve
 rdf4jQuery = { module = "org.eclipse.rdf4j:rdf4j-query", version.ref = "rdf4j" }
 rdf4jQueryparserApi = { module = "org.eclipse.rdf4j:rdf4j-queryparser-api", version.ref = "rdf4j" }
 rdf4jQueryalgebraModel = { module = "org.eclipse.rdf4j:rdf4j-queryalgebra-model", version.ref = "rdf4j" }
+rdf4jQueryalgebraEvaluation = { module = "org.eclipse.rdf4j:rdf4j-queryalgebra-evaluation", version.ref = "rdf4j" }
 rdf4jQueryresultioApi = { module = "org.eclipse.rdf4j:rdf4j-queryresultio-api", version.ref = "rdf4j" }
 rdf4jRepositoryApi = { module = "org.eclipse.rdf4j:rdf4j-repository-api", version.ref = "rdf4j" }
 rdf4jRioApi = { module = "org.eclipse.rdf4j:rdf4j-rio-api", version.ref = "rdf4j" }
