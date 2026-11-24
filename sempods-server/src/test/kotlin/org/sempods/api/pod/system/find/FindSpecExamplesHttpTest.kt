@@ -40,7 +40,8 @@ import kotlin.test.assertTrue
  * answer, and asks for it by GET and POST, flat and grouped, as JSON-LD and as N-Quads. The answer
  * must be the example's dataset up to blank-node renaming. The built-in expansion may add a stored
  * `rdf:type`, `rdfs:label` or `schema:name` of a hit, which a pod may return (`SPS-FIND-032`); every
- * such addition must be pod data, in its own context when grouped (`SPS-FIND-030`).
+ * such addition must be about one of the example's hits and stored in a context of the caller's
+ * selection, in that context when grouped (`SPS-FIND-010`, `SPS-FIND-030`).
  */
 class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
 
@@ -91,7 +92,7 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
 
     forms(example, case, text).forEach { (form, answer) ->
       val expected = example.nQuads(case[if (form.grouped) "grouped" else "flat"]["nquads"].stringValue())
-      assertAnswers(example, expected, answer, form)
+      assertAnswers(example, expected, answer, form, selectionOf(example, case))
     }
   }
 
@@ -107,7 +108,7 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
 
     forms(example, case, text).forEach { (form, answer) ->
       if (!form.grouped) {
-        assertAnswers(example, example.nQuads(case["flat"]["nquads"].stringValue()), answer, form)
+        assertAnswers(example, example.nQuads(case["flat"]["nquads"].stringValue()), answer, form, selectionOf(example, case))
         return@forEach
       }
       val selection = selectionOf(example, case)
@@ -165,15 +166,21 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  /** [answer] is [expected] up to blank-node renaming, once the expansion's stored additions are set aside. */
-  private fun assertAnswers(example: ExamplePod, expected: Model, answer: Model, form: Form) {
+  /**
+   * [answer] is [expected] up to blank-node renaming, once the expansion's additions are set aside.
+   * An addition must be about a hit of [expected] and stored in a context of [selection].
+   */
+  private fun assertAnswers(example: ExamplePod, expected: Model, answer: Model, form: Form, selection: Set<String>) {
+    val hits = expected.subjects().filterIsInstance<IRI>().toSet()
     val added = answer.filter { st ->
       st.subject is IRI && st.predicate in EXPANSION &&
         !(if (st.context == null) expected.contains(st.subject, st.predicate, st.`object`) else expected.contains(st.subject, st.predicate, st.`object`, st.context))
     }
     added.forEach { st ->
-      val stored = if (form.grouped) example.data.contains(st.subject, st.predicate, st.`object`, st.context) else example.data.contains(st.subject, st.predicate, st.`object`)
-      assertTrue(stored, "$form: $st is no stored statement")
+      assertTrue(st.subject in hits, "$form: $st is about no hit of the example")
+      val sources = example.data.filter(st.subject, st.predicate, st.`object`).contexts().mapNotNull { it?.stringValue() }
+      val allowed = if (form.grouped) sources.filter { it == st.context?.stringValue() } else sources
+      assertTrue(allowed.any { it in selection }, "$form: $st is stored in no context of the selection $selection")
     }
     val compared = LinkedHashModel(answer).apply { removeAll(added) }
     assertTrue(Models.isomorphic(expected, compared), "$form:\nexpected $expected\nanswered $compared")
@@ -188,9 +195,13 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
     }
   }
 
-  private fun selectionOf(example: ExamplePod, case: JsonNode): Set<String> =
-    (case["request"]["contexts"] ?: case["readable"])?.items()?.mapTo(HashSet()) { example.local(it.stringValue()) }
-      ?: setOf("A", "B").mapTo(HashSet()) { "${example.base}/_system/contexts/$it" }
+  /** The contexts the case's caller searches: what it asked for, within what it may read. */
+  private fun selectionOf(example: ExamplePod, case: JsonNode): Set<String> {
+    val readable = case["readable"]?.items()?.map { example.local(it.stringValue()) }
+      ?: listOf("A", "B").map { "${example.base}/_system/contexts/$it" }
+    val requested = case["request"]["contexts"]?.items()?.map { example.local(it.stringValue()) }
+    return requested?.filterTo(HashSet()) { it in readable } ?: readable.toHashSet()
+  }
 
   private fun findUrl(example: ExamplePod) = "${example.base}/_system/find"
 

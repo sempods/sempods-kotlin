@@ -125,7 +125,9 @@ object RdfWriterUtil {
    * round-trips:
    *
    * - top-level `@id` equals the resource URI
-   * - `@type` is the resource's `rdf:type` value(s) as absolute IRI string(s)
+   * - `@type` is the resource's `rdf:type` value(s) as absolute IRI string(s); a blank-node type
+   *   as `_:` and its label. A literal `rdf:type` object, which `@type` cannot carry, is written as
+   *   an ordinary `rdf:type` property
    * - predicate properties use absolute IRI keys (no `@context`, no shortened terms)
    * - property values are arrays of JSON-LD value objects:
    *   - IRI objects: `{ "@id": "https://..." }`
@@ -157,13 +159,13 @@ object RdfWriterUtil {
     model.forEach { stmt -> flattened.add(stmt.subject, stmt.predicate, stmt.`object`) }
 
     val typeIris = flattened.getStatements(resource, RDF.TYPE, null)
-      .mapNotNull { (it.`object` as? IRI)?.stringValue() }
+      .mapNotNull { (it.`object` as? Resource)?.let(::nodeId) }
     if (typeIris.isNotEmpty()) {
       entry["@type"] = if (shape == CanonicalJsonLd.LOD && typeIris.size == 1) typeIris.single() else typeIris
     }
 
     flattened.getStatements(resource, null, null).forEach { stmt ->
-      if (stmt.predicate == RDF.TYPE) return@forEach
+      if (stmt.predicate == RDF.TYPE && stmt.`object` is Resource) return@forEach
       val predicateKey = stmt.predicate.stringValue()
       val valueObject: Map<String, Any> = when (val obj = stmt.`object`) {
         is Literal -> {

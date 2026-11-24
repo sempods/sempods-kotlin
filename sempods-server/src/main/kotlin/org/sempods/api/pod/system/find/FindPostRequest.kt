@@ -1,5 +1,7 @@
 package org.sempods.api.pod.system.find
 
+import com.fasterxml.jackson.annotation.JsonInclude
+import com.fasterxml.jackson.annotation.JsonProperty
 import org.sempods.commons.json.JsonMappers
 import tools.jackson.core.JacksonException
 import tools.jackson.core.StreamReadFeature
@@ -15,16 +17,21 @@ import tools.jackson.databind.json.JsonMapper
  * twice, a value of another JSON type (`"limit":"10"`, `"text":123`) and a `null` inside `type` or
  * `contexts` are each an [IllegalArgumentException], which the endpoint answers with `400`. A
  * client that sends a typo'd field, or the deferred general `filter`, learns that its request was
- * not understood; a result silently broadened by the ignored member would look like an answer. A
- * member whose value is `null` counts as absent.
+ * not understood; a result silently broadened by the ignored member would look like an answer. An
+ * explicit `null` is refused too: `"contexts":null` read as "no filter" would search every readable
+ * context for a caller that meant to narrow it.
+ *
+ * Written with a Jackson mapper, the DTO keeps the route's member names and leaves unset members
+ * out, so what it writes [parse] reads back.
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 data class FindPostRequest(
-  val text: String? = null,
-  val type: List<String>? = null,
+  @JsonProperty("text") val text: String? = null,
+  @JsonProperty("type") val type: List<String>? = null,
   /** `null` searches every readable context; an empty list, nothing (`SPS-FIND-015`). */
-  val contexts: List<String>? = null,
-  val includeContexts: Boolean? = null,
-  val limit: Int? = null,
+  @JsonProperty("contexts") val contexts: List<String>? = null,
+  @JsonProperty("include_contexts") val includeContexts: Boolean? = null,
+  @JsonProperty("limit") val limit: Int? = null,
 ) {
 
   companion object {
@@ -57,7 +64,9 @@ data class FindPostRequest(
       )
     }
 
-    private fun JsonNode.member(name: String): JsonNode? = get(name)?.takeUnless { it.isNull }
+    /** The member [name], absent as `null`; an explicit JSON `null` is refused. */
+    private fun JsonNode.member(name: String): JsonNode? =
+      get(name)?.also { if (it.isNull) throw IllegalArgumentException("invalid request body: '$name' must not be null; leave it out instead") }
 
     private fun strings(value: JsonNode, name: String): List<String> {
       if (!value.isArray) refuse(name, "an array of strings")

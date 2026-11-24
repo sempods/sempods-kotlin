@@ -38,4 +38,21 @@ object GraphResultNegotiation {
     val chosen = AcceptNegotiation.select(accept, REPRESENTATIONS) ?: return null
     return GraphResultFormat.entries.first { it.contentType.equals("${chosen.type}/${chosen.subtype}", ignoreCase = true) }
   }
+
+  /**
+   * The 0.2 rule, kept so a binary compiled against it still links: JSON-LD for an empty list,
+   * otherwise the first range in [acceptableMediaTypes] compatible with JSON-LD or N-Quads, with no
+   * regard for quality values. The routes no longer call it.
+   */
+  @Deprecated(
+    "Ignores quality values. Pass the raw Accept header to select(String).",
+    ReplaceWith("select(accept)"),
+  )
+  fun select(acceptableMediaTypes: List<MediaType>): GraphResultFormat? {
+    if (acceptableMediaTypes.isEmpty()) return GraphResultFormat.JSON_LD
+    for (mediaType in acceptableMediaTypes) {
+      GraphResultFormat.entries.firstOrNull { mediaType.isCompatible(MediaType.valueOf(it.contentType)) }?.let { return it }
+    }
+    return null
+  }
 }

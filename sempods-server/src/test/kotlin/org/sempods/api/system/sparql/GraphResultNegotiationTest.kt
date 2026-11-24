@@ -1,5 +1,7 @@
 package org.sempods.api.system.sparql
 
+import org.junit.jupiter.api.Test
+import jakarta.ws.rs.core.MediaType
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import kotlin.test.assertEquals
@@ -28,5 +30,16 @@ class GraphResultNegotiationTest {
   )
   fun `quality decides, q=0 excludes, and a tie falls to JSON-LD`(accept: String?, expected: String?) {
     assertEquals(expected?.let(GraphResultFormat::valueOf), GraphResultNegotiation.select(accept))
+  }
+
+  @Test
+  @Suppress("DEPRECATION")
+  fun `the 0_2 list overload still answers as it did, first compatible range first`() {
+    fun select(vararg ranges: String) = GraphResultNegotiation.select(ranges.map { MediaType.valueOf(it) })
+
+    assertEquals(GraphResultFormat.JSON_LD, select())
+    assertEquals(GraphResultFormat.N_QUADS, select("application/n-quads", "application/ld+json"))
+    assertEquals(GraphResultFormat.JSON_LD, select("*/*"))
+    assertEquals(null, select("application/json"))
   }
 }

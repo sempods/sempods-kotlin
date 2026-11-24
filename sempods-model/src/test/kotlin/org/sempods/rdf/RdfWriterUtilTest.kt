@@ -148,6 +148,23 @@ class RdfWriterUtilTest {
   }
 
   @Test
+  fun `every rdf type survives the grouping, a blank-node class and a literal as well as an IRI`() {
+    val hit = Values.iri("https://pod.example/articles/42")
+    val context = Values.iri("https://pod.example/_system/contexts/A")
+    val observation = Values.bnode("observation")
+    val model = LinkedHashModel()
+    model.add(hit, Values.iri("https://schema.sempods.org/findResult"), observation, context)
+    model.add(observation, RDF.TYPE, Values.bnode("class"), context)
+    model.add(observation, RDF.TYPE, Values.iri("https://schema.org/Thing"), context)
+    model.add(observation, RDF.TYPE, Values.literal("not a class"), context)
+
+    val written = JsonMappers.default().writeValueAsString(RdfWriterUtil.toJsonLdNamedGraphs(model))
+
+    val read = Rio.parse(StringReader(written), RDFFormat.JSONLD)
+    assertTrue(Models.isomorphic(model, read), "written $written\nread back: $read")
+  }
+
+  @Test
   fun `a model without blank nodes renders as it did, IRI subjects sorted within each graph`() {
     val contextA = Values.iri("https://example/contexts/a")
     val name = Values.iri("https://schema.org/name")

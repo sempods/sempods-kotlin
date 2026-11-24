@@ -384,12 +384,17 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
       """{"text":"x","include_contexts":"true"}""",
       """{"text":"x","text":"y"}""",
       """["x"]""",
+      """{"text":null}""",
+      """{"text":"x","type":null}""",
+      """{"text":"x","contexts":null}""",
+      """{"text":"x","include_contexts":null}""",
+      """{"text":"x","limit":null}""",
     ).forEach { body ->
       val refused = post(body)
       assertEquals(400, refused.statusCode, body)
       assertTrue(refused.responseBody.startsWith("invalid request body"), refused.responseBody)
     }
-    assertEquals(200, post("""{"text":"x","type":null,"limit":null}""").statusCode)
+    assertEquals(200, post("""{"text":"x"}""").statusCode, "every member but text may be left out")
 
     val notAnInteger = http.prepareGet(findUrl(pod.name)).addQueryParam("text", "x").addQueryParam("limit", "ten").execute()
     assertEquals(400, notAnInteger.statusCode)

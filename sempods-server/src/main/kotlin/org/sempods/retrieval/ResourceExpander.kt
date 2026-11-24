@@ -27,8 +27,18 @@ interface ResourceExpander {
    * statement whose subject is the hit (`SPS-FIND-027`). A hit no such context holds is absent from
    * the map.
    *
-   * [FindService] asks only for hits an adapter annotated without saying where, and places the
-   * annotation in one of these contexts. The default knows none, so such a hit is dropped.
+   * [FindService] calls it at most twice per `find`:
+   *
+   * - **Before the limit**, for the candidates the merged answer shows only through observations, with
+   *   no stored statement. A candidate absent from the result is no hit and is dropped
+   *   (`SPS-FIND-029`), so it takes no place under the limit.
+   * - **During placement**, for a kept hit whose observation an adapter put in a context the answer
+   *   does not show holding the hit. A context returned here keeps the observation where the adapter
+   *   put it; with none, the observation moves to a holding context the answer already showed.
+   *
+   * An empty map means the store shows no holding context. The default knows none, so with it a
+   * candidate seen only through observations is dropped, and placement uses only what the answer
+   * shows.
    */
   fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> = emptyMap()
 }

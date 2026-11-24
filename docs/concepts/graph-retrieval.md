@@ -80,7 +80,10 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   subclass reasoning.
 - `FindService` merges registered adapters and expands their hit subjects. When merged
   hits exceed the limit it caps them deterministically by IRI; it has no rank fusion.
-  A kept hit keeps the observation nodes it links to, and their nested blank nodes.
+  Only a candidate a selected context holds counts towards the limit, so a stale
+  index entry takes no place. A kept hit keeps the observation nodes it links to, and
+  their nested blank nodes. An observation an engine attributes to a context outside
+  the selection is dropped.
   The caller picks no mode.
 - **An observation lands in a context that holds its hit.** The built-in SPARQL adapter
   supplies none. An engine that does can name the context its match was in; otherwise
@@ -115,8 +118,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
 
 The `POST` form is the request envelope for any `find` that no longer
 fits a URL, such as a downscope onto many contexts.
-Its body mirrors the GET parameters as a JSON object, with `contexts` as a nullable
-list:
+Its body mirrors the GET parameters as a JSON object; a member is either left out or
+given a value:
 
 ```
 POST /{pod}/_system/find
@@ -134,7 +137,8 @@ The body is parsed strictly
 ([`FindPostRequest`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindPostRequest.kt)):
 an unknown field is a 400 — `filter` included, since the general predicate filter is
 not a supported field. Dropped silently, it would broaden the result. A member of the
-wrong JSON type (`"limit":"10"`) is a 400 too. That is what makes the envelope above
+wrong JSON type (`"limit":"10"`) or an explicit `null` (`"contexts":null`) is a 400 too.
+That is what makes the envelope above
 copyable as it stands.
 
 ## Structural traversal — `find` is only the entry

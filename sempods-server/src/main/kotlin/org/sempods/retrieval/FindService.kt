@@ -20,19 +20,23 @@ import java.util.concurrent.Executors
  *
  * - **No post-filter on matching:** each adapter self-scopes to the sandbox (Eigen-Scoping); the
  *   service trusts what an adapter matched on.
- * - **Hits = IRI subjects** of the merged model, at most [FindRequest.limit] of them in IRI order
- *   (`SPS-FIND-025`). The expansion runs only over those, via the [ResourceExpander] (itself
- *   sandboxed), so this orchestrator stays free of any store/query specifics.
+ * - **Hits = IRI subjects** of the merged model that a context in [FindSandbox.effectiveScope]
+ *   holds (`SPS-FIND-029`), at most [FindRequest.limit] of them in IRI order (`SPS-FIND-025`). A
+ *   candidate the answer shows only through an observation is checked with
+ *   [ResourceExpander.holdingContexts] before the limit applies, so a stale candidate takes no
+ *   place from a held one. The expansion runs only over the kept hits, via the [ResourceExpander]
+ *   (itself sandboxed), so this orchestrator stays free of any store/query specifics.
  * - **A kept hit keeps the blank nodes it reaches.** An observation (`<hit> sps:findResult _:b`,
  *   `SPS-FIND-028`) survives the cap with its details; a blank node no kept hit reaches is dropped.
  *   Each adapter's blank nodes are its own: two adapters' `_:m` stay two nodes.
  * - **Every statement leaves in a context that holds its hit** (`SPS-FIND-027`). A stored
  *   statement keeps its own; a stored statement with no context, or with one outside
- *   [FindSandbox.effectiveScope], is dropped (`SPS-FIND-030`). A generated statement keeps the
- *   context its adapter gave it when that context holds the hit; otherwise it moves to the first such
- *   context in IRI order. Where the response names no holding context, or none that holds an
- *   observation's own context, [ResourceExpander.holdingContexts] is asked, and a hit no context
- *   holds is dropped (`SPS-FIND-029`), after it counted towards the limit.
+ *   [FindSandbox.effectiveScope], is dropped (`SPS-FIND-030`). A generated statement its adapter
+ *   attributes to a context outside the selection is dropped too (`SPS-FIND-010`): the caller
+ *   narrowed the search away from it. A generated statement keeps a context in the selection when
+ *   that context holds the hit; one with no context, or with one the hit is not held in, moves to
+ *   the first holding context in IRI order. Where the answer shows the hit held elsewhere but not in
+ *   the observation's own context, [ResourceExpander.holdingContexts] is asked first.
  *
  * The flat representation drops the contexts afterwards, so both representations come from the
  * same placed model and grouping changes only the representation.
@@ -74,15 +78,37 @@ class FindService @Inject constructor(
     val merged = LinkedHashModel()
     futures.forEach { future -> merged.addAll(admitted(withOwnBlankNodes(future.get()), scope)) }
 
+    // Only a candidate a context in the selection holds is a hit (SPS-FIND-029). A stored
+    // statement shows that; a candidate the answer names only through observations is looked up
+    // before the cap, so it cannot take a place a held candidate would have had.
+    val candidates = merged.subjects().filterIsInstance<IRI>().sortedBy { it.stringValue() }
+    val holding = storedHolding(merged)
+    val unseen = candidates.filterTo(HashSet()) { it !in holding }
+    if (unseen.isNotEmpty()) holding.addHeld(expander.holdingContexts(unseen, sandbox), unseen)
+
     // Cap deterministically by IRI, consistent with each adapter's `ORDER BY STR(?s)`.
     // TODO: replace the IRI-order truncation with cross-adapter rank fusion once engines
     //  return relevance scores — a flat union has no ranking to merge on yet.
-    val keep = merged.subjects().filterIsInstance<IRI>().sortedBy { it.stringValue() }.take(request.limit).toSet()
+    val keep = candidates.filter { it in holding }.take(request.limit).toSet()
     if (keep.isEmpty()) return LinkedHashModel()
 
     val result = reachableFrom(keep, merged)
     result.addAll(expander.expand(keep, sandbox))
-    return placed(result, keep, sandbox)
+    return placed(result, keep, holding, asked = unseen, sandbox)
+  }
+
+  /** For each IRI subject of a stored statement in [model], the contexts those statements are in. */
+  private fun storedHolding(model: Model): HashMap<IRI, MutableSet<Resource>> {
+    val holding = HashMap<IRI, MutableSet<Resource>>()
+    model.filterNot(::isGenerated).forEach { st ->
+      (st.subject as? IRI)?.let { hit -> holding.getOrPut(hit) { HashSet() } += checkNotNull(st.context) }
+    }
+    return holding
+  }
+
+  /** Adds what the store said about [only], skipping a hit no context holds. */
+  private fun HashMap<IRI, MutableSet<Resource>>.addHeld(answer: Map<IRI, Set<Resource>>, only: Set<IRI>) {
+    answer.forEach { (hit, contexts) -> if (hit in only && contexts.isNotEmpty()) getOrPut(hit) { HashSet() } += contexts }
   }
 
   /** [model] with every blank node renamed to a fresh one, so no two adapters share one by label. */
@@ -94,9 +120,15 @@ class FindService @Inject constructor(
     }
   }
 
-  /** What an adapter may contribute: stored statements in [scope], and generated ones wherever it put them. */
+  /**
+   * What an adapter may contribute: stored statements in [scope], and generated ones in [scope] or
+   * with no context, which placement then gives one.
+   */
   private fun admitted(model: Model, scope: Set<String>?): List<Statement> =
-    model.filter { st -> isGenerated(st) || (st.context != null && (scope == null || st.context.stringValue() in scope)) }
+    model.filter { st ->
+      val inScope = st.context != null && (scope == null || st.context.stringValue() in scope)
+      inScope || (isGenerated(st) && st.context == null)
+    }
 
   /** The statements of [hits] and of every blank node they reach, in [model]'s order. */
   private fun reachableFrom(hits: Set<IRI>, model: Model): Model {
@@ -111,15 +143,23 @@ class FindService @Inject constructor(
     return model.filterTo(LinkedHashModel()) { it.subject in reached }
   }
 
-  /** [result] with every generated statement in a context that holds its hit, and unheld hits dropped. */
-  private fun placed(result: Model, hits: Set<IRI>, sandbox: FindSandbox): Model {
+  /**
+   * [result] with every generated statement in a context that holds its hit. [known] is what is
+   * known of where the hits are held so far; [asked] are the hits the store was already asked about.
+   */
+  private fun placed(
+    result: Model,
+    hits: Set<IRI>,
+    known: Map<IRI, Set<Resource>>,
+    asked: Set<IRI>,
+    sandbox: FindSandbox,
+  ): Model {
     val generated = result.filter(::isGenerated)
     if (generated.isEmpty()) return result
 
-    val holding = HashMap<IRI, MutableSet<Resource>>()
-    result.filterNot(::isGenerated).forEach { st ->
-      (st.subject as? IRI)?.let { hit -> holding.getOrPut(hit) { HashSet() } += checkNotNull(st.context) }
-    }
+    // The expansion's stored statements may show further holding contexts.
+    val holding = storedHolding(result)
+    known.forEach { (hit, contexts) -> if (hit in hits) holding.getOrPut(hit) { HashSet() } += contexts }
     val annotated = generated.mapNotNullTo(HashSet()) { it.subject as? IRI }
 
     // Which hits own a blank node: those that reach it through generated statements.
@@ -139,19 +179,15 @@ class FindService @Inject constructor(
       else -> emptySet()
     }
 
-    // Ask the store about a hit the response names no holding context for, and about one whose
-    // observation sits in a context the response does not show holding it: a sparse adapter's
-    // answer is no evidence that the context does not.
-    val unconfirmed = annotated.filterTo(HashSet()) { it !in holding }
+    // Ask the store about a hit whose observation sits in a context the answer does not show
+    // holding it: a sparse adapter's answer is no evidence that the context does not. A hit the
+    // store was asked about before the cap already has its full answer.
+    val unconfirmed = HashSet<IRI>()
     generated.forEach { st ->
       val context = st.context ?: return@forEach
-      owning(st).filterTo(unconfirmed) { context !in holding[it].orEmpty() }
+      owning(st).filterTo(unconfirmed) { it !in asked && context !in holding[it].orEmpty() }
     }
-    if (unconfirmed.isNotEmpty()) {
-      expander.holdingContexts(unconfirmed, sandbox).forEach { (hit, contexts) ->
-        if (hit in hits && contexts.isNotEmpty()) holding.getOrPut(hit) { HashSet() } += contexts
-      }
-    }
+    if (unconfirmed.isNotEmpty()) holding.addHeld(expander.holdingContexts(unconfirmed, sandbox), unconfirmed)
 
     val out = LinkedHashModel()
     result.forEach { st ->

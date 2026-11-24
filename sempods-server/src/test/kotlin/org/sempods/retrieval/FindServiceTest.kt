@@ -201,7 +201,7 @@ class FindServiceTest {
   }
 
   @Test
-  fun `an observation in a context outside the selection moves into one inside it`() {
+  fun `an observation the adapter attributes to a context outside the selection is dropped, not relabelled`() {
     val observation = vf.createBNode()
     val outside = vf.createIRI("https://example.org/t/_system/contexts/C")
     val adapter = LinkedHashModel().apply {
@@ -210,9 +210,24 @@ class FindServiceTest {
       add(observation, text, vf.createLiteral("Harbour map"), outside)
     }
 
-    val result = find(adapter, on = scopedTo(contextA, contextB))
+    val result = find(adapter, on = scopedTo(contextA, contextB), expander = HoldingExpander(mapOf(hit to setOf(contextA))))
 
-    assertEquals(setOf<Resource?>(contextA), result.contexts())
+    assertEquals(1, result.size, "$result")
+    assertEquals(vf.createLiteral("Harbour map"), result.single().`object`)
+  }
+
+  @Test
+  fun `a candidate no context holds takes no place under the limit`() {
+    val stale = vf.createIRI("https://example.org/t/a")
+    val held = vf.createIRI("https://example.org/t/b")
+    val observationOnly = LinkedHashModel().apply { add(stale, findResult, vf.createBNode()) }
+    val stored = LinkedHashModel().apply { add(held, name, vf.createLiteral("Harbour map"), contextA) }
+
+    val expander = HoldingExpander(emptyMap())
+    val result = find(observationOnly, stored, limit = 1, expander = expander)
+
+    assertEquals(listOf(setOf(stale)), expander.asked)
+    assertEquals(setOf<Resource>(held), result.subjects().filterIsInstance<IRI>().toSet())
   }
 
   @Test
