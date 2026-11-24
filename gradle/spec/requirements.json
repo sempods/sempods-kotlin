@@ -552,7 +552,7 @@
       "id": "SPS-CORE-015",
       "part": "core",
       "chapter": "spec/core/index.md",
-      "summary": "**On an operation that requires authentication**, a missing bearer token and a rejected bearer token MUST produce the same response: `401` with `invalid_token`.",
+      "summary": "**On an operation that requires authentication**, an implementation MUST return `401` with a `Bearer` challenge for a missing or rejected token, including `invalid_token` for a rejected token.",
       "withdrawn": false
     },
     {
@@ -1259,7 +1259,7 @@
       "id": "SPS-FIND-001",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "`find` is a contract, not an algorithm.",
+      "summary": "An implementation MUST be free to use any search engine or combination of engines.",
       "withdrawn": false
     },
     {
@@ -1273,14 +1273,14 @@
       "id": "SPS-FIND-003",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "The response MUST be RDF: a subgraph the caller can merge into a working graph and traverse.",
+      "summary": "The server MUST return a traversable RDF subgraph that callers can merge into their own graph.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-004",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "An implementation MUST offer both forms, and they MUST be equivalent.",
+      "summary": "The server MUST offer equivalent GET and POST forms.",
       "withdrawn": false
     },
     {
@@ -1294,35 +1294,35 @@
       "id": "SPS-FIND-006",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "`type` is OPTIONAL, repeatable, and combines as OR.",
+      "summary": "`type` is OPTIONAL and repeatable.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-007",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "`type` MUST be matched exactly.",
+      "summary": "The server MUST match type IRIs exactly.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-008",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "`type` constrains what comes back, not where matching happens.",
+      "summary": "The server MAY match through a linked resource.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-009",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "`context` (GET, repeatable) and `contexts` (POST) are the read downscope, with the semantics of [`SPS-CRUD-014`](lod-crud.md#SPS-CRUD-014) and [`SPS-CRUD-015`](lod-crud.md#SPS-CRUD-015): intersection with the readable set, unreadable entries dropped in silence.",
+      "summary": "The context filter is `context` on GET (repeatable) and `contexts` on POST.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-010",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "The downscope MUST apply to the whole operation, the expansion included.",
+      "summary": "The server MUST apply the context filter throughout the search, including matching, ranking, observations and expansion.",
       "withdrawn": false
     },
     {
@@ -1330,42 +1330,46 @@
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`limit` is OPTIONAL.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-025`](#SPS-FIND-025).",
+      "supersededBy": "SPS-FIND-025"
     },
     {
       "id": "SPS-FIND-012",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "There is no cursor and no pagination.",
+      "summary": "Find has no cursor or pagination.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-013",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "A `POST` body MUST be parsed strictly.",
+      "summary": "The server MUST parse the POST body strictly and reject unknown members.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-014",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "The context sandbox MUST apply exactly as it does to CRUD and SPARQL.",
+      "summary": "Find MUST apply the same context sandbox as CRUD and SPARQL.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-015",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "Where the caller can read nothing, or where the downscope resolves to nothing, the implementation MUST answer `200` with an empty graph.",
+      "summary": "If the caller can read nothing or the context filter leaves an empty selection, the server MUST return `200` with an empty graph.",
       "withdrawn": false
     },
     {
       "id": "SPS-FIND-016",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "The response MUST contain the matched resources, and SHOULD expand each with at least its `rdf:type` and its label.",
-      "withdrawn": false
+      "summary": "The response MUST include each hit.",
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-032`](#SPS-FIND-032).",
+      "supersededBy": "SPS-FIND-032"
     },
     {
       "id": "SPS-FIND-017",
@@ -1379,14 +1383,18 @@
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "By default the response MUST be a flat graph: no ordering, no score, and no marker distinguishing a hit from an expansion.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-026`](#SPS-FIND-026).",
+      "supersededBy": "SPS-FIND-026"
     },
     {
       "id": "SPS-FIND-019",
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "`include_contexts=true` MUST group the response by the context each statement came from — named-graph JSON-LD, or the fourth term in N-Quads.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-027`](#SPS-FIND-027).",
+      "supersededBy": "SPS-FIND-027"
     },
     {
       "id": "SPS-FIND-020",
@@ -1399,7 +1407,7 @@
       "id": "SPS-FIND-021",
       "part": "core",
       "chapter": "spec/core/find.md",
-      "summary": "A `find` response depends on the caller's readable contexts.",
+      "summary": "The server MUST NOT allow shared caching of a bearer-backed response unless the cache varies on the credential.",
       "withdrawn": false
     },
     {
@@ -1407,20 +1415,82 @@
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Per-hit metadata MUST NOT appear in the default response.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-028`](#SPS-FIND-028).",
+      "supersededBy": "SPS-FIND-028"
     },
     {
       "id": "SPS-FIND-023",
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Authoritative facts about a hit — its types, its labels, its timestamps — MUST come from the store during expansion and MUST NOT be asserted by the metadata node.",
-      "withdrawn": false
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-030`](#SPS-FIND-030).",
+      "supersededBy": "SPS-FIND-030"
     },
     {
       "id": "SPS-FIND-024",
       "part": "core",
       "chapter": "spec/core/find.md",
       "summary": "Where such metadata is emitted, it is **transient**: it MUST NOT be written to the store, it MUST NOT appear in the named-graph grouping that `include_contexts=true` produces, and a caller MUST NOT expect to retrieve it again.",
+      "withdrawn": true,
+      "withdrawnNote": "Withdrawn in 0.1-dev. Superseded by [`SPS-FIND-031`](#SPS-FIND-031) and [`SPS-FIND-027`](#SPS-FIND-027).",
+      "supersededBy": "SPS-FIND-031"
+    },
+    {
+      "id": "SPS-FIND-025",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "`limit` is OPTIONAL.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-026",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "By default the server MUST return all statements in the default graph.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-027",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "With `include_contexts=true`, the server MUST group every statement by context, using the context IRI as the graph name.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-028",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "The server MAY annotate a hit.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-029",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "Every hit MUST be an IRI that occurs as the subject of a stored statement in the effective selection.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-030",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "Apart from generated observation links, statements about the hit itself MUST come from pod data in the effective selection.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-031",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "Find MUST NOT persist the observations it generates.",
+      "withdrawn": false
+    },
+    {
+      "id": "SPS-FIND-032",
+      "part": "core",
+      "chapter": "spec/core/find.md",
+      "summary": "The server MUST return each hit IRI as the subject of at least one statement in the response.",
       "withdrawn": false
     },
     {
