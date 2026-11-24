@@ -5,14 +5,13 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The lines [block] wrote to the log, for a test that asserts on a formatted message —
  * `docs/logging.md` §"Three rules" is only checkable there and not in the code.
  *
- * Two traps, both of them the logger being process-wide while these suites run their classes
+ * Three traps, all of them the logger being process-wide while these suites run their classes
  * concurrently:
  *
  * - **The appender sees every line that logger wrote, not only this thread's.** Put something
@@ -21,6 +20,12 @@ import java.util.concurrent.ConcurrentHashMap
  * - **The level is raised to TRACE**, because `gradle/logback-test.xml` runs at INFO and a DEBUG
  *   line would otherwise be absent rather than wrong. Concurrent captures of one logger are
  *   counted, so the last one out restores the level the first one found.
+ * - **The code under test may hold a logger that never reaches logback.** It took that logger
+ *   when it initialized, usually long before the capture started. If SLF4J was still binding at
+ *   that moment, the logger can stay a substitute with no delegate, and its lines are lost.
+ *   Nothing done at [start] can reach it. [BindSlf4jBeforeTests] binds SLF4J before any test
+ *   class runs, so this cannot happen. An empty capture where the code clearly logged means the
+ *   listener did not run in that JVM.
  *
  * `inline`, so the block may suspend — several cases drive a Ktor test application.
  */
@@ -102,16 +107,12 @@ object CapturedLog {
   }
 
   /**
-   * SLF4J hands a `SubstituteLoggerFactory` to every thread but the one currently binding the
-   * provider, and these suites run their classes concurrently — so a plain cast is flaky. The
-   * window closes in microseconds.
+   * While SLF4J binds, every thread but the binding one gets a `SubstituteLoggerFactory`, so a
+   * plain cast would be flaky. [boundLoggerFactory] waits for the binding to finish.
    */
   private fun logbackContext(): LoggerContext {
-    repeat(500) {
-      val factory = LoggerFactory.getILoggerFactory()
-      if (factory is LoggerContext) return factory
-      Thread.sleep(10)
-    }
-    error("logback never became the SLF4J binding of this test JVM")
+    val factory = boundLoggerFactory()
+    return factory as? LoggerContext
+      ?: error("logback is not the SLF4J binding of this test JVM: ${factory::class.qualifiedName}")
   }
 }

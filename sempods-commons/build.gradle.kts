@@ -36,6 +36,11 @@ dependencies {
   // above rather than Guice's: a consumer resolving these fixtures has to receive the binding.
   testFixturesImplementation(libs.logbackClassic)
 
+  // `BindSlf4jBeforeTests` is a launcher listener. Only the launcher loads it, so the launcher a
+  // consumer's test run already brings is the one it needs. Nothing here ships one.
+  testFixturesCompileOnly(libs.junitPlatformLauncher)
+  testCompileOnly(libs.junitPlatformLauncher)
+
   // `TestUtil` polls for a condition — one of the two source sets here that await anything, which
   // is why this is not in `libs.bundles.test`.
   testFixturesImplementation(libs.awaitility)
