@@ -1,6 +1,7 @@
 package org.sempods.api.system.sparql
 
 import jakarta.ws.rs.core.MediaType
+import org.sempods.commons.jaxrs.AcceptNegotiation
 import org.eclipse.rdf4j.rio.RDFFormat
 
 /**
@@ -14,26 +15,27 @@ enum class GraphResultFormat(val contentType: String, val rdfFormat: RDFFormat) 
 }
 
 /**
- * Quality values play no part here: the first compatible range wins.
- * [org.sempods.commons.jaxrs.AcceptNegotiation] reads them, and
- * [#189](https://github.com/sempods/sempods-kotlin/issues/189) moves these routes onto it.
+ * Which graph serialization a `find` or SPARQL graph result is answered in.
+ *
+ * The rule is RFC 9110 §12.5.1 and lives in [AcceptNegotiation], where it is tested on its own: the
+ * most specific range that names a representation decides its quality, the highest quality wins,
+ * `q=0` excludes, also beside a wildcard, and a tie falls to JSON-LD, which is also what a caller
+ * gets who sends no `Accept` (`SPS-FIND-020`).
+ *
+ * `null` means the caller accepts neither, and the route answers `406`. `application/json` is one
+ * such caller: these routes do not treat it as an alias of JSON-LD, unlike the context registry
+ * (`ContextRegistryNegotiation`), and a range with a parameter the representation does not carry,
+ * such as a JSON-LD `profile`, names nothing here.
  */
 object GraphResultNegotiation {
 
-  private val JSON_LD_MEDIA_TYPE = MediaType.valueOf("application/ld+json")
-  private val N_QUADS_MEDIA_TYPE = MediaType.valueOf("application/n-quads")
+  /** In the order these routes prefer them, each with what its body carries: UTF-8. */
+  private val REPRESENTATIONS: List<MediaType> =
+    GraphResultFormat.entries.map { MediaType.valueOf("${it.contentType};charset=utf-8") }
 
-  /**
-   * Pick the graph result format for an `Accept` header: JSON-LD is the default (no/empty
-   * Accept), otherwise the first compatible of JSON-LD / N-Quads. Returns `null` when the
-   * caller accepts neither — the endpoint answers `406`.
-   */
-  fun select(acceptableMediaTypes: List<MediaType>): GraphResultFormat? {
-    if (acceptableMediaTypes.isEmpty()) return GraphResultFormat.JSON_LD
-    for (mediaType in acceptableMediaTypes) {
-      if (mediaType.isCompatible(JSON_LD_MEDIA_TYPE)) return GraphResultFormat.JSON_LD
-      if (mediaType.isCompatible(N_QUADS_MEDIA_TYPE)) return GraphResultFormat.N_QUADS
-    }
-    return null
+  /** The format for the raw `Accept` header [accept], or `null` when it accepts neither. */
+  fun select(accept: String?): GraphResultFormat? {
+    val chosen = AcceptNegotiation.select(accept, REPRESENTATIONS) ?: return null
+    return GraphResultFormat.entries.first { it.contentType.equals("${chosen.type}/${chosen.subtype}", ignoreCase = true) }
   }
 }

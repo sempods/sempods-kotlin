@@ -1,5 +1,6 @@
 package org.sempods.rdf
 
+import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Literal
 import org.eclipse.rdf4j.model.Model
@@ -128,6 +129,7 @@ object RdfWriterUtil {
    * - predicate properties use absolute IRI keys (no `@context`, no shortened terms)
    * - property values are arrays of JSON-LD value objects:
    *   - IRI objects: `{ "@id": "https://..." }`
+   *   - blank-node objects: `{ "@id": "_:b0" }`, so a reader keeps them blank nodes
    *   - literal objects: `{ "@value": "...", "@language": "..." }` or
    *     `{ "@value": "...", "@type": "<datatype-iri>" }`
    *   - plain string literals: `{ "@value": "..." }`
@@ -147,7 +149,7 @@ object RdfWriterUtil {
     shape: CanonicalJsonLd = CanonicalJsonLd.LOD,
   ): MutableMap<String, Any> {
     val entry = linkedMapOf<String, Any>()
-    entry["@id"] = resource.stringValue()
+    entry["@id"] = nodeId(resource)
 
     // Strip context so we only look at (subject, predicate, object) — graph dimension is the
     // caller's concern (they pre-filtered by readable contexts).
@@ -175,7 +177,7 @@ object RdfWriterUtil {
           }
           map
         }
-        is Resource -> mapOf("@id" to obj.stringValue())
+        is Resource -> mapOf("@id" to nodeId(obj))
         else -> mapOf("@value" to obj.stringValue())
       }
       @Suppress("UNCHECKED_CAST")
@@ -189,6 +191,9 @@ object RdfWriterUtil {
 
     return entry
   }
+
+  /** A node's JSON-LD `@id`: an IRI as it is, a blank node as `_:` and its label. */
+  private fun nodeId(node: Resource): String = if (node is BNode) "_:${node.id}" else node.stringValue()
 
   /**
    * Render a model as JSON-LD named graph objects, grouped by RDF4J statement context.
@@ -225,9 +230,12 @@ object RdfWriterUtil {
   /**
    * Multi-subject sibling of [toJsonLdNamedGraphs]: render a whole model (potentially many subjects)
    * as JSON-LD named-graph objects, grouped by RDF4J statement context. Within each context every
-   * distinct IRI subject becomes one canonical entry. Used by `find` with `include_contexts` to
-   * expose which context each matched/expanded statement came from. Statements with a null context
-   * are grouped under an entry without `@id`.
+   * distinct subject becomes one canonical entry: the IRIs first, then the blank nodes, each sorted.
+   * A blank node keeps its label within the document, so a link in one graph and the node's own
+   * statements in another still name one node. Used by `find` with `include_contexts`.
+   *
+   * Statements with a null context are grouped under an entry without `@id`, which a JSON-LD reader
+   * names with a fresh blank node. `find` places every statement in a context before it gets here.
    */
   fun toJsonLdNamedGraphs(model: Model): List<Map<String, Any>> {
     return model
@@ -239,9 +247,8 @@ object RdfWriterUtil {
         statements.forEach { stmt ->
           contextModel.add(stmt.subject, stmt.predicate, stmt.`object`, stmt.context)
         }
-        val subjects = contextModel.subjects()
-          .filterIsInstance<IRI>()
-          .sortedBy { it.stringValue() }
+        val subjects = contextModel.subjects().filterIsInstance<IRI>().sortedBy { it.stringValue() } +
+          contextModel.subjects().filterIsInstance<BNode>().sortedBy { it.id }
 
         val graph = linkedMapOf<String, Any>()
         if (context != null) {

@@ -111,4 +111,26 @@ object FindQueryBuilder {
 
     return BoundQuery(sparql, emptyMap())
   }
+
+  /**
+   * One `SELECT ?s ?p ?o ?g` row per hit and **context that holds it**: a context with a statement
+   * whose subject is the hit (`SPS-FIND-027`). `?p` and `?o` are a sample of those statements, so the
+   * rows fit [org.sempods.query.SparqlQueryService.executeSelectToQuadModel]; only `?s` and `?g` are
+   * read.
+   */
+  fun holding(hits: Collection<IRI>): BoundQuery {
+    require(hits.isNotEmpty()) { "holding requires at least one hit" }
+    val values = hits.joinToString(" ") { iriRef(it) }
+
+    val sparql = """
+      SELECT ?s (SAMPLE(?anyP) AS ?p) (SAMPLE(?anyO) AS ?o) ?g
+      WHERE {
+        VALUES ?s { $values }
+        GRAPH ?g { ?s ?anyP ?anyO }
+      }
+      GROUP BY ?s ?g
+    """.trimIndent()
+
+    return BoundQuery(sparql, emptyMap())
+  }
 }

@@ -118,7 +118,7 @@ class SparqlEndpoint @Inject constructor(
       }
 
       SparqlQueryService.ReadQueryType.GRAPH -> {
-        val graphResult = GraphResultNegotiation.select(httpHeaders.acceptableMediaTypes)
+        val graphResult = GraphResultNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT))
           ?: return Response.status(Response.Status.NOT_ACCEPTABLE)
             .entity("Graph queries can only produce application/ld+json or application/n-quads")
             .type(MediaType.TEXT_PLAIN)

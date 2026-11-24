@@ -3,13 +3,20 @@ package org.sempods.rdf
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.json.JsonUtil
 import org.sempods.ontologies.Ontologies
+import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
+import org.eclipse.rdf4j.model.util.Models
 import org.eclipse.rdf4j.model.impl.SimpleNamespace
 import org.eclipse.rdf4j.model.util.Values
 import org.eclipse.rdf4j.model.vocabulary.RDF
+import org.eclipse.rdf4j.rio.RDFFormat
+import org.eclipse.rdf4j.rio.Rio
 import org.junit.jupiter.api.Test
+import java.io.StringReader
 import java.net.URI
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class RdfWriterUtilTest {
 
@@ -111,5 +118,49 @@ class RdfWriterUtilTest {
     )
 
     assertEquals(expected, jsonLdGraphs)
+  }
+
+  @Test
+  fun `the multi-subject grouping keeps a blank node a blank node, across graphs and as a subject`() {
+    // sempods-spec examples/find/responses.yaml, "split": the link in A, the observation's details in B.
+    val hit = Values.iri("https://pod.example/articles/42")
+    val contextA = Values.iri("https://pod.example/_system/contexts/A")
+    val contextB = Values.iri("https://pod.example/_system/contexts/B")
+    val findResult = Values.iri("https://schema.sempods.org/findResult")
+    val text = Values.iri("https://schema.org/text")
+    val observation = Values.bnode("m")
+    val model = LinkedHashModel()
+    model.add(hit, findResult, observation, contextA)
+    model.add(observation, text, Values.literal("Harbour lantern"), contextB)
+
+    val written = JsonMappers.default().writeValueAsString(RdfWriterUtil.toJsonLdNamedGraphs(model))
+
+    assertEquals(
+      """[{"@id":"${contextA.stringValue()}","@graph":[{"@id":"${hit.stringValue()}","${findResult.stringValue()}":[{"@id":"_:m"}]}]},""" +
+        """{"@id":"${contextB.stringValue()}","@graph":[{"@id":"_:m","${text.stringValue()}":[{"@value":"Harbour lantern"}]}]}]""",
+      written,
+    )
+    val read = Rio.parse(StringReader(written), RDFFormat.JSONLD)
+    assertTrue(Models.isomorphic(model, read), "read back: $read")
+    val link = read.filter(hit, findResult, null).single()
+    val node = assertIs<BNode>(link.`object`)
+    assertEquals(contextB, read.filter(node, text, null).single().context)
+  }
+
+  @Test
+  fun `a model without blank nodes renders as it did, IRI subjects sorted within each graph`() {
+    val contextA = Values.iri("https://example/contexts/a")
+    val name = Values.iri("https://schema.org/name")
+    val model = LinkedHashModel()
+    model.add(Values.iri("https://example/b"), name, Values.literal("B"), contextA)
+    model.add(Values.iri("https://example/a"), RDF.TYPE, Values.iri("https://schema.org/Thing"), contextA)
+    model.add(Values.iri("https://example/a"), Values.iri("https://schema.org/knows"), Values.iri("https://example/b"), contextA)
+
+    assertEquals(
+      """[{"@id":"https://example/contexts/a","@graph":[""" +
+        """{"@id":"https://example/a","@type":"https://schema.org/Thing","https://schema.org/knows":[{"@id":"https://example/b"}]},""" +
+        """{"@id":"https://example/b","https://schema.org/name":[{"@value":"B"}]}]}]""",
+      JsonMappers.default().writeValueAsString(RdfWriterUtil.toJsonLdNamedGraphs(model)),
+    )
   }
 }

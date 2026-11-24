@@ -59,6 +59,8 @@ guice = "com.google.inject:guice:7.0.0"
 jackson3Databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson3" }
 # A registration on a `JsonMapper`.
 jackson3Kotlin = { module = "tools.jackson.module:jackson-module-kotlin", version.ref = "jackson3" }
+# The specification's YAML fixtures, read by the pod server's find conformance test.
+jackson3Yaml = { module = "tools.jackson.dataformat:jackson-dataformat-yaml", version.ref = "jackson3" }
 # JAX-RS JSON, from FasterXML: Jersey's `jersey-media-json-jackson` is Jackson 2 only. Jersey ships
 # a Jackson 3 module, `jersey-media-json-jackson3`, since 4.0.3; it wraps a copy of this same
 # provider, so the server keeps depending on FasterXML's provider directly. Switching to Jersey's

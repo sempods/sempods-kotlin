@@ -5,10 +5,9 @@ import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 
 /**
- * Parses + validates raw `find` inputs into a [FindRequest], shared by the REST endpoint and the
- * MCP tool so the two surfaces cannot drift. Signals bad input surface-neutrally via
- * [IllegalArgumentException]; each surface maps that to its own error shape (REST 400 / MCP tool
- * error).
+ * Parses + validates raw `find` inputs into a [FindRequest], shared by the GET and POST forms of the
+ * endpoint so the two cannot drift. The MCP tools reach the same route over HTTP. Signals bad input
+ * via [IllegalArgumentException], which the endpoint answers with `400`.
  */
 object FindRequestParser {
 

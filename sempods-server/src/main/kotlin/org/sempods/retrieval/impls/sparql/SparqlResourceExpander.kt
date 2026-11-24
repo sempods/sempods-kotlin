@@ -6,6 +6,7 @@ import org.sempods.query.SparqlSandbox
 import org.sempods.retrieval.FindSandbox
 import org.sempods.retrieval.ResourceExpander
 import org.eclipse.rdf4j.model.IRI
+import org.eclipse.rdf4j.model.Resource
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 
@@ -14,7 +15,7 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
  * that returns `rdf:type` / `rdfs:label` / `schema:name` where present, each tagged with its source
  * context `?g` (so the expansion carries the same provenance as the matched edges). The expansion is
  * itself context-sandboxed (so it can't read properties from contexts the caller can't see) even
- * though the adapters already self-scoped their finds.
+ * though the adapters already self-scoped their finds. [holdingContexts] reads the same sandbox.
  */
 class SparqlResourceExpander @Inject constructor(
   private val sparqlQueryService: SparqlQueryService,
@@ -27,15 +28,23 @@ class SparqlResourceExpander @Inject constructor(
     // filtered out), and falls back to the readable ceiling when no downscope was requested.
     // Fail-closed on an empty scope, like the find adapter (an empty Dataset means "no restriction").
     if (sandbox.matchesNothing()) return LinkedHashModel()
-    val dataset = SparqlSandbox.buildDataset(sandbox.effectiveScope())
-    val query = FindQueryBuilder.expansion(hits)
-    return sparqlQueryService.executeSelectToQuadModel(
+    return select(FindQueryBuilder.expansion(hits), sandbox)
+  }
+
+  override fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> {
+    if (hits.isEmpty() || sandbox.matchesNothing()) return emptyMap()
+    return select(FindQueryBuilder.holding(hits), sandbox)
+      .groupBy({ it.subject as IRI }, { checkNotNull(it.context) })
+      .mapValues { (_, contexts) -> contexts.toSet() }
+  }
+
+  private fun select(query: FindQueryBuilder.BoundQuery, sandbox: FindSandbox): Model =
+    sparqlQueryService.executeSelectToQuadModel(
       // Mono-repo bridge: SparqlQueryService keys RDF4J stores by local pod name. A standalone
       // pod deployment would resolve its single store directly from sandbox.podUri.
       pod = sandbox.credentials.pod.name,
       query = query.sparql,
-      dataset = dataset,
+      dataset = SparqlSandbox.buildDataset(sandbox.effectiveScope()),
       bindings = query.bindings,
     )
-  }
 }
