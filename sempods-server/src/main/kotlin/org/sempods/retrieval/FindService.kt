@@ -30,8 +30,9 @@ import java.util.concurrent.Executors
  *   statement keeps its own; a stored statement with no context, or with one outside
  *   [FindSandbox.effectiveScope], is dropped (`SPS-FIND-030`). A generated statement keeps the
  *   context its adapter gave it when that context holds the hit; otherwise it moves to the first such
- *   context in IRI order. Where the response names none, [ResourceExpander.holdingContexts] is asked,
- *   and a hit no context holds is dropped (`SPS-FIND-029`), after it counted towards the limit.
+ *   context in IRI order. Where the response names no holding context, or none that holds an
+ *   observation's own context, [ResourceExpander.holdingContexts] is asked, and a hit no context
+ *   holds is dropped (`SPS-FIND-029`), after it counted towards the limit.
  *
  * The flat representation drops the contexts afterwards, so both representations come from the
  * same placed model and grouping changes only the representation.
@@ -120,12 +121,6 @@ class FindService @Inject constructor(
       (st.subject as? IRI)?.let { hit -> holding.getOrPut(hit) { HashSet() } += checkNotNull(st.context) }
     }
     val annotated = generated.mapNotNullTo(HashSet()) { it.subject as? IRI }
-    val unheld = annotated.filter { it !in holding }
-    if (unheld.isNotEmpty()) {
-      expander.holdingContexts(unheld, sandbox).forEach { (hit, contexts) ->
-        if (hit in hits && contexts.isNotEmpty()) holding.getOrPut(hit) { HashSet() } += contexts
-      }
-    }
 
     // Which hits own a blank node: those that reach it through generated statements.
     val owners = HashMap<BNode, MutableSet<IRI>>()
@@ -138,6 +133,25 @@ class FindService @Inject constructor(
           .filter { owners.getOrPut(it) { HashSet() }.add(hit) }
       }
     }
+    fun owning(st: Statement): Set<IRI> = when (val subject = st.subject) {
+      is IRI -> setOf(subject)
+      is BNode -> owners[subject].orEmpty()
+      else -> emptySet()
+    }
+
+    // Ask the store about a hit the response names no holding context for, and about one whose
+    // observation sits in a context the response does not show holding it: a sparse adapter's
+    // answer is no evidence that the context does not.
+    val unconfirmed = annotated.filterTo(HashSet()) { it !in holding }
+    generated.forEach { st ->
+      val context = st.context ?: return@forEach
+      owning(st).filterTo(unconfirmed) { context !in holding[it].orEmpty() }
+    }
+    if (unconfirmed.isNotEmpty()) {
+      expander.holdingContexts(unconfirmed, sandbox).forEach { (hit, contexts) ->
+        if (hit in hits && contexts.isNotEmpty()) holding.getOrPut(hit) { HashSet() } += contexts
+      }
+    }
 
     val out = LinkedHashModel()
     result.forEach { st ->
@@ -145,12 +159,7 @@ class FindService @Inject constructor(
         out.add(st)
         return@forEach
       }
-      val owning = when (val subject = st.subject) {
-        is IRI -> setOf(subject)
-        is BNode -> owners[subject].orEmpty()
-        else -> emptySet()
-      }
-      val eligible = owning.flatMap { holding[it].orEmpty() }.toSet()
+      val eligible = owning(st).flatMap { holding[it].orEmpty() }.toSet()
       if (eligible.isEmpty()) return@forEach
       val context = st.context.takeIf { it in eligible } ?: eligible.minBy { it.stringValue() }
       out.add(st.subject, st.predicate, st.`object`, context)

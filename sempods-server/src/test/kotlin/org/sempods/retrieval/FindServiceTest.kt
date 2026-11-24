@@ -160,6 +160,31 @@ class FindServiceTest {
   }
 
   @Test
+  fun `an observation stays in its context when the store holds the hit there, though the response shows only another`() {
+    val observation = vf.createBNode()
+    val adapter = LinkedHashModel().apply {
+      add(hit, findResult, observation, contextB)
+      add(observation, text, vf.createLiteral("Harbour lantern"), contextB)
+    }
+    val expander = object : ResourceExpander {
+      val asked = mutableListOf<Set<IRI>>()
+      override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model =
+        LinkedHashModel().apply { add(hit, name, vf.createLiteral("Harbour lantern"), contextA) }
+      override fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> {
+        asked += hits.toSet()
+        return mapOf(hit to setOf(contextA, contextB))
+      }
+    }
+
+    val result = find(adapter, expander = expander)
+
+    assertEquals(listOf(setOf<IRI>(hit)), expander.asked)
+    val link = result.filter(hit, findResult, null).single()
+    assertEquals(contextB, link.context)
+    assertEquals(contextB, result.filter(assertIs<BNode>(link.`object`), text, null).single().context)
+  }
+
+  @Test
   fun `an observation without a context moves to the first context that holds the hit, details with their link`() {
     val observation = vf.createBNode()
     val adapter = LinkedHashModel().apply {
