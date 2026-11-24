@@ -5,7 +5,9 @@ import com.mongodb.client.model.Filters
 import org.bson.Document
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
+import org.sempods.commons.net.UrlUtil
 import org.sempods.commons.utils.HashUtil.sha256Hex
+import java.net.URI
 import java.time.Duration
 import java.util.UUID
 import kotlin.test.Test
@@ -67,6 +69,45 @@ class BrowserSignInTest {
     assertEquals(parked, done.payload)
     assertTrue(started.authorizationUrl.startsWith("$ISSUER/authorize"), started.authorizationUrl)
     assertTrue("state=${started.state}" in started.authorizationUrl, "one state for the request and the row")
+  }
+
+  @Test
+  fun `a sign-in requests openid alone unless the caller asks for more`() {
+    val started = signIn().begin(relyingParty(), parked)
+
+    assertEquals("openid", scopeOf(started))
+  }
+
+  @Test
+  fun `the scopes the provider lists are requested, and their claims reach the identity`() {
+    val signIn = signIn()
+    val rp = relyingParty()
+    val started = signIn.begin(rp, parked, scopes = rp.metadata.requestableScopes(setOf("profile", "email")))
+    val code = provider.expectFor(
+      started.authorizationUrl,
+      WEB_ID,
+      claims = mapOf("name" to "Alice Example", "email" to "alice@example.invalid", "email_verified" to true),
+    )
+
+    val done = assertIs<BrowserSignIn.Completion.SignedIn<Next>>(signIn.complete(rp, callbackFor(started, code = code)))
+
+    assertEquals("openid profile email", scopeOf(started))
+    assertEquals("Alice Example", done.identity.name)
+    assertEquals("alice@example.invalid", done.identity.email)
+    assertEquals(true, done.identity.emailVerified)
+    assertNull(done.identity.picture, "the provider sent none")
+  }
+
+  @Test
+  fun `a provider that lists no scopes is asked for openid alone`() {
+    // It might refuse the whole request over a scope it does not support.
+    val silent = provider.variant().apply { scopesSupported = null }
+
+    val started = signIn().begin(
+      relyingParty(silent), parked, scopes = relyingParty(silent).metadata.requestableScopes(setOf("profile", "email")),
+    )
+
+    assertEquals("openid", scopeOf(started))
   }
 
   @Test
@@ -273,6 +314,9 @@ class BrowserSignInTest {
 
     assertEquals(UNKNOWN, otherKey.complete(rp, callbackFor(started)))
   }
+
+  private fun scopeOf(started: BrowserSignIn.Started): String? =
+    UrlUtil.queryParams(URI(started.authorizationUrl).rawQuery, decodeParams = true)["scope"]
 
   companion object {
     private val UNKNOWN = BrowserSignIn.Completion.Refused(BrowserSignIn.Refusal.UNKNOWN_STATE, null)

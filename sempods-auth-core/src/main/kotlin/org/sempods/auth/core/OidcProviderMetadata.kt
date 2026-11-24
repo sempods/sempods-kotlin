@@ -16,6 +16,9 @@ import com.nimbusds.jose.util.JSONObjectUtils
  * @param authorizationResponseIssParameterSupported whether every authorization response names
  *   [issuer] in an `iss` parameter (RFC 9207 §3). Where it does, a response without one is
  *   refused ([BrowserSignIn]).
+ * @param scopesSupported the string members of `scopes_supported` (OIDC Discovery 1.0 §3), or
+ *   `null` where the document has no such array. The member is only recommended, so `null` says
+ *   nothing about which scopes the provider takes.
  */
 data class OidcProviderMetadata(
   val issuer: String,
@@ -23,7 +26,21 @@ data class OidcProviderMetadata(
   val tokenEndpoint: String,
   val jwksUri: String,
   val authorizationResponseIssParameterSupported: Boolean = false,
+  val scopesSupported: Set<String>? = null,
 ) {
+
+  /**
+   * The scopes to request when the caller wants [wanted]: `openid`, and each of [wanted] that
+   * [scopesSupported] lists. A provider may refuse a whole request over one scope it does not
+   * support, so a scope it did not list is left out, and without [scopesSupported] all of them are.
+   *
+   * ```
+   * val scopes = relyingParty.metadata.requestableScopes(setOf("profile", "email"))
+   * // ["openid", "profile", "email"] where discovery lists both, ["openid"] where it lists neither
+   * ```
+   */
+  fun requestableScopes(wanted: Set<String>): Set<String> =
+    linkedSetOf(OPENID_SCOPE) + wanted.filter { scopesSupported?.contains(it) == true }
 
   companion object {
 
@@ -46,8 +63,12 @@ data class OidcProviderMetadata(
         tokenEndpoint = required("token_endpoint"),
         jwksUri = required("jwks_uri"),
         authorizationResponseIssParameterSupported = document["authorization_response_iss_parameter_supported"] == true,
+        scopesSupported = (document["scopes_supported"] as? List<*>)?.filterIsInstance<String>()?.toSet(),
       )
     }
+
+    /** The scope that makes an OAuth request an OpenID Connect one (OIDC Core §3.1.2.1). */
+    const val OPENID_SCOPE = "openid"
 
     /** Where the document lives for a given issuer (OIDC Discovery 1.0 §4). */
     fun discoveryUrl(issuer: String): String =

@@ -3,6 +3,7 @@ package org.sempods.auth.core
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.util.Resource
 import com.nimbusds.jose.util.ResourceRetriever
+import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.oauth2.sdk.AuthorizationCode
 import com.nimbusds.oauth2.sdk.ResponseType
 import com.nimbusds.oauth2.sdk.Scope
@@ -19,6 +20,7 @@ import com.nimbusds.openid.connect.sdk.validators.IDTokenValidator
 import net.minidev.json.JSONObject
 import net.minidev.json.parser.JSONParser
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.URL
 
 /**
@@ -95,14 +97,38 @@ class OidcRelyingParty(
   /**
    * Who the provider says this is. SDK types stay inside; a caller gets what it needs.
    *
+   * The four person claims (OIDC Core §5.1) come only from a validated token, and only when the
+   * request asked for their scope (`profile` for [name] and [picture], `email` for [email] and
+   * [emailVerified]); a provider may still leave any of them out. Each is `null` when absent, and
+   * also when it has the wrong shape, which leaves the sign-in itself standing: they are for
+   * display, and a malformed one is no reason to lock the person out.
+   *
+   * | Claim | Value | `null` when |
+   * |---|---|---|
+   * | `name` | the string, trimmed | not a string, or blank |
+   * | `email` | the string, trimmed | not a string, or blank |
+   * | `email_verified` | `true` or `false`, from a JSON boolean or the string `"true"` or `"false"` in any case | anything else |
+   * | `picture` | the string | not an absolute `http` or `https` URL with a host |
+   *
    * @property equivalentIdentities the WebIDs the provider asserts for the same person
    *   ([EquivalentIdentities.read]). Empty when the provider asserted none, and always empty unless
    *   [trustsEquivalentIdentities].
+   * @property name the person's full name, for display. Not an identifier: [webId] is.
+   * @property email an address the provider names for the person, unverified unless
+   *   [emailVerified] is `true`. Not an identifier either: an address can move between people.
+   * @property emailVerified whether the provider checked that [email] belongs to the person.
+   * @property picture a URL the provider gives for the person's picture. Untrusted: it points
+   *   wherever the provider's data says, so a caller that loads it lets that host see the viewer.
+   *   Escape it as any other attribute value.
    */
-  data class VerifiedIdentity(
+  data class VerifiedIdentity @JvmOverloads constructor(
     val webId: String,
     val equivalentIdentities: Set<String>,
     val issuer: String,
+    val name: String? = null,
+    val email: String? = null,
+    val emailVerified: Boolean? = null,
+    val picture: String? = null,
   )
 
   /**
@@ -111,7 +137,7 @@ class OidcRelyingParty(
    *   chances for them to disagree about which request a callback belongs to.
    */
   fun beginAuthorization(
-    scopes: Set<String> = setOf("openid"),
+    scopes: Set<String> = setOf(OidcProviderMetadata.OPENID_SCOPE),
     prompt: String? = null,
     state: String? = null,
   ): Started {
@@ -183,11 +209,21 @@ class OidcRelyingParty(
     // Read from the token itself. The SDK's claims set drops a claim whose value is `null`, which
     // would make a value that must be refused look absent. Read whether or not this provider is
     // trusted with it, because a malformed claim refuses the login either way.
-    val equivalentIdentities = EquivalentIdentities.read(idToken.jwtClaimsSet)
+    val token = idToken.jwtClaimsSet
+    val equivalentIdentities = EquivalentIdentities.read(token)
     return VerifiedIdentity(
       webId = claims.subject.value,
       equivalentIdentities = if (trustsEquivalentIdentities) equivalentIdentities else emptySet(),
       issuer = claims.issuer.value,
+      name = token.text("name"),
+      email = token.text("email"),
+      emailVerified = when (val raw = token.getClaim("email_verified")) {
+        // Apple sends the string spelling in some responses ([IdTokenVerifier.isTrue]).
+        is Boolean -> raw
+        is String -> raw.lowercase().toBooleanStrictOrNull()
+        else -> null
+      },
+      picture = (token.getClaim("picture") as? String)?.takeIf(::isHttpUrl),
     )
   }
 
@@ -209,6 +245,18 @@ class OidcRelyingParty(
         "provider at $issuer advertises issuer '${metadata.issuer}'"
       }
       return OidcRelyingParty(metadata, clientId, redirectUri, transport, trustsEquivalentIdentities)
+    }
+
+    private fun JWTClaimsSet.text(name: String): String? =
+      (getClaim(name) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun isHttpUrl(value: String): Boolean {
+      val uri = try {
+        URI(value)
+      } catch (_: URISyntaxException) {
+        return false
+      }
+      return uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrEmpty()
     }
 
     private fun String.toJsonObject(): JSONObject =

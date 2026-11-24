@@ -125,10 +125,20 @@ class BrowserSignIn<T>(
     data class SignedIn<T>(val payload: T, val identity: OidcRelyingParty.VerifiedIdentity) : Completion<T>
   }
 
-  /** @param prompt forwarded when it parses as an OIDC `prompt`, else dropped. */
-  fun begin(relyingParty: OidcRelyingParty, payload: T, prompt: String? = null): Started {
+  /**
+   * @param prompt forwarded when it parses as an OIDC `prompt`, else dropped.
+   * @param scopes forwarded as the request's `scope`, `openid` among them.
+   *   [OidcProviderMetadata.requestableScopes] picks those this provider takes. `profile` and
+   *   `email` bring the person claims of [OidcRelyingParty.VerifiedIdentity].
+   */
+  fun begin(
+    relyingParty: OidcRelyingParty,
+    payload: T,
+    prompt: String? = null,
+    scopes: Set<String> = setOf(OidcProviderMetadata.OPENID_SCOPE),
+  ): Started {
     val state = parked.newKey()
-    val started = relyingParty.beginAuthorization(prompt = prompt, state = state)
+    val started = relyingParty.beginAuthorization(scopes = scopes, prompt = prompt, state = state)
     val browserPin = Secrets.newSecret()
     parked.create(
       state,
