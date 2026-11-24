@@ -108,6 +108,8 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
         return@forEach
       }
       val selection = selectionOf(example, case)
+      val flattened = answer.mapTo(LinkedHashModel()) { st -> Values.getValueFactory().createStatement(st.subject, st.predicate, st.`object`) }
+      assertAnswers(example, example.nQuads(case["flat"]["nquads"].stringValue()), flattened, form.copy(grouped = false), selection)
       val holding = { hit: Resource -> example.data.filter(hit, null, null).contexts().filter { it!!.stringValue() in selection }.toSet() }
       answer.filter(::generated).forEach { st ->
         val hits = if (st.subject is IRI) setOf(st.subject) else answer.filter(null, FIND_RESULT, st.subject).subjects()

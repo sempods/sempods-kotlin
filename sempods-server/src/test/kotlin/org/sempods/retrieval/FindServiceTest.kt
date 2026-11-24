@@ -323,6 +323,44 @@ class FindServiceTest {
     assertTrue(Models.isomorphic(LinkedHashModel(adapter).apply { addAll(expansion) }, result))
   }
 
+  @Test
+  fun `an expander that overrides only expand still confirms a hit seen only through an observation`() {
+    val observation = vf.createBNode()
+    val adapter = LinkedHashModel().apply {
+      add(hit, findResult, observation)
+      add(observation, text, vf.createLiteral("Harbour lantern"))
+    }
+    val expander = object : ResourceExpander {
+      override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model =
+        LinkedHashModel().apply { if (hit in hits) add(hit, name, vf.createLiteral("Harbour lantern"), contextA) }
+    }
+
+    val result = find(adapter, expander = expander)
+
+    val link = result.filter(hit, findResult, null).single()
+    assertEquals(contextA, link.context)
+    assertEquals(contextA, result.filter(assertIs<BNode>(link.`object`), text, null).single().context)
+    assertEquals(contextA, result.filter(hit, name, null).single().context)
+  }
+
+  @Test
+  fun `an expansion statement without a context is dropped, with an observation and without one`() {
+    val stored = modelOf(hit.stringValue())
+    val unsourced = object : ResourceExpander {
+      override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model =
+        LinkedHashModel().apply { add(hit, vf.createIRI("http://www.w3.org/2000/01/rdf-schema#label"), vf.createLiteral("no source")) }
+    }
+    val observation = vf.createBNode()
+    val observed = LinkedHashModel(stored).apply { add(hit, findResult, observation) }
+
+    listOf(stored, observed).forEach { adapter ->
+      val result = find(adapter, expander = unsourced)
+
+      assertTrue(result.none { it.context == null }, "a statement left the find with no context: $result")
+      assertEquals(adapter.size, result.size, "the unsourced label is dropped and nothing else is: $result")
+    }
+  }
+
   private fun scopedTo(vararg contexts: IRI) = FindSandbox(
     podUri = sandbox.podUri,
     credentials = sandbox.credentials,

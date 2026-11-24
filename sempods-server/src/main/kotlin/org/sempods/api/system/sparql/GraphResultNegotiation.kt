@@ -44,10 +44,7 @@ object GraphResultNegotiation {
    * otherwise the first range in [acceptableMediaTypes] compatible with JSON-LD or N-Quads, with no
    * regard for quality values. The routes no longer call it.
    */
-  @Deprecated(
-    "Ignores quality values. Pass the raw Accept header to select(String).",
-    ReplaceWith("select(accept)"),
-  )
+  @Deprecated("Ignores quality values. Pass the raw Accept header to select(String).")
   fun select(acceptableMediaTypes: List<MediaType>): GraphResultFormat? {
     if (acceptableMediaTypes.isEmpty()) return GraphResultFormat.JSON_LD
     for (mediaType in acceptableMediaTypes) {

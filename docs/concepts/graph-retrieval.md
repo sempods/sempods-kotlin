@@ -87,8 +87,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   The caller picks no mode.
 - **An observation lands in a context that holds its hit.** The built-in SPARQL adapter
   supplies none. An engine that does can name the context its match was in; otherwise
-  `FindService` puts the observation in the first context, by IRI, where the hit is the
-  subject of a stored statement. Each adapter's blank nodes stay its own. The
+  `FindService` puts the observation in a context it knows to hold the hit — the first, by
+  IRI, among those the answer and its store lookup show. Each adapter's blank nodes stay its own. The
   [`FindAdapter`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindAdapter.kt)
   KDoc says what an adapter may contribute.
 - **The context sandbox always applies** — the same permission layer as SPARQL

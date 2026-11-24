@@ -18,7 +18,9 @@ interface ResourceExpander {
   /**
    * @param hits the found resource IRIs to expand (may be empty → empty result).
    * @param sandbox the pod-scoped context; the expansion stays within [FindSandbox.effectiveScope].
-   * @return a model carrying the expansion triples for [hits]; never exceeds the sandbox.
+   * @return a model carrying the expansion triples for [hits]; never exceeds the sandbox. Each
+   *   statement carries the context it is stored in. [FindService] drops one without a context, or
+   *   with one outside [FindSandbox.effectiveScope]: its source cannot be shown (`SPS-FIND-030`).
    */
   fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model
 
@@ -36,9 +38,20 @@ interface ResourceExpander {
    *   does not show holding the hit. A context returned here keeps the observation where the adapter
    *   put it; with none, the observation moves to a holding context the answer already showed.
    *
-   * An empty map means the store shows no holding context. The default knows none, so with it a
-   * candidate seen only through observations is dropped, and placement uses only what the answer
-   * shows.
+   * An empty map means the store shows no holding context. The default reads what [expand] returns
+   * for [hits]: a context in which the expansion holds a statement about a hit holds that hit. An
+   * expander that overrides only [expand] therefore keeps a candidate it can name, type or label,
+   * and misses one whose stored statements lie outside the fixed expansion set.
    */
-  fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> = emptyMap()
+  fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> {
+    val wanted = hits.toSet()
+    val scope = sandbox.effectiveScope()?.mapTo(HashSet()) { it.toString() }
+    val holding = HashMap<IRI, MutableSet<Resource>>()
+    expand(hits, sandbox).forEach { st ->
+      val hit = st.subject as? IRI ?: return@forEach
+      val context = st.context ?: return@forEach
+      if (hit in wanted && (scope == null || context.stringValue() in scope)) holding.getOrPut(hit) { HashSet() } += context
+    }
+    return holding
+  }
 }

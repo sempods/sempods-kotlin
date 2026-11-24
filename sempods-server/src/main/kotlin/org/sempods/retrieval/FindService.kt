@@ -32,12 +32,15 @@ import java.util.concurrent.Executors
  *   Each adapter's blank nodes are its own: two adapters' `_:m` stay two nodes.
  * - **Every statement leaves in a context that holds its hit** (`SPS-FIND-027`). A stored
  *   statement keeps its own; a stored statement with no context, or with one outside
- *   [FindSandbox.effectiveScope], is dropped (`SPS-FIND-030`). A generated statement its adapter
- *   attributes to a context outside the selection is dropped too (`SPS-FIND-010`): the caller
- *   narrowed the search away from it. A generated statement keeps a context in the selection when
- *   that context holds the hit; one with no context, or with one the hit is not held in, moves to
- *   the first holding context in IRI order. Where the answer shows the hit held elsewhere but not in
- *   the observation's own context, [ResourceExpander.holdingContexts] is asked first.
+ *   [FindSandbox.effectiveScope], is dropped (`SPS-FIND-030`), from an adapter and from the
+ *   expansion alike. A generated statement its adapter attributes to a context outside the
+ *   selection is dropped too (`SPS-FIND-010`): the caller narrowed the search away from it. A
+ *   generated statement keeps a context in the selection when that context holds the hit; one with
+ *   no context, or with one the hit is not held in, moves to the first, by IRI, of the contexts the
+ *   service knows to hold the hit — those the answer shows and those
+ *   [ResourceExpander.holdingContexts] returned. That is a holding context, not necessarily the
+ *   first of every context that holds the hit. Where the answer shows the hit held elsewhere but not
+ *   in the observation's own context, [ResourceExpander.holdingContexts] is asked first.
  *
  * The flat representation drops the contexts afterwards, so both representations come from the
  * same placed model and grouping changes only the representation.
@@ -96,7 +99,7 @@ class FindService @Inject constructor(
     if (keep.isEmpty()) return LinkedHashModel()
 
     val result = reachableFrom(keep, merged)
-    result.addAll(expander.expand(keep, sandbox))
+    result.addAll(stored(expander.expand(keep, sandbox), scope))
     return placed(result, keep, holding, asked = unseen, sandbox)
   }
 
@@ -132,6 +135,10 @@ class FindService @Inject constructor(
       val inScope = st.context != null && (scope == null || st.context.stringValue() in scope)
       inScope || (isGenerated(st) && st.context == null)
     }
+
+  /** What the expansion may contribute: stored statements in [scope]; one without a context has no source. */
+  private fun stored(model: Model, scope: Set<String>?): List<Statement> =
+    model.filter { st -> !isGenerated(st) && st.context != null && (scope == null || st.context.stringValue() in scope) }
 
   /** The statements of [hits] and of every blank node they reach, in [model]'s order. */
   private fun reachableFrom(hits: Set<IRI>, model: Model): Model {
