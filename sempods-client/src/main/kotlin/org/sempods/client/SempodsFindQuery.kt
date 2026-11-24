@@ -4,7 +4,7 @@ import java.util.Collections
 
 /**
  * What a `find` asks for: the text, the types a hit must have, which contexts may answer, whether the
- * answer is grouped by context, and how many resources it may name.
+ * answer is grouped by context, and how many distinct resources it may match.
  *
  * ```java
  * SempodsFindQuery query = SempodsFindQuery.text("harbour")
@@ -24,7 +24,11 @@ class SempodsFindQuery private constructor(
   val selection: SempodsContextSelection,
   /** `true` asks for every statement grouped by its context (SPS-FIND-027); `false`, the default, for one graph. */
   val includeContexts: Boolean,
-  /** The most resources the answer may name, or null for the pod's default (SPS-FIND-025). */
+  /**
+   * The most distinct matched resource IRIs the answer may hold, or null for the pod's default
+   * (SPS-FIND-025). It bounds hits only: the answer may still name other IRIs, such as a linked
+   * resource or a type, and carry several observations per hit.
+   */
   val limit: Int?,
 ) {
 
@@ -56,7 +60,8 @@ class SempodsFindQuery private constructor(
     SempodsFindQuery(text, types, selection, includeContexts, limit)
 
   /**
-   * At most [limit] resources; null leaves the cap to the pod. A pod caps a larger limit at its maximum.
+   * At most [limit] distinct matched resource IRIs (SPS-FIND-025); null leaves the cap to the pod. A
+   * pod caps a larger limit at its maximum. Linked IRIs and observations do not count towards it.
    *
    * @throws IllegalArgumentException for a limit below 1.
    */
