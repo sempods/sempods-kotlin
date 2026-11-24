@@ -9,6 +9,7 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import org.junit.jupiter.api.Test
+import org.sempods.commons.net.UrlUtil
 import java.net.URI
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPrivateKey
@@ -101,6 +102,29 @@ class OidcRelyingPartyTest {
     }
   }
 
+  @Test
+  fun `scopes_supported is read for its strings, and is unknown where the document has none`() {
+    assertEquals(null, rp().metadata.scopesSupported)
+    assertEquals(
+      setOf("openid", "profile"),
+      rp(FakeProvider(scopesSupported = """["openid",42,"profile",null]""")).metadata.scopesSupported,
+    )
+    assertEquals(null, rp(FakeProvider(scopesSupported = """"openid profile"""")).metadata.scopesSupported)
+  }
+
+  @Test
+  fun `only the wanted scopes the provider lists are requestable, and openid always is`() {
+    val wanted = setOf("profile", "email")
+    fun requestable(scopesSupported: String?) =
+      rp(FakeProvider(scopesSupported = scopesSupported)).metadata.requestableScopes(wanted)
+
+    assertEquals(listOf("openid", "profile", "email"), requestable("""["openid","profile","email"]""").toList())
+    assertEquals(setOf("openid", "email"), requestable("""["openid","email","phone"]"""))
+    assertEquals(setOf("openid"), requestable("""["openid"]"""))
+    assertEquals(setOf("openid"), requestable(null), "an unlisted scope might refuse the whole request")
+    assertEquals(setOf("openid"), rp().metadata.requestableScopes(emptySet()))
+  }
+
   // ─── the authorization request ────────────────────────────────────────────
 
   @Test
@@ -114,6 +138,14 @@ class OidcRelyingPartyTest {
     assertTrue("code_challenge_method=S256" in query, query)
     // A `did:web:` client id is all colons; unescaped it would end the parameter early.
     assertTrue("client_id=did%3Aweb%3Apod.example.invalid" in query, query)
+  }
+
+  @Test
+  fun `the requested scopes are the request's scope`() {
+    val started = rp().beginAuthorization(scopes = setOf("openid", "profile", "email"))
+    val query = UrlUtil.queryParams(URI(started.authorizationUrl).rawQuery, decodeParams = true)
+
+    assertEquals("openid profile email", query["scope"])
   }
 
   @Test
@@ -292,6 +324,68 @@ class OidcRelyingPartyTest {
     }
   }
 
+  // ─── the person claims ────────────────────────────────────────────────────
+
+  @Test
+  fun `the person claims the token carries reach the identity`() {
+    val identity = signIn(
+      FakeProvider(
+        claims = mapOf(
+          "name" to " Alice Example ",
+          "email" to "alice@example.invalid",
+          "email_verified" to false,
+          "picture" to "https://cdn.example.invalid/alice.png",
+        ),
+      ),
+    )
+
+    assertEquals("Alice Example", identity.name)
+    assertEquals("alice@example.invalid", identity.email)
+    assertEquals(false, identity.emailVerified, "an address the provider did not check is still named")
+    assertEquals("https://cdn.example.invalid/alice.png", identity.picture)
+  }
+
+  @Test
+  fun `a token without person claims names none, and one with some names those`() {
+    val none = signIn(FakeProvider())
+    assertEquals(listOf(null, null, null, null), listOf(none.name, none.email, none.emailVerified, none.picture))
+
+    val some = signIn(FakeProvider(claims = mapOf("name" to "Alice Example")))
+    assertEquals("Alice Example", some.name)
+    assertEquals(listOf(null, null, null), listOf(some.email, some.emailVerified, some.picture))
+  }
+
+  @Test
+  fun `a person claim of the wrong shape is dropped, and the sign-in stands`() {
+    val identity = signIn(
+      FakeProvider(
+        claims = mapOf(
+          "name" to 42,
+          "email" to "   ",
+          "email_verified" to "yes",
+          "picture" to "javascript:alert(1)",
+        ),
+      ),
+    )
+
+    assertEquals("$ISSUER/e/abc", identity.webId)
+    assertEquals(listOf(null, null, null, null), listOf(identity.name, identity.email, identity.emailVerified, identity.picture))
+    for (picture in listOf(null, "/alice.png", "https:alice.png", "data:image/png;base64,AAAA", mapOf("url" to "https://x.invalid/a.png"))) {
+      assertEquals(null, signIn(FakeProvider(claims = mapOf("picture" to picture))).picture, "picture $picture")
+    }
+    for (name in listOf(null, listOf("Alice"), "")) {
+      assertEquals(null, signIn(FakeProvider(claims = mapOf("name" to name))).name, "name $name")
+    }
+  }
+
+  @Test
+  fun `email_verified in the string spelling is read as the boolean it names`() {
+    // Apple sends either spelling, as `IdTokenVerifier.isTrue` records.
+    assertEquals(true, signIn(FakeProvider(claims = mapOf("email_verified" to "true"))).emailVerified)
+    assertEquals(false, signIn(FakeProvider(claims = mapOf("email_verified" to "FALSE"))).emailVerified)
+    assertEquals(null, signIn(FakeProvider(claims = mapOf("email_verified" to 1))).emailVerified)
+  }
+
   // ─── the provider ─────────────────────────────────────────────────────────
 
   /** Answers like an OpenID Provider, and can be told to answer wrongly. */
@@ -312,10 +406,13 @@ class OidcRelyingPartyTest {
     /** Further claims, written verbatim — a `null` value included. */
     private val claims: Map<String, Any?> = emptyMap(),
     private val signingKey: RSAPrivateKey = keyPair.private as RSAPrivateKey,
+    /** The `scopes_supported` member as raw JSON, or `null` to leave it out. */
+    scopesSupported: String? = null,
   ) {
     val discoveryDocument = """
       {"issuer":"$advertisedIssuer","authorization_endpoint":"$ISSUER/authorize",
-       "token_endpoint":"$ISSUER/token","jwks_uri":"$JWKS_URL"}
+       "token_endpoint":"$ISSUER/token","jwks_uri":"$JWKS_URL"
+       ${scopesSupported?.let { ",\"scopes_supported\":$it" }.orEmpty()}}
     """.trimIndent()
 
     fun tokenResponseFor(form: Map<String, String>): String {
