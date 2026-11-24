@@ -2,6 +2,8 @@ package org.sempods.retrieval
 
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.spec.PodRef
+import org.sempods.commons.trace.TraceContext
+import org.sempods.commons.trace.TraceContextHolder
 import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
@@ -11,6 +13,7 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.junit.jupiter.api.Test
 import java.net.URI
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -70,6 +73,25 @@ class FindServiceTest {
 
   private fun subjectsOf(model: Model): Set<String> =
     model.subjects().filterIsInstance<IRI>().map { it.stringValue() }.toSet()
+
+  @Test
+  fun `each adapter runs under the caller's trace, and under none when the caller has none`() {
+    val seen = ConcurrentLinkedQueue<String>()
+    val recording = object : FindAdapter {
+      override fun find(request: FindRequest, sandbox: FindSandbox): Model {
+        seen += TraceContextHolder.getTraceId() ?: "none"
+        return LinkedHashModel()
+      }
+    }
+    val service = FindService(adapters = setOf(recording, adapter(LinkedHashModel())), expander = CapturingExpander())
+    val request = FindRequest(tokens = listOf("x"), types = emptySet(), limit = 10)
+
+    val trace = TraceContext.random()
+    TraceContextHolder.with(trace) { service.find(request, sandbox) }
+    service.find(request, sandbox)
+
+    assertEquals(listOf(trace.traceId, "none"), seen.toList())
+  }
 
   @Test
   fun `caps merged hits to the limit deterministically and prunes dropped hits' edges`() {

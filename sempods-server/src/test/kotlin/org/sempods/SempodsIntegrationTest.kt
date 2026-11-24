@@ -10,6 +10,7 @@ import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.pods.oauth.PodTokenIssuer
 import org.sempods.pods.oauth.PodRequestVerifierObserver
+import org.sempods.retrieval.FindAdapterObserver
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
@@ -105,6 +106,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   @Inject
   private lateinit var idServerObserver: IdServerObserver
 
+  @Inject
+  private lateinit var findAdapterObserver: FindAdapterObserver
+
   /**
    * Runs [block] in a fresh [SempodsTestSetup]. Each seam's test implementation is observed for the
    * block's trace, so what a test changes there reaches its own requests and no other class's.
@@ -115,7 +119,14 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   protected fun withSetup(block: SempodsTestSetup.() -> Unit) {
     requestVerifierObserver.observeWithTestImpl { requestVerifier ->
       idServerObserver.observeWithTestImpl { idServer ->
-        SempodsTestSetup(requestVerifier = requestVerifier, idServer = idServer, podAccess = podAccess).block()
+        findAdapterObserver.observeWithTestImpl { findAdapter ->
+          SempodsTestSetup(
+            requestVerifier = requestVerifier,
+            idServer = idServer,
+            findAdapter = findAdapter,
+            podAccess = podAccess,
+          ).block()
+        }
       }
     }
   }

@@ -10,6 +10,7 @@ import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.sempods.commons.net.SempodsVocabulary
+import org.sempods.commons.trace.TraceContextHolder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -67,12 +68,14 @@ class FindService @Inject constructor(
   fun find(request: FindRequest, sandbox: FindSandbox): Model {
     if (sandbox.matchesNothing()) return LinkedHashModel()
 
-    // Fan out across adapters on virtual threads (Java 25); join and merge their models.
-    // TODO: the submitted threads inherit no trace, so every adapter logs without a traceId.
-    //  Capture the TraceContextHolder trace here and re-bind it inside the task, the way
-    //  DirectTaskExecutor does.
+    // Fan out across adapters on virtual threads (Java 25); join and merge their models. A virtual
+    // thread inherits no trace, so each task re-binds the caller's: an adapter logs under it, and
+    // reaches what a test observes for it.
+    val trace = TraceContextHolder.get()
     val futures = adapters.map { adapter ->
-      executor.submit<Model> { adapter.find(request, sandbox) }
+      executor.submit<Model> {
+        if (trace == null) adapter.find(request, sandbox) else TraceContextHolder.with(trace) { adapter.find(request, sandbox) }
+      }
     }
     val scope = sandbox.effectiveScope()?.mapTo(HashSet()) { it.toString() }
     val merged = LinkedHashModel()

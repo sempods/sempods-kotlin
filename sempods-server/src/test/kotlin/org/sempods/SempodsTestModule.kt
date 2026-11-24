@@ -3,7 +3,6 @@ package org.sempods
 import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
-import com.google.inject.multibindings.Multibinder
 import org.sempods.commons.guice.BaseModule
 import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.ai.AiService
@@ -22,8 +21,7 @@ import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient
-import org.sempods.retrieval.FindAdapter
-import org.sempods.retrieval.ScriptedFindAdapter
+import org.sempods.retrieval.FindAdapterObserver
 import okhttp3.OkHttpClient
 import java.nio.file.Files
 import java.time.Duration
@@ -48,10 +46,9 @@ data class SempodsTestModule(
     // An application's own suite seeds the same way, through the client it uses in production.
     bind<SempodsTestPodAccess>().asSingleton()
 
-    // An engine that annotates its hits, beside the SPARQL adapter: `find` answers its script only to
-    // the one text a test gave it, so every other test sees the SPARQL adapter alone.
-    bind<ScriptedFindAdapter>().asSingleton()
-    Multibinder.newSetBinder(binder(), FindAdapter::class.java).addBinding().to(ScriptedFindAdapter::class.java)
+    // An engine that annotates its hits, beside the SPARQL adapter. It answers nothing outside a
+    // `withSetup` block, so every other test sees the SPARQL adapter alone.
+    FindAdapterObserver.bindTestProxy(binder())
 
     // Overrides the env-selected admin authority (SempodsModule.bindAdminAuthorizer) with a known
     // test credential, and lets a test swap in a different authorizer — see AdminAuthorizerTestDouble.

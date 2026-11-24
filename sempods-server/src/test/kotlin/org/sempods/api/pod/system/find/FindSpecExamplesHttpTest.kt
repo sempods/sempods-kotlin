@@ -21,7 +21,6 @@ import org.sempods.commons.net.SempodsVocabulary
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.tests.TestUtil
 import org.sempods.pods.contexts.persist.PodContextsDao
-import org.sempods.retrieval.ScriptedFindAdapter
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 import tools.jackson.databind.node.JsonNodeFactory
@@ -34,7 +33,7 @@ import kotlin.test.assertTrue
 
 /**
  * sempods-spec's find examples (`src/test/resources/spec/find/`), served through `_system/find` by
- * an engine that annotates its hits ([ScriptedFindAdapter]) beside the built-in SPARQL adapter.
+ * an engine that annotates its hits (the setup's `findAdapter`) beside the built-in SPARQL adapter.
  *
  * Each case seeds the examples' pod data into a fresh pod, scripts the engine with the case's grouped
  * answer, and asks for it by GET and POST, flat and grouped, as JSON-LD and as N-Quads. The answer
@@ -50,9 +49,6 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var podContextsDao: PodContextsDao
-
-  @Inject
-  private lateinit var engine: ScriptedFindAdapter
 
   /** One pod holding the examples' data, with the IRIs the examples spell under `https://pod.example/` moved under it. */
   private inner class ExamplePod {
@@ -84,11 +80,11 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
       "optional-description",
     ],
   )
-  fun `an example is served as the specification writes it, in every form`(name: String) {
+  fun `an example is served as the specification writes it, in every form`(name: String) = withSetup {
     val example = ExamplePod()
     val case = EXAMPLES[name]
     val text = "specexample${TestUtil.randomId()}"
-    engine.script(text, example.nQuads(case["grouped"]["nquads"].stringValue()))
+    findAdapter.answerWith(example.nQuads(case["grouped"]["nquads"].stringValue()))
 
     forms(example, case, text).forEach { (form, answer) ->
       val expected = example.nQuads(case[if (form.grouped) "grouped" else "flat"]["nquads"].stringValue())
@@ -98,13 +94,13 @@ class FindSpecExamplesHttpTest : SempodsIntegrationTest() {
 
   @ParameterizedTest
   @ValueSource(strings = ["bare", "known-match", "repeated", "split", "independent", "match-also-in-A"])
-  fun `an observation the engine did not place goes into a context that holds its hit`(name: String) {
+  fun `an observation the engine did not place goes into a context that holds its hit`(name: String) = withSetup {
     val example = ExamplePod()
     val case = EXAMPLES[name]
     val text = "specexample${TestUtil.randomId()}"
     val unplaced = example.nQuads(case["grouped"]["nquads"].stringValue())
       .mapTo(LinkedHashModel()) { st -> if (generated(st)) Values.getValueFactory().createStatement(st.subject, st.predicate, st.`object`) else st }
-    engine.script(text, unplaced)
+    findAdapter.answerWith(unplaced)
 
     forms(example, case, text).forEach { (form, answer) ->
       if (!form.grouped) {

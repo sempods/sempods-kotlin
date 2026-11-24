@@ -8,6 +8,7 @@ import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.pods.oauth.PodRequestVerifierTestImpl
+import org.sempods.retrieval.FindAdapterTestImpl
 
 /**
  * The scenario a `withSetup { }` block in [SempodsIntegrationTest] runs in: the test implementations
@@ -22,6 +23,8 @@ class SempodsTestSetup internal constructor(
    * changes it, and sign-ins armed on either complete on both.
    */
   val idServer: FakeOidcProvider,
+  /** A `find` engine beside the SPARQL adapter; it answers nothing until a test calls `answerWith`. */
+  val findAdapter: FindAdapterTestImpl,
   private val podAccess: SempodsTestPodAccess,
 ) {
 
