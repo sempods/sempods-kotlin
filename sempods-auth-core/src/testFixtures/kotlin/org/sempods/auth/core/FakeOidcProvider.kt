@@ -25,8 +25,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Codes are not consumed: a replayed callback has to be refused by the relying party's own state.
  * The token's audience is the `client_id` the exchange presents.
  *
- * It answers like a real provider until a test changes [advertisesIss] or [reachable]. A test that
- * changes one where others share the provider takes a [variant].
+ * It answers like a real provider until a test changes [advertisesIss], [scopesSupported] or
+ * [reachable]. A test that changes one where others share the provider takes a [variant].
  */
 class FakeOidcProvider private constructor(
   val issuer: String,
@@ -46,6 +46,12 @@ class FakeOidcProvider private constructor(
 
   /** Whether discovery promises `iss` in every authorization response (RFC 9207). */
   @Volatile var advertisesIss: Boolean = true
+
+  /**
+   * What discovery lists in `scopes_supported`; `null` leaves the member out. The token endpoint
+   * does not check the request against it: the claims a sign-in carries are what [expect] says.
+   */
+  @Volatile var scopesSupported: List<String>? = listOf("openid", "profile", "email")
 
   /** `false` fails every request with an [IOException], as a provider that is down does. */
   @Volatile var reachable: Boolean = true
@@ -68,7 +74,10 @@ class FakeOidcProvider private constructor(
   fun expectFor(authorizationUrl: String, webId: String?, claims: Map<String, Any?> = emptyMap()): String =
     expect(webId, nonceOf(authorizationUrl), claims)
 
-  /** A provider with these keys and armed sign-ins, and [advertisesIss] and [reachable] of its own. */
+  /**
+   * A provider with these keys and armed sign-ins, and [advertisesIss], [scopesSupported] and
+   * [reachable] of its own.
+   */
   fun variant(): FakeOidcProvider = FakeOidcProvider(issuer, key, signIns, codes)
 
   override fun get(url: String): String {
@@ -77,7 +86,8 @@ class FakeOidcProvider private constructor(
       "$issuer${OpenIdDiscovery.WELL_KNOWN_PATH}" -> """
         {"issuer":"$issuer","authorization_endpoint":"$issuer/authorize",
          "token_endpoint":"$issuer/token","jwks_uri":"$issuer/.well-known/jwks.json",
-         "authorization_response_iss_parameter_supported":$advertisesIss}
+         "authorization_response_iss_parameter_supported":$advertisesIss
+         ${scopesSupported?.joinToString(",", ",\"scopes_supported\":[", "]") { "\"$it\"" }.orEmpty()}}
       """.trimIndent()
 
       "$issuer/.well-known/jwks.json" -> JWKSet(key.toPublicJWK()).toString()
