@@ -51,7 +51,9 @@ The [quick start](../README.md#find-an-operation) maps groups to tasks. Core RDF
 text or bytes; protocol JSON, such as token responses or SPARQL SELECT results, has typed readers.
 
 Resource, subject and slot reads select contexts with `SempodsReadOptions`. SPARQL takes a
-`SempodsContextSelection` and sends it as protocol dataset parameters. A different pod
+`SempodsContextSelection` and sends it as protocol dataset parameters. `find()` takes a
+`SempodsFindQuery` and sends the selection as its `contexts` member; `none()` goes out as an
+empty list. A different pod
 implementation may ignore them under `SPS-SPARQL-011`, so a client cannot use selection as an
 authorization boundary. The server's grants remain that boundary.
 

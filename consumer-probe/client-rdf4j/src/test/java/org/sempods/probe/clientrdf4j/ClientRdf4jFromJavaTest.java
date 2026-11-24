@@ -39,6 +39,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import org.sempods.client.SempodsContextSelection;
 import org.sempods.client.SempodsDecodingException;
+import org.sempods.client.SempodsFindQuery;
 import org.sempods.client.SempodsForeignTarget;
 import org.sempods.client.SempodsOkHttp;
 import org.sempods.client.SempodsPod;
@@ -117,6 +118,10 @@ class ClientRdf4jFromJavaTest {
             + "{\"s\": {\"type\": \"uri\", \"value\": \"urn:s\"}}]}}");
       }
     });
+    // A find's link in TASKS and the details of its observation in NOTES, as a grouped answer splits them.
+    server.createContext("/alice/_system/find", exchange -> send(exchange, 200,
+        "<urn:hit> <https://schema.sempods.org/findResult> _:m <" + TASKS + "> .\n"
+            + "_:m <https://schema.org/text> \"lantern\" <" + NOTES + "> .\n"));
     server.createContext("/profile", exchange -> {
       exchange.getResponseHeaders().add("Content-Type", "text/turtle");
       send(exchange, 200, "<#me> <http://xmlns.com/foaf/0.1/name> \"Bob\" .");
@@ -201,6 +206,15 @@ class ClientRdf4jFromJavaTest {
     assertEquals(Values.iri("urn:s"), row.getValue("s"));
     assertFalse(row.hasBinding("o"));
     assertEquals(Set.of("s"), row.getBindingNames());
+  }
+
+  @Test
+  void readsAFindAnswerAsAModelWithOneNodePerObservation() throws IOException {
+    Model hits = new SempodsRdf4jPod(pod()).find().model(SempodsFindQuery.text("lantern").withIncludeContexts(true)).getBody();
+
+    Resource observation = (Resource) hits.filter(Values.iri("urn:hit"), null, null).objects().iterator().next();
+    assertEquals(Set.<Resource>of(Values.iri(TASKS)), hits.filter(Values.iri("urn:hit"), null, null).contexts());
+    assertEquals(Set.<Resource>of(Values.iri(NOTES)), hits.filter(observation, null, null).contexts());
   }
 
   @Test

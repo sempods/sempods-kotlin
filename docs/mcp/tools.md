@@ -137,10 +137,11 @@ context-sandboxed **flat RDF subgraph** (the matching resources plus a
 fixed `rdf:type` / `rdfs:label` / `schema:name` expansion) as JSON-LD —
 feed the hit IRIs into `get_resource` / `sparql_graph` to traverse
 deeper. A resource matches when one of its literals contains all
-whitespace-split, case-insensitive `text` tokens. Thin wrapper over the
-same `FindService` as the REST `GET /{pod}/_system/find` endpoint, so the
-two surfaces cannot drift; the search backend (SPARQL substring today,
-vector later) is swappable behind the pinned contract.
+whitespace-split, case-insensitive `text` tokens. The tool calls the pod's
+`POST /{pod}/_system/find` through the client's `pod.find()` and hands the
+JSON-LD on as the pod sent it, so the two surfaces cannot drift; the search
+backend (SPARQL substring today, vector later) is swappable behind the
+pinned contract.
 
 Arguments:
 

@@ -115,6 +115,18 @@ class PodToolExecutorTest {
   }
 
   @Test
+  fun `find asks the pod's find group for JSON-LD and hands its text on`() {
+    answer("POST", "/alice/_system/find", body = """{"@id":"$thing","https://schema.sempods.org/findResult":[{"@id":"_:m"}]}""")
+
+    val result = run("find", """{"text":"kita"}""")
+
+    val sent = server.retrieveRecordedRequests(request().withPath("/alice/_system/find")).last()
+    assertEquals("application/ld+json", sent.getFirstHeader("Accept"))
+    assertEquals("application/json", sent.getFirstHeader("Content-Type"))
+    assertEquals(mapper.readTree("""{"@id":"$thing","https://schema.sempods.org/findResult":[{"@id":"_:m"}]}"""), result)
+  }
+
+  @Test
   fun `find clamps limit to the range the catalog advertises`() {
     answer("POST", "/alice/_system/find", body = "[]")
     // Out of range in either direction is clamped rather than refused or passed on raw: the schema

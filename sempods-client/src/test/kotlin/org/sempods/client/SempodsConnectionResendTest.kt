@@ -314,6 +314,21 @@ class SempodsConnectionResendTest {
   }
 
   @Test
+  fun `a find through the pod's group is resent once, as the repeatable request it is`() {
+    sempodsClient().closing { client ->
+      val a = session()
+      leaveAStaleConnection(client, a)
+
+      val answer = SempodsPod(a, client).find().text(SempodsFindQuery.text("harbour"))
+
+      assertEquals(200, answer.status)
+      assertEquals(2, requestHeads.size)
+      assertTrue(requestHeads[1].startsWith("POST /alice/_system/find "), requestHeads[1])
+      assertTrue(requestHeads[1].contains("X-Attempt: 2"), requestHeads[1])
+    }
+  }
+
+  @Test
   fun `a read, a PUT and a DELETE through the resource groups are resent once`() {
     sempodsClient().closing { client ->
       val a = session()

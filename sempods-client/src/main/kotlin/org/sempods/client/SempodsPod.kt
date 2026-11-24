@@ -36,6 +36,8 @@ class SempodsPod(
 
   private val sparqlGroup = SempodsPodSparql.of(session, exchange)
 
+  private val findGroup = SempodsPodFind.of(session, exchange)
+
   private val resourcesGroup = SempodsPodResources.of(ResourceOperations(session, exchange, ResourceAddress.LodPath(session.podBase)))
 
   private val systemOperations = ResourceOperations(session, exchange, ResourceAddress.SystemRoute)
@@ -52,6 +54,9 @@ class SempodsPod(
 
   /** SPARQL queries against the pod: typed SELECT and ASK results, and every result as the pod sent it. */
   fun sparql(): SempodsPodSparql = sparqlGroup
+
+  /** Words to resource IRIs: the hits, and what the pod says about them, as an RDF graph. */
+  fun find(): SempodsPodFind = findGroup
 
   /** Resources the pod hosts, at their own addresses. */
   fun resources(): SempodsPodResources = resourcesGroup
