@@ -13,12 +13,12 @@ import org.sempods.commons.guice.GuiceAppTestProxy
  */
 class FindAdapterObserver private constructor() : GuiceAppTestProxy<FindAdapter>(
   type = FindAdapter::class,
-  globalDefaultBehavior = FindAdapterTestImpl(),
+  globalDefaultBehavior = FindAdapterTestImpl(stateful = false),
 ) {
 
   /** Runs [block] with a fresh [FindAdapterTestImpl] answering this trace's searches. */
   fun <R> observeWithTestImpl(block: (delegate: FindAdapterTestImpl) -> R): R = observe(
-    delegate = FindAdapterTestImpl(),
+    delegate = FindAdapterTestImpl(stateful = true),
     useDelegateResult = true,
     block = block,
   )

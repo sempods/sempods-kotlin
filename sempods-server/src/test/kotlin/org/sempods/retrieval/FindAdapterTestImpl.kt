@@ -10,14 +10,18 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
  * It self-scopes as an index would: a statement in a context outside [FindSandbox.effectiveScope]
  * is left out, and one without a context passes. The SPARQL adapter still runs beside it, so a test
  * that wants only the scripted answer searches for a text no stored literal holds.
+ *
+ * Only a [stateful] instance takes an answer. The suite-wide default is not one, so no test can
+ * leave an answer behind for every other test to receive, or keep its model alive for the run.
  */
-class FindAdapterTestImpl : FindAdapter {
+class FindAdapterTestImpl(private val stateful: Boolean = false) : FindAdapter {
 
   @Volatile
   private var answer: Model = LinkedHashModel()
 
-  /** Answer [model] to every search, within the caller's selection. */
+  /** Answer [model] to every search, within the caller's selection. Only inside a `withSetup` block. */
   fun answerWith(model: Model) {
+    check(stateful) { "the suite-wide find adapter takes no answer; script the setup's findAdapter in a withSetup block" }
     answer = LinkedHashModel(model)
   }
 
