@@ -36,6 +36,8 @@ class SempodsRdf4jPod(
 
   private val sparqlGroup = SempodsRdf4jSparql.of(pod.sparql())
 
+  private val findGroup = SempodsRdf4jFind.of(pod.find())
+
   /** Resources the pod hosts, at their own addresses, as models. */
   fun resources(): SempodsRdf4jResources = resourcesGroup
 
@@ -50,6 +52,9 @@ class SempodsRdf4jPod(
 
   /** CONSTRUCT and DESCRIBE graphs as models, and SELECT results as binding sets. */
   fun sparql(): SempodsRdf4jSparql = sparqlGroup
+
+  /** A find's hits, and what the pod says about them, as a model. */
+  fun find(): SempodsRdf4jFind = findGroup
 }
 
 /** This pod as RDF4J models: `pod.rdf4j().subjects()`. From Java, `new SempodsRdf4jPod(pod)`. */

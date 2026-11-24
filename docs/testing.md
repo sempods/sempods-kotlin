@@ -115,8 +115,8 @@ Once a route's happy path runs through the client, the route needs no separate "
 against this route" test: every happy-path test is that check.
 
 A route no published client reaches stays raw in both columns: the MCP endpoint, because
-`sempods-client` has no MCP client, the `find` and admin media routes, which no client method
-covers, and token grants the client does not make (`refresh_token`, a code without PKCE). So do
+`sempods-client` has no MCP client, the admin media routes, which no client method covers, and
+token grants the client does not make (`refresh_token`, a code without PKCE). So do
 the shared fixtures that set up a sign-in or a service (`DelegatedAccessFlow`,
 `ServiceAccessFlow`): like seeding, they prepare what a test asserts on.
 

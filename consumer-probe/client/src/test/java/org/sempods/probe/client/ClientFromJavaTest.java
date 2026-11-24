@@ -55,6 +55,7 @@ import org.sempods.client.SempodsContextCreate;
 import org.sempods.client.SempodsContextSelection;
 import org.sempods.client.SempodsCredentialSupplier;
 import org.sempods.client.SempodsDecodingException;
+import org.sempods.client.SempodsFindQuery;
 import org.sempods.client.SempodsForeignTarget;
 import org.sempods.client.SempodsGraphFormat;
 import org.sempods.client.SempodsOkHttp;
@@ -67,6 +68,7 @@ import org.sempods.client.SempodsPodDateModified;
 import org.sempods.client.SempodsPodResources;
 import org.sempods.client.SempodsPodServiceClients;
 import org.sempods.client.SempodsPodSlots;
+import org.sempods.client.SempodsPodFind;
 import org.sempods.client.SempodsPodSparql;
 import org.sempods.client.SempodsPodSubjects;
 import org.sempods.client.SempodsPodTokens;
@@ -172,6 +174,17 @@ class ClientFromJavaTest {
       } else {
         json(exchange, 200, "{\"head\":{\"vars\":[\"s\"]},\"results\":{\"bindings\":"
             + "[{\"s\":{\"type\":\"uri\",\"value\":\"https://pods.example/alice/events/1\"}}]}}");
+      }
+    });
+    // Echoes the body and the Accept a find sent, and answers by the format asked for.
+    server.createContext("/alice/_system/find", exchange -> {
+      String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().add("X-Saw-Body", body);
+      exchange.getResponseHeaders().add("X-Saw-Content-Type", header(exchange, "Content-Type"));
+      if (header(exchange, "Accept").equals("application/n-quads")) {
+        json(exchange, 200, "<https://pods.example/alice/events/1> <https://schema.sempods.org/findResult> _:m .\n");
+      } else {
+        json(exchange, 200, "[{\"@id\":\"https://pods.example/alice/events/1\"}]");
       }
     });
     // Echoes what a resource operation sent, and answers each method with a status it lists.
@@ -509,6 +522,33 @@ class ClientFromJavaTest {
 
     assertEquals(SempodsContextSelection.of(), SempodsContextSelection.none());
     assertThrows(NullPointerException.class, () -> sparql.select("SELECT * WHERE { ?s ?p ?o }", null));
+  }
+
+  @Test
+  void findsFromJava() throws IOException {
+    SempodsPodFind find = pod("alice").find();
+    String tasks = "https://pods.example/alice/_system/contexts/tasks";
+
+    SempodsResponse<String> plain = find.text(SempodsFindQuery.text("summer party"));
+    assertEquals("{\"text\":\"summer party\"}", plain.getHeaders().get("X-Saw-Body"));
+    assertEquals("application/json", plain.getHeaders().get("X-Saw-Content-Type"));
+    assertTrue(plain.getBody().contains("events/1"), plain.getBody());
+
+    SempodsFindQuery narrowed = SempodsFindQuery.text("party")
+        .withTypes(List.of("https://schema.org/Event"))
+        .withSelection(SempodsContextSelection.of(tasks))
+        .withIncludeContexts(true)
+        .withLimit(5);
+    SempodsResponse<byte[]> quads = find.bytes(narrowed, SempodsGraphFormat.N_QUADS);
+    assertEquals("{\"text\":\"party\",\"type\":[\"https://schema.org/Event\"],\"contexts\":[\"" + tasks
+        + "\"],\"include_contexts\":true,\"limit\":5}", quads.getHeaders().get("X-Saw-Body"));
+    assertTrue(new String(quads.getBody(), StandardCharsets.UTF_8).contains("findResult"));
+
+    assertEquals("{\"text\":\"party\",\"contexts\":[]}",
+        find.text(SempodsFindQuery.text("party").withSelection(SempodsContextSelection.none())).getHeaders().get("X-Saw-Body"));
+    assertEquals(null, SempodsFindQuery.text("party").withLimit(null).getLimit());
+    assertThrows(IllegalArgumentException.class, () -> SempodsFindQuery.text(" "));
+    assertThrows(NullPointerException.class, () -> find.text(null));
   }
 
   @Test

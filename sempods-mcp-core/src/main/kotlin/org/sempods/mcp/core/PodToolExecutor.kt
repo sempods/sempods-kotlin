@@ -1,14 +1,12 @@
 package org.sempods.mcp.core
 
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.sempods.client.SempodsContent
 import org.sempods.client.SempodsContextSelection
 import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsFindQuery
 import org.sempods.client.SempodsGraphFormat
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsReadOptions
-import org.sempods.client.SempodsRepeatable
 import org.sempods.client.SempodsResponse
 import org.sempods.client.SempodsResponseException
 import org.sempods.client.SempodsWriteOptions
@@ -85,11 +83,10 @@ sealed interface PodToolPlan {
  * re-serialisation of them. That is why these tools read the groups' text methods and not their
  * typed ones.
  *
- * **Two tools go through [SempodsExchange] rather than a group**, and both for a header the groups
- * do not expose: `find` has no group at all (`_system/find` is outside the core's operation
- * inventory), and `list_contexts` has to accept `application/json` beside JSON-LD, for a pod that
- * still answers the pre-`SPS-CTX-033` envelope [ContextCatalogue] reads. The session and the
- * response handling are the core's either way.
+ * **One tool goes through [SempodsExchange] rather than a group**, for a header the groups do not
+ * expose: `list_contexts` has to accept `application/json` beside JSON-LD, for a pod that still
+ * answers the pre-`SPS-CTX-033` envelope [ContextCatalogue] reads. The session and the response
+ * handling are the core's either way.
  *
  * `authorize` is deliberately absent for the same reason it is absent from [ToolCatalog]: it reads
  * the claims of the incoming token and means a grant upgrade on one surface and a pod reconnect on
@@ -173,21 +170,12 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
         // Accept any integral (validation allows int or long) and clamp to the advertised 1..100, so
         // an out-of-range or long value can neither reach the pod raw nor silently fall to default.
         val limit = arguments?.get("limit")?.takeIf { it.isIntegralNumber }?.asLong()?.coerceIn(1L, 100L)?.toInt()
-        val payload = linkedMapOf<String, Any>("text" to text)
-        if (types.isNotEmpty()) payload["type"] = types
-        if (contextIris.isNotEmpty()) payload["contexts"] = contextIris
-        if (includeContexts) payload["include_contexts"] = true
-        if (limit != null) payload["limit"] = limit
-        val body = mapper.writeValueAsBytes(payload)
-        call { pod ->
-          // A search is a read the route spells as POST, so it is marked repeatable: sending it
-          // once more after a connection lost before any answer changes nothing.
-          val request = SempodsRepeatable.mark(pod.session.newRequest("POST", SempodsPodRoutes.FIND))
-            .header("Accept", JSON_LD)
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-          json("find", SempodsExchange(pod.calls).text(request, 200))
-        }
+        val query = SempodsFindQuery.text(text)
+          .withTypes(types)
+          .withSelection(selection)
+          .withIncludeContexts(includeContexts)
+          .withLimit(limit)
+        call { pod -> json("find", pod.find().text(query)) }
       }
 
       "get_resource" -> {
@@ -462,7 +450,6 @@ class PodToolExecutor(private val catalog: ToolCatalog) {
 
     private const val JSON_LD = "application/ld+json"
 
-    private val JSON_MEDIA_TYPE = JSON.toMediaType()
 
     private val mapper = ObjectMapper()
   }

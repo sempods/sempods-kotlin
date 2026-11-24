@@ -70,6 +70,7 @@ and a local HTTP fixture.
 | `slots()` | Add or remove the values of one predicate |
 | `contexts()` | List or export contexts; create one with the required authority |
 | `sparql()` | Run SELECT, ASK, CONSTRUCT or DESCRIBE |
+| `find()` | Search for resources by text, as an RDF graph of the hits |
 | `metadata()` | Check existence or last modification |
 
 Every write names its context with `SempodsWriteOptions.inContext(contextIri)`. Pass the `ETag`

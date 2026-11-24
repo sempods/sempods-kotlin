@@ -155,4 +155,5 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 - [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge and fixed expansion.
 - [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.
+- [`SempodsPodFind`](../../sempods-client/src/main/kotlin/org/sempods/client/SempodsPodFind.kt) — the JVM client's `pod.find()`, which hosted and pod-immanent MCP call; [`SempodsRdf4jFind`](../../sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/SempodsRdf4jFind.kt) reads its answer as a model.
 - [Inference proposal](../proposals/inference-context.md) — proposed hierarchy lookup; exact-match retrieval remains current.

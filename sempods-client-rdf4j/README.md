@@ -30,6 +30,7 @@ that tag; the tag of the two-context read above answers `412`. The [complete Jav
 | `slots()` | Context-grouped `Model` reads; `Value` writes |
 | `contexts()` | Registry `Model`; export as a model or through an `RDFHandler` |
 | `sparql()` | SELECT `BindingSet`s; CONSTRUCT/DESCRIBE models or streams |
+| `find()` | The hits as a `Model`, with contexts when the query asks for them |
 
 SPARQL graph results are triples and carry no context. ASK already returns a boolean in the
 core. [SempodsRdf4jForeignTarget](src/main/kotlin/org/sempods/client/rdf4j/SempodsRdf4jForeignTarget.kt)
