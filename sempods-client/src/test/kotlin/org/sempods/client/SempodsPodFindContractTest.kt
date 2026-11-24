@@ -13,9 +13,11 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.mockserver.model.StringBody
 
 /**
  * What `find` puts on the wire, and which answers it takes.
@@ -158,20 +160,33 @@ class SempodsPodFindContractTest : MockPodTest() {
     assertEquals(setOf("accept", "content-type", "authorization"), bearer.headersBeyondTransport())
   }
 
-  /** JSON-LD answers from sempods-spec `examples/find/responses.yaml`, which the client hands over as they are. */
+  /**
+   * A shared acceptance case from sempods-spec `examples/find/responses.yaml`: the query, the body it
+   * must put on the wire, and the pod's JSON-LD answer the client must hand over as it is.
+   */
+  class SpecCase(val name: String, val query: SempodsFindQuery, val body: String, val answer: String) {
+    override fun toString() = name
+  }
+
+  fun specCases() = SPEC_CASES
+
+  /** The mock answers only the body the case's query must send, so a lost member fails the case. */
   @ParameterizedTest
-  @ValueSource(strings = ["bare", "split", "independent", "stored-vocabulary", "empty"])
-  fun `the specification's find answers come back as the text the pod sent`(name: String) {
-    val document = SPEC_ANSWERS.getValue(name)
-    answer(200, document, "Content-Type" to "application/ld+json", "X-Request-Id" to "r-1")
+  @MethodSource("specCases")
+  fun `the specification's find answers come back as the text the pod sent, for the request that asked for them`(case: SpecCase) {
+    server.`when`(request().withPath(route).withBody(StringBody.exact(case.body))).respond(
+      response().withStatusCode(200).withBody(case.answer)
+        .withHeader("Content-Type", "application/ld+json").withHeader("X-Request-Id", "r-1"),
+    )
 
-    val text = find().text(SempodsFindQuery.text("harbour").withIncludeContexts(true))
-    val bytes = find().bytes(SempodsFindQuery.text("harbour").withIncludeContexts(true))
+    val text = find().text(case.query)
+    val bytes = find().bytes(case.query)
 
+    assertEquals(listOf(case.body, case.body), sent.map { it.body })
     assertEquals(200, text.status)
     assertEquals("r-1", text.headers["X-Request-Id"])
-    assertEquals(document, text.body)
-    assertContentEquals(document.toByteArray(), bytes.body)
+    assertEquals(case.answer, text.body)
+    assertContentEquals(case.answer.toByteArray(), bytes.body)
   }
 
   @ParameterizedTest
@@ -228,16 +243,70 @@ class SempodsPodFindContractTest : MockPodTest() {
 
     const val CTX = "https://pod.example/_system/contexts/"
 
-    val SPEC_ANSWERS = mapOf(
-      "bare" to """{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:m"}]}]}""",
-      "split" to """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:m"}]}]},""" +
-        """{"@id":"${CTX}B","@graph":[{"@id":"_:m","https://schema.org/text":[{"@value":"Harbour lantern"}]}]}]""",
-      "independent" to """[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:localA"},{"@id":"_:localB"}]},""" +
-        """{"@id":"_:localA","https://schema.org/position":[{"@value":2}]},""" +
-        """{"@id":"_:localB","https://schema.org/position":[{"@value":7}]}]""",
-      "stored-vocabulary" to """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"https://pod.example/notes/saved"}]}]},""" +
-        """{"@id":"${CTX}B","@graph":[{"@id":"$ARTICLE","https://schema.org/description":[{"@value":"Harbour lantern"}]}]}]""",
-      "empty" to "[]",
+    private fun query(text: String) = SempodsFindQuery.text(text)
+
+    private fun onlyA() = SempodsContextSelection.of("${CTX}A")
+
+    private val GROUPED_REPEATED_OBSERVATIONS =
+      """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:localA"}]},""" +
+        """{"@id":"_:localA","https://schema.org/position":[{"@value":2}]}]},""" +
+        """{"@id":"${CTX}B","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:localB"}]},""" +
+        """{"@id":"_:localB","https://schema.org/position":[{"@value":7}]}]}]"""
+
+    val SPEC_CASES = listOf(
+      SpecCase(
+        "bare",
+        query("harbour").withTypes("https://schema.org/Article").withIncludeContexts(true),
+        """{"text":"harbour","type":["https://schema.org/Article"],"include_contexts":true}""",
+        """{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:m"}]}]}""",
+      ),
+      SpecCase(
+        "split",
+        query("harbour").withIncludeContexts(true),
+        """{"text":"harbour","include_contexts":true}""",
+        """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:m"}]}]},""" +
+          """{"@id":"${CTX}B","@graph":[{"@id":"_:m","https://schema.org/text":[{"@value":"Harbour lantern"}]}]}]""",
+      ),
+      SpecCase(
+        "independent, flat",
+        query("quay").withLimit(1),
+        """{"text":"quay","limit":1}""",
+        """[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"_:localA"},{"@id":"_:localB"}]},""" +
+          """{"@id":"_:localA","https://schema.org/position":[{"@value":2}]},""" +
+          """{"@id":"_:localB","https://schema.org/position":[{"@value":7}]}]""",
+      ),
+      SpecCase(
+        "independent, grouped",
+        query("quay").withLimit(1).withIncludeContexts(true),
+        """{"text":"quay","include_contexts":true,"limit":1}""",
+        GROUPED_REPEATED_OBSERVATIONS,
+      ),
+      SpecCase(
+        "match-only-in-B",
+        query("lantern").withSelection(onlyA()).withIncludeContexts(true),
+        """{"text":"lantern","contexts":["${CTX}A"],"include_contexts":true}""",
+        "[]",
+      ),
+      SpecCase(
+        "match-also-in-A",
+        query("harbour").withSelection(onlyA()).withIncludeContexts(true),
+        """{"text":"harbour","contexts":["${CTX}A"],"include_contexts":true}""",
+        """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","https://schema.org/name":[{"@value":"Harbour map"}],""" +
+          """"${SPS}findResult":[{"@id":"_:m"}]},{"@id":"_:m","https://schema.org/text":[{"@value":"Harbour map"}]}]}]""",
+      ),
+      SpecCase(
+        "empty-selection",
+        query("harbour").withSelection(SempodsContextSelection.of("${CTX}B")),
+        """{"text":"harbour","contexts":["${CTX}B"]}""",
+        "[]",
+      ),
+      SpecCase(
+        "stored-vocabulary",
+        query("harbour").withIncludeContexts(true),
+        """{"text":"harbour","include_contexts":true}""",
+        """[{"@id":"${CTX}A","@graph":[{"@id":"$ARTICLE","${SPS}findResult":[{"@id":"https://pod.example/notes/saved"}]}]},""" +
+          """{"@id":"${CTX}B","@graph":[{"@id":"$ARTICLE","https://schema.org/description":[{"@value":"Harbour lantern"}]}]}]""",
+      ),
     )
   }
 }
