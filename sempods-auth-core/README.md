@@ -18,7 +18,7 @@ uses [`sempods-client`](../sempods-client/README.md). The coordinate is
 | Sign and verify JWTs | [SigningKeys](src/main/kotlin/org/sempods/auth/core/SigningKeys.kt), [JwtVerifier](src/main/kotlin/org/sempods/auth/core/JwtVerifier.kt) |
 | Sign in against an OIDC provider | [OidcRelyingParty](src/main/kotlin/org/sempods/auth/core/OidcRelyingParty.kt), [IdTokenVerifier](src/main/kotlin/org/sempods/auth/core/IdTokenVerifier.kt) |
 | Send a browser to that provider and take its answer back | [BrowserSignIn](src/main/kotlin/org/sempods/auth/core/BrowserSignIn.kt) |
-| Learn the signed-in person's name, email and picture | `BrowserSignIn.begin` with [`requestableScopes`](src/main/kotlin/org/sempods/auth/core/OidcProviderMetadata.kt) of `profile` and `email`; the claims arrive in `OidcRelyingParty.VerifiedIdentity` |
+| Learn the signed-in person's name, email and picture | `BrowserSignIn.begin` with [`requestableScopes`](src/main/kotlin/org/sempods/auth/core/OidcProviderMetadata.kt) of `profile` and `email`; `OidcRelyingParty.VerifiedIdentity` carries the claims the provider puts in the ID Token |
 | Encrypt a secret that has to stay recoverable at rest | [SecretCipher](src/main/kotlin/org/sempods/auth/core/SecretCipher.kt) |
 
 For example, both the identity service and the pod redeem authorization codes. They use the same

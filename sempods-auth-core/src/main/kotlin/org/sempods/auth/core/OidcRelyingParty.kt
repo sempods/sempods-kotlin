@@ -97,9 +97,11 @@ class OidcRelyingParty(
   /**
    * Who the provider says this is. SDK types stay inside; a caller gets what it needs.
    *
-   * The four person claims (OIDC Core §5.1) are read from the validated token, whatever scope the
-   * request named. A provider releases them for their scope (`profile` for [name] and [picture],
-   * `email` for [email] and [emailVerified]), may leave any of them out, and may send them unasked.
+   * The four person claims (OIDC Core §5.1) are read from the validated ID Token, whatever scope
+   * the request named, and from nowhere else. A provider releases them for their scope (`profile`
+   * for [name] and [picture], `email` for [email] and [emailVerified]), may leave any of them out,
+   * and may send them unasked. One that serves them only from its UserInfo endpoint leaves all four
+   * `null`: this flow does not call it (OIDC Core §5.4).
    * Each is `null` when absent, and also when it has the wrong shape, which leaves the sign-in
    * itself standing: they are for display, and a malformed one is no reason to lock the person out.
    *

@@ -20,7 +20,7 @@ import com.nimbusds.jose.util.JSONObjectUtils
  *   `null` where the document has no such array. The member is only recommended, so `null` says
  *   nothing about which scopes the provider takes.
  */
-data class OidcProviderMetadata(
+data class OidcProviderMetadata @JvmOverloads constructor(
   val issuer: String,
   val authorizationEndpoint: String,
   val tokenEndpoint: String,

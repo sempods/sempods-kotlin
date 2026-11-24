@@ -129,7 +129,8 @@ class BrowserSignIn<T>(
    * @param prompt forwarded when it parses as an OIDC `prompt`, else dropped.
    * @param scopes forwarded as the request's `scope`, `openid` among them.
    *   [OidcProviderMetadata.requestableScopes] picks those this provider takes. `profile` and
-   *   `email` bring the person claims of [OidcRelyingParty.VerifiedIdentity].
+   *   `email` ask for the person claims of [OidcRelyingParty.VerifiedIdentity], which carries them
+   *   where the provider puts them in the ID Token.
    */
   fun begin(
     relyingParty: OidcRelyingParty,
