@@ -21,6 +21,7 @@ import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaModule
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient
+import org.sempods.retrieval.FindAdapterObserver
 import okhttp3.OkHttpClient
 import java.nio.file.Files
 import java.time.Duration
@@ -44,6 +45,10 @@ data class SempodsTestModule(
     // client crosses, or a call that only works in-process passes here and fails at deploy time.
     // An application's own suite seeds the same way, through the client it uses in production.
     bind<SempodsTestPodAccess>().asSingleton()
+
+    // An engine that annotates its hits, beside the SPARQL adapter. It answers nothing outside a
+    // `withSetup` block, so every other test sees the SPARQL adapter alone.
+    FindAdapterObserver.bindTestProxy(binder())
 
     // Overrides the env-selected admin authority (SempodsModule.bindAdminAuthorizer) with a known
     // test credential, and lets a test swap in a different authorizer — see AdminAuthorizerTestDouble.

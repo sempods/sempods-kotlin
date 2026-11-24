@@ -11,7 +11,8 @@ package org.sempods.commons.net
  * because `:sempods-model`'s `Ontologies` holds the standards.
  *
  * The registry terms are specified in sempods-spec `spec/core/contexts.md`: `SPS-CTX-032` for
- * [PUBLIC], `SPS-CTX-033` for the three access relations.
+ * [PUBLIC], `SPS-CTX-033` for the three access relations. [FIND_RESULT] is `spec/core/find.md`'s
+ * (`SPS-FIND-028`).
  */
 object SempodsVocabulary {
 
@@ -29,4 +30,7 @@ object SempodsVocabulary {
 
   /** A context the requesting caller may manage. */
   const val MANAGEABLE_CONTEXT: String = NAMESPACE + "manageableContext"
+
+  /** Links a `find` hit to a response-local blank node describing one observation of its match. */
+  const val FIND_RESULT: String = NAMESPACE + "findResult"
 }

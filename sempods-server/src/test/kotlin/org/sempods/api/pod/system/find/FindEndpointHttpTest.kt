@@ -367,6 +367,57 @@ class FindEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a POST body is read strictly, member by member, and GET refuses a limit that is no integer`() {
+    val pod = sempodsTestFactory.newPod()
+    fun post(body: String) = http.preparePost(findUrl(pod.name))
+      .addHeader("Content-Type", "application/json")
+      .setBody(body)
+      .execute()
+
+    listOf(
+      """{"text":"x","limit":"10"}""",
+      """{"text":"x","limit":10.5}""",
+      """{"text":123}""",
+      """{"text":"x","type":"https://schema.org/Event"}""",
+      """{"text":"x","type":[null]}""",
+      """{"text":"x","contexts":[null]}""",
+      """{"text":"x","include_contexts":"true"}""",
+      """{"text":"x","text":"y"}""",
+      """["x"]""",
+      """{"text":null}""",
+      """{"text":"x","type":null}""",
+      """{"text":"x","contexts":null}""",
+      """{"text":"x","include_contexts":null}""",
+      """{"text":"x","limit":null}""",
+    ).forEach { body ->
+      val refused = post(body)
+      assertEquals(400, refused.statusCode, body)
+      assertTrue(refused.responseBody.startsWith("invalid request body"), refused.responseBody)
+    }
+    assertEquals(200, post("""{"text":"x"}""").statusCode, "every member but text may be left out")
+
+    val notAnInteger = http.prepareGet(findUrl(pod.name)).addQueryParam("text", "x").addQueryParam("limit", "ten").execute()
+    assertEquals(400, notAnInteger.statusCode)
+    assertEquals(200, http.prepareGet(findUrl(pod.name)).addQueryParam("text", "x").addQueryParam("limit", "1000").execute().statusCode)
+  }
+
+  @Test
+  fun `the answer's format follows Accept qualities, and a format find does not produce is a 406`() {
+    val pod = sempodsTestFactory.newPod()
+    newPublicEvent(pod.name, "negotiation ${TestUtil.randomId()}")
+    fun find(accept: String?) = http.prepareGet(findUrl(pod.name))
+      .addQueryParam("text", "negotiation")
+      .also { request -> accept?.let { request.addHeader("Accept", it) } }
+      .execute()
+
+    assertTrue(find(null).contentType.orEmpty().startsWith("application/ld+json"), find(null).contentType)
+    assertTrue(find("application/ld+json;q=0, application/n-quads").contentType.orEmpty().startsWith("application/n-quads"))
+    assertTrue(find("*/*, application/ld+json;q=0").contentType.orEmpty().startsWith("application/n-quads"))
+    assertTrue(find("application/n-quads;q=0.5, application/ld+json;q=0.9").contentType.orEmpty().startsWith("application/ld+json"))
+    assertEquals(406, find("application/json").statusCode)
+  }
+
+  @Test
   fun `find include_contexts returns named-graph provenance`() {
     val pod = sempodsTestFactory.newPod()
     val needle = "provctx${TestUtil.randomId()}"

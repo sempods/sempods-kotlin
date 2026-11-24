@@ -54,14 +54,16 @@ POST /{pod}/_system/find  { "text": …, "type": […]?, "contexts": […]?, "in
                                 #   silent-exclusion semantics as the LOD read routes. (POST body: `contexts`.)
   include_contexts bool         # OPTIONAL, default false. true → named-graph form: each result statement
                                 #   grouped by the context it came from (provenance). Mirrors get_resource.
-  limit            int          # optional; default 10, max 100. NO cursor, NO score.
+  limit            int          # optional; an integer, else 400. Default 10, clamped to 1..100.
+                                #   NO cursor, NO score.
 
 response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   - the found resources
   - expanded where the properties exist:
       · rdf:type + rdfs:label + schema:name where present, plus the adapter's matched edge
-  - by default a FULLY FLAT graph: no ordering, no score, no hit/expansion marker. Plain RDF the caller
-    merges and traverses. With `include_contexts=true` the same graph is grouped by source context
+  - an engine's observations, where it supplies any: <hit> sps:findResult _:b, with details on _:b
+  - by default one graph without graph names; statement order carries no rank. Plain RDF the caller
+    merges and traverses. With `include_contexts=true` every statement is in a named context
     (named-graph JSON-LD, or the 4th N-Quads term) so a caller can tell which context a hit lives in.
 ```
 
@@ -78,7 +80,17 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   subclass reasoning.
 - `FindService` merges registered adapters and expands their hit subjects. When merged
   hits exceed the limit it caps them deterministically by IRI; it has no rank fusion.
+  Only a candidate a selected context holds counts towards the limit, so a stale
+  index entry takes no place. A kept hit keeps the observation nodes it links to, and
+  their nested blank nodes. An observation an engine attributes to a context outside
+  the selection is dropped.
   The caller picks no mode.
+- **An observation lands in a context that holds its hit.** The built-in SPARQL adapter
+  supplies none. An engine that does can name the context its match was in; otherwise
+  `FindService` puts the observation in a context it knows to hold the hit — the first, by
+  IRI, among those the answer and its store lookup show. Each adapter's blank nodes stay its own. The
+  [`FindAdapter`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindAdapter.kt)
+  KDoc says what an adapter may contribute.
 - **The context sandbox always applies** — the same permission layer as SPARQL
   and CRUD. An anonymous visitor sees public data; an authenticated owner sees
   internal contexts too. Same `find`, different depth.
@@ -94,9 +106,10 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   (it is just a narrower context set), so it is part of the core contract.
 - **Optional `include_contexts` exposes provenance.** By default the result is a
   flat graph (context dropped). With `include_contexts=true` each matched/expanded
-  statement is grouped by the context it came from — named-graph JSON-LD (the same
-  representation `get_resource?include_contexts=true` returns, just multi-subject)
-  or the 4th term in N-Quads. This lets a consumer that searched across several
+  statement is grouped by the context it came from, and each observation by the
+  context it was placed in — named-graph JSON-LD (the same representation
+  `get_resource?include_contexts=true` returns, just multi-subject) or the 4th term
+  in N-Quads. No statement is left in the default graph. This lets a consumer that searched across several
   readable contexts tell results apart by source (e.g. public vs. private) without
   a follow-up read. It changes only the *representation*, never which resources match.
 - **GET caching is permission-scoped.** Responses carry `Vary: Accept, Authorization`.
@@ -105,8 +118,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
 
 The `POST` form is the request envelope for any `find` that no longer
 fits a URL, such as a downscope onto many contexts.
-Its body mirrors the GET parameters as a JSON object, with `contexts` as a nullable
-list:
+Its body mirrors the GET parameters as a JSON object; a member is either left out or
+given a value:
 
 ```
 POST /{pod}/_system/find
@@ -116,13 +129,17 @@ POST /{pod}/_system/find
 `contexts` carries the same read-downscope semantics as the GET `context=`
 parameter (`{requested} ∩ readable`, silent exclusion); `include_contexts` is the
 same provenance switch as the GET parameter. Content negotiation (JSON-LD vs.
-N-Quads) is still driven by the `Accept` header.
+N-Quads) is driven by the `Accept` header, quality values included: `q=0` excludes a
+format, a tie goes to JSON-LD, and `application/json` is a 406
+([`GraphResultNegotiation`](../../sempods-server/src/main/kotlin/org/sempods/api/system/sparql/GraphResultNegotiation.kt)).
 
-The body is parsed with the **strict** mapper
-([`JsonMappers.strict`](../../sempods-commons-json/src/main/kotlin/org/sempods/commons/json/JsonMappers.kt)),
-so an unknown field is a 400 — `filter` included, since the general predicate
-filter is not a supported field. Dropped silently, it would broaden the result.
-That is what makes the envelope above copyable as it stands.
+The body is parsed strictly
+([`FindPostRequest`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindPostRequest.kt)):
+an unknown field is a 400 — `filter` included, since the general predicate filter is
+not a supported field. Dropped silently, it would broaden the result. A member of the
+wrong JSON type (`"limit":"10"`) or an explicit `null` (`"contexts":null`) is a 400 too.
+That is what makes the envelope above
+copyable as it stands.
 
 ## Structural traversal — `find` is only the entry
 
@@ -152,8 +169,9 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 
 ## Implementation
 
-- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge and fixed expansion.
+- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, cap, observation placement and fixed expansion.
 - [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.
+- [`FindSpecExamplesHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindSpecExamplesHttpTest.kt) — the specification's examples, served by an engine that annotates its hits.
 - [`SempodsPodFind`](../../sempods-client/src/main/kotlin/org/sempods/client/SempodsPodFind.kt) — the JVM client's `pod.find()`, which hosted and pod-immanent MCP call; [`SempodsRdf4jFind`](../../sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/SempodsRdf4jFind.kt) reads its answer as a model.
 - [Inference proposal](../proposals/inference-context.md) — proposed hierarchy lookup; exact-match retrieval remains current.

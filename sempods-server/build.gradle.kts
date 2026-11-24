@@ -122,6 +122,9 @@ dependencies {
 
   testImplementation(libs.rdf4jQueryalgebraEvaluation)
   testImplementation(libs.slf4jApi)
+  // sempods-spec's find examples are YAML; `src/test/resources/spec/find/README.md` says where they come from.
+  testImplementation(libs.jackson3Yaml)
+  testImplementation(libs.junitJupiterParams)
 
   // test implementation bundles
   testImplementation(libs.bundles.test)

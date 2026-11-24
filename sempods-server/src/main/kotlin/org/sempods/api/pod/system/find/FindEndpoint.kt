@@ -29,20 +29,20 @@ import jakarta.ws.rs.core.Response
 
 /**
  * `GET`/`POST /{pod}/_system/find` — the semantic entry to the graph retrieval pattern
- * (`docs/concepts/graph-retrieval.md`). Returns a context-sandboxed RDF subgraph (found resources +
- * best-effort `type`/`label`/`name` expansion) as JSON-LD (default) or N-Quads, mirroring the
- * `_system/sparql` graph negotiation.
+ * (`docs/concepts/graph-retrieval.md`). Returns a context-sandboxed RDF subgraph (found resources,
+ * any observations an engine supplied, and the `type`/`label`/`name` expansion) as JSON-LD (default)
+ * or N-Quads, negotiated by [GraphResultNegotiation] as the `_system/sparql` graph results are.
  *
  * The endpoint stays thin: parse + validate input, authenticate, delegate to [FindService],
  * negotiate the serialization. `text` is required (whitespace-only → 400). The optional, repeatable
  * `type` constrains the returned hit's `rdf:type` (OR-combined). The optional, repeatable `context`
  * is a read downscope within the caller's readable contexts — same `requested ∩ readable` /
  * silent-exclusion semantics as the LOD read routes (sempods-spec `spec/core/lod-crud.md` §4 §"Reads"). The optional
- * `include_contexts` switches the result to the named-graph (provenance) form: each hit/expansion
- * statement grouped by the context it came from (JSON-LD), or carried as the 4th N-Quads term.
+ * `include_contexts` switches the result to the named-graph (provenance) form: every statement
+ * grouped by its context (JSON-LD), or carried as the 4th N-Quads term (`SPS-FIND-027`).
  *
  * The `POST` form ([findPost]) takes the same parameters in a JSON body for requests that no longer
- * fit a URL (many `contexts`); GET and POST share [executeFind]. The general predicate `filter`
+ * fit a URL (many `contexts`), read by [FindPostRequest.parse]; GET and POST share [executeFind]. The general predicate `filter`
  * stays a deferred additive extension (see `docs/concepts/graph-retrieval.md`).
  */
 @Path("{pod}/_system/find")
@@ -66,13 +66,16 @@ class FindEndpoint @Inject constructor(
     @QueryParam("limit") limitParam: String?,
     @Context httpHeaders: HttpHeaders,
   ): Response {
-    // Shared validation (REST + MCP cannot drift): whitespace-only/absent text → 400, invalid
-    // type IRI → 400, limit clamped 1..100.
+    // Whitespace-only/absent text → 400, invalid type IRI → 400, a limit that is no integer → 400
+    // as on POST (SPS-FIND-004); an integer limit is clamped 1..100.
+    val limit = limitParam?.let { raw ->
+      raw.trim().toIntOrNull() ?: return badRequest("query parameter 'limit' must be an integer")
+    }
     val request = try {
       FindRequestParser.parse(
         text = text,
         typeIris = typeParams ?: emptyList(),
-        limit = limitParam?.trim()?.toIntOrNull(),
+        limit = limit,
       )
     } catch (e: IllegalArgumentException) {
       return badRequest(e.message ?: "invalid request")
@@ -92,9 +95,9 @@ class FindEndpoint @Inject constructor(
   ): Response {
     val rawBody = body?.takeIf { it.isNotBlank() } ?: return badRequest("missing JSON request body")
     val parsed = try {
-      JsonMappers.strict().readValue(rawBody, FindPostRequest::class.java)
-    } catch (e: Exception) {
-      return badRequest("invalid request body: ${e.message?.substringBefore('\n') ?: "could not parse"}")
+      FindPostRequest.parse(rawBody)
+    } catch (e: IllegalArgumentException) {
+      return badRequest(e.message ?: "invalid request body")
     }
     val request = try {
       FindRequestParser.parse(
@@ -120,7 +123,7 @@ class FindEndpoint @Inject constructor(
     includeContexts: Boolean,
     httpHeaders: HttpHeaders,
   ): Response {
-    val format = GraphResultNegotiation.select(httpHeaders.acceptableMediaTypes)
+    val format = GraphResultNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT))
       ?: return Response.status(Response.Status.NOT_ACCEPTABLE)
         .entity("find can only produce application/ld+json or application/n-quads")
         .type(MediaType.TEXT_PLAIN)

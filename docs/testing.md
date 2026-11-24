@@ -166,6 +166,9 @@ fun `a verifier that rejects is answered with the pod's bearer challenge`() = wi
 The block's requests reach the rejecting verifier; every other class still reaches the real one.
 A new seam's test implementation joins the setup as one more nested `observe`. The id-server is
 the second: `idServer` in the setup, a variant of the suite's `FakeOidcProvider` (`IdServerObserver`).
+The third is `findAdapter`, a `find` engine beside the built-in SPARQL adapter that answers nothing
+until a test calls `answerWith` (`FindAdapterObserver`). It runs on a thread of its own, and
+`FindService` re-binds the trace there.
 
 `podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
 implementations. Seeding (`SempodsTestPodAccess.podFor`, `seedEvent`) carries none: a fixture always
