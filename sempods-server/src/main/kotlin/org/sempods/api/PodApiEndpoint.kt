@@ -50,6 +50,9 @@ open class PodApiEndpoint : BaseEndpoint() {
   protected fun varyOnCaller(): String =
     (listOf(HttpHeaders.ACCEPT) + podRequestAuthenticator.credentialHeaders).distinct().joinToString(", ")
 
+  /** [varyOnCaller] without `Accept`, for a route whose representation does not negotiate on it. */
+  protected fun varyOnCredentials(): String = podRequestAuthenticator.credentialHeaders.joinToString(", ")
+
   /**
    * The request as [PodRequestAuthenticator] takes it. [receivedRawPath] is the path as the client
    * sent it, where a filter rewrote it before matching — see [PathSemicolonFilter]; without it the

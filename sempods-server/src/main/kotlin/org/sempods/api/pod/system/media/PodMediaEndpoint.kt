@@ -295,7 +295,7 @@ class PodMediaEndpoint @Inject constructor(
    * per-caller, so revalidating it costs about as much as re-rendering it. The content route makes
    * the opposite trade — see there.
    *
-   * `Vary: Authorization` says out loud what the filtering already implies.
+   * `Vary` on the credential headers says out loud what the filtering already implies.
    */
   @GET
   @Path("{mediaId}")
@@ -308,7 +308,7 @@ class PodMediaEndpoint @Inject constructor(
     val podMedia = readableOrThrow(credentials, mediaId)
     return Response.ok(podMedia.toResponse(pod, credentials.restrictedContexts))
       .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
-      .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
+      .header(HttpHeaders.VARY, varyOnCredentials())
       .build()
   }
 
@@ -375,7 +375,7 @@ class PodMediaEndpoint @Inject constructor(
       // to fall back on heuristic freshness for the next round.
       return Response.fromResponse(it)
         .header(HttpHeaders.CACHE_CONTROL, "private, no-cache")
-        .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
+        .header(HttpHeaders.VARY, varyOnCredentials())
         .build()
     }
 
@@ -386,7 +386,7 @@ class PodMediaEndpoint @Inject constructor(
       .tag(entityTag)
       .header(HttpHeaders.CONTENT_LENGTH, podMedia.size)
       .header(HttpHeaders.CACHE_CONTROL, "private, no-cache")
-      .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
+      .header(HttpHeaders.VARY, varyOnCredentials())
       .header(CONTENT_TYPE_OPTIONS, "nosniff")
       .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition(contentType))
       // Second layer under `nosniff`: even if a browser were talked into rendering one of these,

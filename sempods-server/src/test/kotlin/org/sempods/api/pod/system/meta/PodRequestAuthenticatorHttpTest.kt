@@ -130,6 +130,7 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
     val find = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/find?text=harbour").execute()
     val dateModified = http.prepareGet(url(pod.name)).execute()
 
+    assertEquals("private, no-cache", dateModified.getHeader("Cache-Control"))
     listOf(find, dateModified).forEach { response ->
       assertEquals(200, response.statusCode, response.responseBody)
       // Jetty's gzip handler adds Accept-Encoding of its own.
