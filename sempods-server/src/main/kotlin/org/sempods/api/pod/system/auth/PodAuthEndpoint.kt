@@ -279,7 +279,7 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     // Ahead of the pod row on purpose: `fetchPodOrThrow` reads it uncached, so a refused request
     // costs no query at all. That is most of what the budget buys — see [PodTokenRateLimiter].
-    if (!tokenRateLimiter.tryAcquire(forwardedFor, form.getFirst("grant_type"), form.getFirst("client_id"), authorizationHeader)) {
+    if (!tokenRateLimiter.tryAcquire(forwardedFor, form.getFirst("grant_type"), form.getFirst("client_id"), authorizationHeader, form.getFirst("client_assertion"))) {
       return PodTokenResponses.rateLimited()
     }
 
@@ -310,6 +310,13 @@ class PodAuthEndpoint @Inject constructor(
         podName = podDbo.name,
         clientId = read.clientId,
         secret = read.secret,
+        requestedScope = read.scope,
+      )
+
+      is PodTokenRead.ClientAssertion -> podTokenExchange.exchangeServiceClientAssertion(
+        pod = podDbo.hosted,
+        clientId = read.clientId,
+        assertion = read.assertion,
         requestedScope = read.scope,
       )
     }.asResponse(podDbo.name)

@@ -83,9 +83,55 @@ class PodTokenMessagesTest {
     // A blank client id fails the SDK's identifier rather than its parser.
     assertNull(PodTokenMessages.basicClientId(basic(":s")))
     assertEquals(
-      PodTokenRead.Refused(PodTokenResult.ClientAuthenticationRequired("HTTP Basic authentication required")),
+      PodTokenRead.Refused(PodTokenResult.ClientAuthenticationRequired("HTTP Basic authentication or a client assertion required")),
       PodTokenMessages.read(form("grant_type" to "client_credentials"), basic(":s")),
     )
+  }
+
+  @Test
+  fun `a client assertion is read with the client it names`() {
+    val assertion = unsignedJwt(subject = "did:web:console.example")
+    val read = PodTokenMessages.read(
+      form("grant_type" to "client_credentials", "client_assertion_type" to JWT_BEARER, "client_assertion" to assertion),
+      authorization = null,
+    )
+
+    assertEquals(PodTokenRead.ClientAssertion("did:web:console.example", assertion, null), read)
+    assertEquals("did:web:console.example", PodTokenMessages.clientCredentialsClientId(null, assertion), "the budget's key")
+    assertEquals(
+      PodTokenRead.ClientAssertion("did:web:other.example", assertion, null),
+      PodTokenMessages.read(
+        form(
+          "grant_type" to "client_credentials", "client_id" to "did:web:other.example",
+          "client_assertion_type" to JWT_BEARER, "client_assertion" to assertion,
+        ),
+        authorization = null,
+      ),
+      "a client_id beside it is what the verifier holds the assertion to",
+    )
+  }
+
+  @Test
+  fun `a client assertion beside Basic, or half of one, is refused`() {
+    val assertion = unsignedJwt(subject = "did:web:console.example")
+    fun code(vararg fields: Pair<String, String>, authorization: String? = null): OAuthErrorCode =
+      ((PodTokenMessages.read(form("grant_type" to "client_credentials", *fields), authorization) as PodTokenRead.Refused)
+        .result as PodTokenResult.Refused).code
+
+    assertEquals(
+      OAuthErrorCode.INVALID_REQUEST,
+      code("client_assertion_type" to JWT_BEARER, "client_assertion" to assertion, authorization = basic("svc%3Aa:s")),
+    )
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, code("client_assertion" to assertion))
+    assertEquals(OAuthErrorCode.INVALID_REQUEST, code("client_assertion_type" to JWT_BEARER))
+    assertEquals(OAuthErrorCode.INVALID_CLIENT, code("client_assertion_type" to "urn:example:saml", "client_assertion" to assertion))
+    assertEquals(OAuthErrorCode.INVALID_CLIENT, code("client_assertion_type" to JWT_BEARER, "client_assertion" to "not-a-jwt"))
+  }
+
+  /** A JWT with [subject], signed with nothing: this layer reads its shape, never its signature. */
+  private fun unsignedJwt(subject: String): String {
+    fun part(json: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(json.toByteArray())
+    return "${part("""{"alg":"ES256","kid":"k"}""")}.${part("""{"iss":"$subject","sub":"$subject"}""")}.${part("sig")}"
   }
 
   @Test
@@ -94,5 +140,9 @@ class PodTokenMessagesTest {
     val read = PodTokenMessages.read(form("grant_type" to "password"), authorization = null)
 
     assertEquals(OAuthErrorCode.UNSUPPORTED_GRANT_TYPE, ((read as PodTokenRead.Refused).result as PodTokenResult.Refused).code)
+  }
+
+  private companion object {
+    const val JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
   }
 }

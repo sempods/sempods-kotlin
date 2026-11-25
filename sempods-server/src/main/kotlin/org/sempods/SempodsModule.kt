@@ -102,6 +102,10 @@ import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.media.persist.PodMediaDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.RdfResourceBackupDao
+import org.sempods.pods.oauth.didweb.ClientAssertionJtiStore
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
+import org.sempods.pods.oauth.didweb.DidWebKeys
+import org.sempods.pods.oauth.didweb.OkHttpDidDocumentFetcher
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -206,6 +210,8 @@ class SempodsModule : BaseModule() {
     bind<OAuthSigningKeyDao>().asSingleton()
     bind<PodConsentDecisionStore>().asSingleton()
     bind<PodManagementAuthorityStore>().asSingleton()
+    bind<ClientAssertionJtiStore>().asSingleton()
+    bind<DidWebClientAuthentication>().asSingleton()
     bind<PodRefreshTokenStore>().asSingleton()
     bind<PodSignOutStore>().asSingleton()
     bind<PodSignOut>().asSingleton()
@@ -362,6 +368,20 @@ class SempodsModule : BaseModule() {
   @Provides
   @Singleton
   internal fun providePodMediaDao(db: MongoDatabase): PodMediaDao = PodMediaDao(db)
+
+  /**
+   * The keys `did:web` service clients authenticate with, read from their DID documents.
+   *
+   * A singleton because it is a cache. Loopback hosts and private addresses are reachable only in
+   * development, the same gate as loopback redirects: there a test or a local service serves its
+   * document from `localhost`, and nowhere else may a caller-named identifier point the pod inward.
+   */
+  @Provides
+  @Singleton
+  internal fun provideDidWebKeys(http: OkHttpClient): DidWebKeys = DidWebKeys(
+    fetcher = OkHttpDidDocumentFetcher(http, allowPrivateAddresses = Env.isDevelopment),
+    allowLoopbackHttp = Env.isDevelopment,
+  )
 
   /**
    * The pod's signing keys, read (or minted) once at construction.

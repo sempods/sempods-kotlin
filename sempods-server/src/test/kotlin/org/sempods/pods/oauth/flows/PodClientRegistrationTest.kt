@@ -207,7 +207,7 @@ class PodClientRegistrationTest : SempodsStoreTest() {
 
     assertTrue(registered.clientId.startsWith("svc:"), registered.clientId)
     assertEquals("Notes Sync", registered.clientName)
-    assertTrue(registered.secret.startsWith("sc_"), "the secret is the store's, minted once")
+    assertTrue(assertNotNull(registered.secret).startsWith("sc_"), "the secret is the store's, minted once")
     val window = PodServiceClientStore.ACTIVATION_WINDOW
     assertTrue(registered.activationExpiresAt in before.plus(window).minusSeconds(1)..Instant.now().plus(window))
 

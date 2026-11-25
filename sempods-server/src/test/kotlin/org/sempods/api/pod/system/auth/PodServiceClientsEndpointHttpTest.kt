@@ -201,6 +201,47 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the owner's tool registers a did-web service active, has no secret to rotate, and removes it`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val service = DidWebServiceFixture.newService()
+    val registered = http.preparePost(registerUrl(owned))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $manager")
+      .setBody(
+        JsonMappers.default().writeValueAsString(
+          mapOf(
+            "client_name" to "Owner Console",
+            "grant_types" to listOf("client_credentials"),
+            "token_endpoint_auth_method" to "private_key_jwt",
+            "software_statement" to service.statement(owned.pod),
+          ),
+        ),
+      )
+      .execute()
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertFalse("activation_expires_at" in json(registered), "the owner's authority registers it active")
+
+    val listed = listServiceClients(owned, manager).single { it["client_id"] == service.did }
+    assertEquals("private_key_jwt", listed["token_endpoint_auth_method"])
+    assertEquals("registered", listed["origin"])
+    val before = read(owned, manager, service.did)
+    assertEquals(200, replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = before.tag).statusCode)
+
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(service.did)}/secret")
+      .addHeader("Authorization", "Bearer $manager")
+      .execute()
+    assertEquals(409, rotated.statusCode, rotated.responseBody)
+
+    val removed = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(service.did)}")
+      .addHeader("Authorization", "Bearer $manager")
+      .execute()
+    assertEquals(204, removed.statusCode, removed.responseBody)
+    assertTrue(listServiceClients(owned, manager).none { it["client_id"] == service.did })
+  }
+
+  @Test
   fun `a replace names the version it read, and a stale one is 412 and changes nothing`() {
     val owned = ownedPod()
     val notes = owned.context("notes")

@@ -117,6 +117,7 @@ class PodServiceClientsEndpoint @Inject constructor(
     "scope" to registration.scopes.sorted().joinToString(" "),
     "grants_version" to registration.grantsVersion,
     "origin" to if (registration.registered) "registered" else "provisioned",
+    "token_endpoint_auth_method" to if (registration.authenticatesWithKeys) "private_key_jwt" else "client_secret_basic",
   ).apply {
     // Only while the registration waits for the owner's consent; it is gone after the deadline.
     registration.pendingUntil?.let { put(PodRegistrationResponses.ACTIVATION_EXPIRES_AT, it.epochSecond) }
@@ -128,6 +129,8 @@ class PodServiceClientsEndpoint @Inject constructor(
     PodServiceClientManagementRefusal.PROVISIONED_BY_OPERATOR ->
       error(403, "this service client was provisioned by the host operator, who holds its secret and its registration")
     PodServiceClientManagementRefusal.CONFLICT -> error(409, "the service client changed in between; read it again")
+    PodServiceClientManagementRefusal.HOLDS_NO_SECRET ->
+      error(409, "this service client authenticates with the keys of its DID document and holds no secret")
     PodServiceClientManagementRefusal.VERSION_MISMATCH ->
       error(412, "the grants changed since the version If-Match names; read them again")
     PodServiceClientManagementRefusal.UNGRANTABLE -> error(400, "a service client cannot be given ${detail ?: "these scopes"}")

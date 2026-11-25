@@ -7,6 +7,7 @@ import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
@@ -165,11 +166,14 @@ internal fun buildAuthorizationServerMetadata(
     // clients (see [PodServiceClientStore]). `dyn:` clients
     // (MCP, app integrations) cannot use it — but RFC 8414 §2 wants this list
     // to reflect what the token endpoint actually accepts, so we advertise it
-    // honestly. `client_secret_basic` is its required authentication method.
+    // honestly. A service authenticates with `client_secret_basic`, or with `private_key_jwt` where
+    // it registered under a `did:web` identifier.
     "grant_types_supported" to listOf("authorization_code", "refresh_token", "client_credentials"),
     "scopes_supported" to SCOPES_SUPPORTED,
     "code_challenge_methods_supported" to listOf("S256"),
-    "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic"),
+    "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic", "private_key_jwt"),
+    // RFC 8414 §2: the algorithms a `private_key_jwt` assertion may be signed with.
+    "token_endpoint_auth_signing_alg_values_supported" to DidWebClientAuthentication.ALGORITHMS.map { it.name },
     // RFC 9207: every authorization response names this issuer (`PodOAuthErrorResponses.issuerOf`),
     // so a client may refuse one that names none.
     "authorization_response_iss_parameter_supported" to true,

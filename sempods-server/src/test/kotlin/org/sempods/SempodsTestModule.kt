@@ -1,5 +1,7 @@
 package org.sempods
 
+import org.sempods.api.pod.system.auth.DidWebServiceFixture
+import org.sempods.pods.oauth.didweb.DidWebKeys
 import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
@@ -74,6 +76,10 @@ data class SempodsTestModule(
     install(PodAiSemWebModule(httpPort = config.httpPort))
 
     bindMediaForTests()
+
+    // DID documents from memory, under portless identifiers a path segment can carry — see
+    // `DidWebServiceFixture`. The HTTP fetch and its guard are tested on their own.
+    bind<DidWebKeys>().toInstance(DidWebKeys(fetcher = DidWebServiceFixture.fetcher, allowLoopbackHttp = false))
   }
 
   /**

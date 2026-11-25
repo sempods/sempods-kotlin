@@ -13,7 +13,11 @@ import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.oauth.didweb.DidWebAssertion
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
+import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
@@ -54,6 +58,7 @@ class PodTokenExchange @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
   private val managementAuthorities: PodManagementAuthorityStore,
   private val webIdUriDeriver: WebIdUriDeriver,
+  private val didWebAuthentication: DidWebClientAuthentication,
 ) {
 
   internal fun redeemCode(
@@ -354,7 +359,8 @@ class PodTokenExchange @Inject internal constructor(
    * The credentials arrive already parsed: HTTP Basic is the adapter's format, and what this
    * decides is whether they name a registration and what the token it mints may say.
    *
-   * @param requestedScope rejected outright when present, rather than narrowed — see below.
+   * @param requestedScope rejected outright when present, rather than narrowed — see
+   *   [issueServiceToken].
    */
   internal fun exchangeServiceClient(
     pod: PodId,
@@ -371,7 +377,53 @@ class PodTokenExchange @Inject internal constructor(
       }
       return PodTokenResult.ClientAuthenticationRequired("unknown client_id or invalid secret")
     }
+    return issueServiceToken(pod, podName, client, requestedScope)
+  }
 
+  /**
+   * A `did:web` service authenticating as itself with a client assertion (RFC 7523 §2.2,
+   * `private_key_jwt`): signed by a key its DID document names, for this pod's token endpoint or
+   * issuer. What the assertion has to say is [DidWebClientAuthentication]'s.
+   *
+   * The registration is looked up before anything is fetched, so the DID document read here is
+   * always one of a client this pod registered: an assertion naming a stranger costs a query and no
+   * outbound call. Every refusal is `invalid_client` — the request carried no HTTP Basic, so it
+   * answers 400 without a challenge (RFC 6749 §5.2).
+   */
+  internal fun exchangeServiceClientAssertion(
+    pod: HostedPod,
+    clientId: String,
+    assertion: String,
+    requestedScope: String?,
+  ): PodTokenResult {
+    val client = serviceClients.find(pod.id, clientId)?.takeIf { it.authenticatesWithKeys }
+    val verified = client?.let {
+      didWebAuthentication.verify(assertion, audiences = tokenAudiences(pod), expectedClientId = it.clientId)
+    }
+    if (verified !is DidWebAssertion.Verified) {
+      val reason = (verified as? DidWebAssertion.Refused)?.reason ?: "no did:web service client by that identifier on this pod"
+      logger.info {
+        "[oauth/token] client_credentials assertion refused: pod='${pod.name}', " +
+            "clientId='${LogSafeText.of(clientId)}', reason='${LogSafeText.of(reason)}'"
+      }
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_CLIENT, reason)
+    }
+    return issueServiceToken(pod.id, pod.name, checkNotNull(client), requestedScope)
+  }
+
+  /** What a client assertion may name as its audience: the token endpoint, or the issuer it belongs to. */
+  private fun tokenAudiences(pod: HostedPod): Set<String> {
+    val issuer = pod.ref.uri.toString()
+    return setOf("$issuer/_system/auth/token", issuer)
+  }
+
+  /** The token an authenticated service client gets, or why it gets none. */
+  private fun issueServiceToken(
+    pod: PodId,
+    podName: String,
+    client: ServiceClientRegistration,
+    requestedScope: String?,
+  ): PodTokenResult {
     // Down-scoping is NOT supported on client_credentials. A slim service token carries no
     // per-token state to express a subset, and the resolver always grants the client's full
     // registered set from `PodServiceClientDao` at request time. Accepting `scope=` and

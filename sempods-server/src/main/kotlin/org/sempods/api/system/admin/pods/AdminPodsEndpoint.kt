@@ -304,7 +304,8 @@ class AdminPodsEndpoint @Inject constructor(
         result = outcome,
         clientId = clientId,
         registrationId = registration.id.value,
-        secretId = registration.secretId,
+        // An operator's identifier carries no `:`, so the registration is never a `did:web` one.
+        secretId = checkNotNull(registration.secretId) { "an operator-provisioned client holds a secret" },
         // The stored set: an existing registration's grants are the owner's.
         scopes = registration.scopes,
         contextRoot = rootContextUri.toString(),

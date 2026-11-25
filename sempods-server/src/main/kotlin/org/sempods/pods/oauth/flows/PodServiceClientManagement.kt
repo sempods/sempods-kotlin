@@ -2,6 +2,7 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.core.DidWeb
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodFacade
@@ -22,8 +23,8 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
  * What each does on the wire is `sempods-server/docs/auth/service-clients.md` §"Managing service clients".
  *
  * Every operation needs [SERVICE_CLIENTS_MANAGE_SCOPE]. [replaceGrants] reaches every registration;
- * rotation and revocation only those this pod named (`svc:`), since an operator holds the secret
- * and the registration of its own.
+ * rotation and revocation only those registered at the pod (`svc:` and `did:web`), since an operator
+ * holds the secret and the registration of its own. A `did:web` client holds no secret to rotate.
  */
 class PodServiceClientManagement @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
@@ -51,6 +52,7 @@ class PodServiceClientManagement @Inject internal constructor(
 
         ServiceClientSecretRotation.NotFound -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
         ServiceClientSecretRotation.Conflict -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.CONFLICT)
+        ServiceClientSecretRotation.HoldsNoSecret -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.HOLDS_NO_SECRET)
       }
     }
   }
@@ -163,14 +165,15 @@ class PodServiceClientManagement @Inject internal constructor(
     }
 
   /**
-   * Runs [operation] where this pod named [clientId], which its prefix alone tells. An operator's
-   * client keeps the secret and the registration the operator holds; its grants are the owner's.
+   * Runs [operation] where [clientId] registered at the pod, which its prefix alone tells. An
+   * operator's client keeps the secret and the registration the operator holds; its grants are the
+   * owner's.
    */
   private inline fun <T> changeable(
     clientId: String,
     operation: () -> PodServiceClientManagementResult<T>,
   ): PodServiceClientManagementResult<T> =
-    if (clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)) operation()
+    if (clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX) || clientId.startsWith(DidWeb.PREFIX)) operation()
     else PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.PROVISIONED_BY_OPERATOR)
 
   private companion object {
@@ -199,6 +202,9 @@ internal enum class PodServiceClientManagementRefusal {
 
   /** Another change to the same registration landed in between. */
   CONFLICT,
+
+  /** A `did:web` client, which authenticates with its DID document's keys: there is no secret to rotate. */
+  HOLDS_NO_SECRET,
 
   /** The grants are no longer at the version the replace named. */
   VERSION_MISMATCH,

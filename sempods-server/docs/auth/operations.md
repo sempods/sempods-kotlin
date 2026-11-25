@@ -36,8 +36,8 @@ continues to govern adoption.
 
 `/token` charges an address budget before a finer address-and-client budget. The address is the
 rightmost `X-Forwarded-For` entry appended by the trusted reverse proxy. Without that header,
-`/token` has no rate limit. The client identity is the Basic username for Client Credentials and the
-form `client_id` for other grants. The pod is not part of either key, so cycling through pods or
+`/token` has no rate limit. The client identity is the Basic username or the client assertion's
+`sub` for Client Credentials, and the form `client_id` for other grants. The pod is not part of either key, so cycling through pods or
 inventing client IDs cannot multiply the address budget.
 
 | Setting | Deployment default |
@@ -119,6 +119,12 @@ The first login after startup is particularly sensitive to the JWKS deadline. Th
 are not configurable. [CommonsHttpTransportTest](../../src/test/kotlin/org/sempods/auth/CommonsHttpTransportTest.kt)
 and [OidcHttpTimeoutsTest](../../../sempods-auth/src/test/kotlin/org/sempods/auth/oidc/OidcHttpTimeoutsTest.kt)
 verify them.
+
+A [`did:web` service](service-clients.md#didweb-services)'s DID document is the pod's only fetch
+to an address a caller names. It goes through the outbound guard: public addresses only outside
+development, no redirects, 3 s connect, 5 s whole call, 64 KiB. Its five-minute cache holds at most
+1,000 documents per process. [OkHttpDidDocumentFetcher](../../src/main/kotlin/org/sempods/pods/oauth/didweb/OkHttpDidDocumentFetcher.kt)
+and [DidWebKeys](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebKeys.kt) own the figures.
 
 ## Service audit retention
 

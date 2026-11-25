@@ -36,8 +36,11 @@ S256 PKCE; services use Client Credentials.
 | `did:web:*` | Use a stable application origin; no registration | Authorization Code; PKCE strongly recommended |
 | `dyn:*` | Public Dynamic Client Registration (DCR) | Authorization Code; PKCE required |
 | `svc:*` | Service registration, followed by owner consent | Client Credentials with `client_secret_basic` |
+| `did:web:*` service | [Registration with a software statement](#registering-a-didweb-service), followed by owner consent | Client Credentials with `private_key_jwt` |
 
-Public DCR never returns a service secret. Service IDs cannot use `/authorize`.
+Public DCR never returns a service secret. Service IDs cannot use `/authorize`. A `did:web`
+identifier names an origin-bound app at `/authorize` and a service at `/token` independently: the
+service registration does not change what the app may do.
 [Host provisioning](../host-provisioning.md) is a separate setup path.
 
 ### Redirect rules
@@ -57,7 +60,7 @@ For example, `did:web:notes.example` permits a callback on `https://notes.exampl
 port. `did:web:notes.example:app` also restricts callbacks to `/app` and its descendants:
 `/app/callback` matches, `/app-other/callback` does not. Dot segments are refused.
 
-The identifier is checked locally; the pod fetches no DID document. Loopback identifiers and
+The identifier is checked locally; the pod fetches no DID document for an app. Loopback identifiers and
 redirect exceptions for these clients require development configuration. See
 [DidWeb](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/DidWeb.kt) for the contract.
 
@@ -127,7 +130,7 @@ Send a form body to `/_system/auth/token`:
 |---|---|
 | Authorization Code | `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `code_verifier` |
 | Refresh | `grant_type=refresh_token`, `refresh_token`, `client_id`, optional feature `scope` subset |
-| Client Credentials | `grant_type=client_credentials`; authenticate with [HTTP Basic](service-clients.md#token-exchange) |
+| Client Credentials | `grant_type=client_credentials`; authenticate with [HTTP Basic](service-clients.md#token-exchange), or a `did:web` service with a [client assertion](service-clients.md#didweb-services) |
 
 Delegated access tokens last at most one hour, capped by the remaining connection lifetime. Their
 subject is the person's WebID; the issuer is the pod URL. Context grants are resolved on every
@@ -149,7 +152,9 @@ one on purpose, the second column says why.
 | Authorization request | SDK `AuthorizationRequest`; the address, `state` and `code_challenge` by hand, as sent, because the flow validates the first and returns `state` exactly | [PodAuthorizeMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeMessages.kt) |
 | Code redirect | By hand: the SDK trims `state` and refuses a blank one | [PodAuthorizeResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeResponses.kt) |
 | Authorization error redirect | By hand: the SDK cannot remove an `error_uri` the client's redirect already carries, and refuses the blank `state` this echoes | [PodOAuthErrorResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthErrorResponses.kt) |
-| Token request: `authorization_code`, `refresh_token`, `client_credentials` with `client_secret_basic` | SDK `GrantType`, `AuthorizationCodeGrant`, `RefreshTokenGrant`, `ClientSecretBasic`; repeated parameters and the choice of grant by hand, where `TokenRequest.parse` holds a different profile | [PodTokenMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenMessages.kt) |
+| Token request: `authorization_code`, `refresh_token`, `client_credentials` with `client_secret_basic` or `private_key_jwt` | SDK `GrantType`, `AuthorizationCodeGrant`, `RefreshTokenGrant`, `ClientSecretBasic`; repeated parameters, the choice of grant and the assertion parameters by hand, where `TokenRequest.parse` holds a different profile | [PodTokenMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenMessages.kt) |
+| Client assertion and software statement of a `did:web` service | SDK `ClientAuthenticationVerifier`; the `did:web` issuer, algorithms, `kid` and single-use `jti` on top | [DidWebClientAuthentication](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebClientAuthentication.kt) |
+| A `did:web` service's DID document | Fetched behind the outbound guard, read by hand: `authentication` methods with a `publicKeyJwk` | [DidWebKeys](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebKeys.kt) |
 | The pod's signing keys (JWKS) | `JWKSet` | [SigningKeys](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/SigningKeys.kt) |
 | The pod's discovery documents | By hand: the map is the contract ([modularity](../../../docs/concepts/modularity.md)) | [PodOAuthMetadataEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthMetadataEndpoint.kt) |
 | The provider's discovery document | By hand: the members this client needs, read from its JSON, fetched over the pod's `HttpTransport` | [OidcProviderMetadata](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/OidcProviderMetadata.kt) |
@@ -212,6 +217,38 @@ expires, and an active one needs [removal](service-clients.md#managing-service-c
 This profile is experimental; the [service guide](service-clients.md#consent) links the proposed
 portable profiles.
 
+### Registering a `did:web` service
+
+A service with a `did:web` identity registers under that identifier and gets no secret. It sends
+`"token_endpoint_auth_method": "private_key_jwt"` and a `software_statement` (RFC 7591 §2.3):
+
+<!-- doc-example: illustrative; checked against DidWebServiceClientHttpTest -->
+```json
+{
+  "client_name": "Owner Console",
+  "grant_types": ["client_credentials"],
+  "token_endpoint_auth_method": "private_key_jwt",
+  "software_statement": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDp3ZWI6Y29uc29sZS5leGFtcGxlI2tleS0xIn0…"
+}
+```
+
+The statement is a JWT signed with a key from the service's DID document. Its `iss` and `sub` are
+the `did:web` identifier, its `aud` is the registration endpoint or the issuer, and it carries a
+`jti`. The pod checks it like a [client assertion](service-clients.md#didweb-services), so it is
+accepted once. A `client_name` or `redirect_uris` the statement states takes precedence over the
+body's.
+
+The response carries the identifier as `client_id`, `token_endpoint_auth_method: "private_key_jwt"`
+and no `client_secret`. Activation, the `service-clients:manage` bearer and the members in the table
+above work as for a `svc:` service. A repeat registration answers the registration that stands,
+unchanged.
+
+| Case | Answer |
+|---|---|
+| No `software_statement` | `invalid_software_statement` |
+| A statement that does not verify, has another audience, or was used before | `invalid_software_statement` |
+| A statement stating another `token_endpoint_auth_method` or `grant_types` | `invalid_software_statement` |
+
 ## Managing service clients
 
 Request `service-clients:manage` through owner consent. The bearer lasts one hour and can register
@@ -248,6 +285,7 @@ reports management-only permission, unlike a normal `#manage` grant; see
 |---|---|---|
 | [`contexts:manage`](#managing-contexts) reports management-only permission in the catalogue | `SPS-CTX-034`, `SPS-GRANT-009` | [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114) |
 | Pod access tokens carry no `aud` claim ([sharp edge](operations.md#sharp-edges)) | `SPS-MCP-038` | — |
+| A [`did:web` service](service-clients.md#didweb-services) registers, and the pod reads its DID document for its keys | `SPS-AUTH-003`, `SPS-AUTH-007` | [sempods-spec#154](https://github.com/sempods/sempods-spec/issues/154) |
 
 ## What lives elsewhere
 

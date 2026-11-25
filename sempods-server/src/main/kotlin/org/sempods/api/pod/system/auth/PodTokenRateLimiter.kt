@@ -107,12 +107,15 @@ class PodTokenRateLimiter(
    * @param clientId the submitted `client_id`, which the `client_credentials` grant does not send.
    * @param authorizationHeader the `Authorization` header, which is where `client_credentials`
    *   carries the client's name instead.
+   * @param clientAssertion the submitted `client_assertion`, which names the client of a
+   *   `client_credentials` request authenticating with `private_key_jwt`.
    */
   fun tryAcquire(
     forwardedFor: String?,
     grantType: String?,
     clientId: String?,
     authorizationHeader: String?,
+    clientAssertion: String? = null,
   ): Boolean {
     val address = boundedKeyPart(ForwardedFor.clientIp(forwardedFor) ?: return true)
 
@@ -123,7 +126,7 @@ class PodTokenRateLimiter(
       return false
     }
 
-    val key = "$address|${boundedKeyPart(clientIdentity(grantType, clientId, authorizationHeader))}"
+    val key = "$address|${boundedKeyPart(clientIdentity(grantType, clientId, authorizationHeader, clientAssertion))}"
     if (!buckets.tryAcquire(key)) {
       logRefusal(address, "client", key, permitsPerMinute)
       return false
@@ -159,8 +162,8 @@ class PodTokenRateLimiter(
    * Who the request claims to be — **chosen by the grant**, because that is what decides which name
    * the endpoint will actually read.
    *
-   * `client_credentials` authenticates the username in the Basic header and is never handed the
-   * form field; the other grants register with `token_endpoint_auth_method=none` and authenticate
+   * `client_credentials` authenticates the username in the Basic header or the subject of a client
+   * assertion, and is keyed by those, never by the form field; the other grants register with `token_endpoint_auth_method=none` and authenticate
    * the form `client_id`, ignoring any header. So each is keyed by the name its own branch uses,
    * and by that one only. Reading whichever happens to be present would give a caller *two* key
    * spaces to choose from: a `refresh_token` retry could invent Basic usernames, or a service
@@ -174,9 +177,9 @@ class PodTokenRateLimiter(
    * caller that omits the parameter is refused a token anyway, and may not do so faster than
    * anyone else.
    */
-  private fun clientIdentity(grantType: String?, clientId: String?, authorizationHeader: String?): String =
+  private fun clientIdentity(grantType: String?, clientId: String?, authorizationHeader: String?, clientAssertion: String?): String =
     if (grantType?.trim() == CLIENT_CREDENTIALS_GRANT) {
-      PodTokenMessages.basicClientId(authorizationHeader) ?: UNIDENTIFIED
+      PodTokenMessages.clientCredentialsClientId(authorizationHeader, clientAssertion) ?: UNIDENTIFIED
     } else {
       clientId?.trim()?.takeIf { it.isNotBlank() } ?: UNIDENTIFIED
     }

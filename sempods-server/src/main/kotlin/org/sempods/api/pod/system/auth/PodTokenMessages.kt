@@ -5,7 +5,9 @@ import com.nimbusds.oauth2.sdk.ErrorObject
 import com.nimbusds.oauth2.sdk.GrantType
 import com.nimbusds.oauth2.sdk.ParseException
 import com.nimbusds.oauth2.sdk.RefreshTokenGrant
+import com.nimbusds.jwt.SignedJWT
 import com.nimbusds.oauth2.sdk.auth.ClientSecretBasic
+import com.nimbusds.oauth2.sdk.auth.JWTAuthentication
 import jakarta.ws.rs.core.MultivaluedMap
 import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.pods.oauth.flows.PodTokenResult
@@ -22,12 +24,13 @@ import org.sempods.pods.oauth.flows.PodTokenResult
  *    read. One it does not read may repeat, since it is ignored anyway.
  *  - **Three grants.** `GrantType` names the grant; the pod parses only those it offers, and
  *    answers every other `unsupported_grant_type`.
- *  - **Client credentials come from HTTP Basic, and only for `client_credentials`.** The other
- *    grants are public clients naming themselves in the form, whatever the header says.
+ *  - **Client credentials come from HTTP Basic or a client assertion, and only for
+ *    `client_credentials`.** The other grants are public clients naming themselves in the form,
+ *    whatever the header says.
  *
  * Not `TokenRequest.parse`, which carries a profile of its own where these three are: it refuses
- * any repeated parameter, read or not; it reads `client_secret_post` and `client_assertion`
- * credentials from the form, methods this pod does not offer; it turns a Basic header on a code
+ * any repeated parameter, read or not; it reads `client_secret_post` credentials from the form, a
+ * method this pod does not offer, and a client assertion on every grant; it turns a Basic header on a code
  * exchange into a confidential client; and it validates `resource` and `authorization_details`,
  * which the pod does not read.
  *
@@ -64,13 +67,7 @@ internal object PodTokenMessages {
           scope = params["scope"]?.single(),
         )
 
-        GrantType.CLIENT_CREDENTIALS -> basicCredentials(authorization)?.let { basic ->
-          PodTokenRead.ClientCredentials(
-            clientId = basic.clientID.value,
-            secret = basic.clientSecret.value,
-            scope = params["scope"]?.single(),
-          )
-        } ?: PodTokenRead.Refused(PodTokenResult.ClientAuthenticationRequired("HTTP Basic authentication required"))
+        GrantType.CLIENT_CREDENTIALS -> clientCredentials(params, authorization)
 
         else -> refused(
           OAuthErrorCode.UNSUPPORTED_GRANT_TYPE,
@@ -88,10 +85,58 @@ internal object PodTokenMessages {
   }
 
   /**
-   * The client id an HTTP Basic header names, read the way [read] reads it — so that the budget a
-   * request is counted against is the client it then authenticates as.
+   * A `client_credentials` request's client authentication: HTTP Basic (`client_secret_basic`) or a
+   * client assertion (`private_key_jwt`, RFC 7523 §2.2), never both (RFC 6749 §2.3). An
+   * `Authorization` header beside an assertion is refused whatever it holds, so a request cannot
+   * leave the pod to choose which of two credentials it meant.
+   *
+   * Only the shape of an assertion is read here. Whether it verifies is
+   * `DidWebClientAuthentication`'s, and every answer about the JWT itself is `invalid_client`
+   * (RFC 7521 §4.2.1), the verifier's as well as this one's.
    */
+  private fun clientCredentials(params: Map<String, List<String>>, authorization: String?): PodTokenRead {
+    val scope = params["scope"]?.single()
+    val assertion = params["client_assertion"]?.single()
+    val assertionType = params["client_assertion_type"]?.single()
+    if (assertion == null && assertionType == null) {
+      val basic = basicCredentials(authorization)
+        ?: return PodTokenRead.Refused(PodTokenResult.ClientAuthenticationRequired("HTTP Basic authentication or a client assertion required"))
+      return PodTokenRead.ClientCredentials(clientId = basic.clientID.value, secret = basic.clientSecret.value, scope = scope)
+    }
+    if (!authorization.isNullOrBlank()) {
+      return refused(OAuthErrorCode.INVALID_REQUEST, "a client authenticates one way: HTTP Basic or a client assertion, not both")
+    }
+    if (assertion == null) return refused(OAuthErrorCode.INVALID_REQUEST, "client_assertion_type without client_assertion")
+    if (assertionType == null) return refused(OAuthErrorCode.INVALID_REQUEST, "client_assertion without client_assertion_type")
+    if (assertionType != JWTAuthentication.CLIENT_ASSERTION_TYPE) {
+      return refused(OAuthErrorCode.INVALID_CLIENT, "client_assertion_type must be ${JWTAuthentication.CLIENT_ASSERTION_TYPE}")
+    }
+    // RFC 7521 §4.2: `client_id` is optional beside an assertion and, where sent, names the client
+    // the assertion is issued by — the verifier holds it to that.
+    val clientId = params["client_id"]?.single() ?: assertionSubject(assertion)
+      ?: return refused(OAuthErrorCode.INVALID_CLIENT, "client_assertion is not a JWT naming its subject")
+    return PodTokenRead.ClientAssertion(clientId = clientId, assertion = assertion, scope = scope)
+  }
+
+  /**
+   * The client a `client_credentials` request names, read the way [read] reads it — so that the
+   * budget a request is counted against is the client it then authenticates as: the Basic
+   * username, or the assertion's subject. Neither verified, and neither needs to be to tell one
+   * caller's budget from another's. A form `client_id` beside an assertion is not read here: it
+   * has to agree with the subject anyway, and reading it would give a caller a second name to vary.
+   */
+  fun clientCredentialsClientId(authorization: String?, clientAssertion: String?): String? =
+    basicClientId(authorization) ?: clientAssertion?.let { assertionSubject(it.trim()) }
+
+  /** The client id an HTTP Basic header names, read the way [read] reads it. */
   fun basicClientId(authorization: String?): String? = basicCredentials(authorization)?.clientID?.value
+
+  /** The `sub` of [assertion], unverified; `null` for anything that is not a JWT carrying one. */
+  private fun assertionSubject(assertion: String): String? = try {
+    SignedJWT.parse(assertion).jwtClaimsSet.subject?.takeIf { it.isNotBlank() }
+  } catch (_: java.text.ParseException) {
+    null
+  }
 
   /**
    * `null` for anything that is not a Basic pair. The SDK throws more than its `ParseException`
@@ -124,6 +169,7 @@ internal object PodTokenMessages {
   /** The parameters `/token` reads, across its three grants. */
   private val TOKEN_PARAMETERS = setOf(
     "grant_type", "code", "redirect_uri", "client_id", "code_verifier", "refresh_token", "scope",
+    "client_assertion_type", "client_assertion",
   )
 }
 
@@ -140,6 +186,9 @@ internal sealed interface PodTokenRead {
   data class Refresh(val refreshToken: String, val clientId: String?, val scope: String?) : PodTokenRead
 
   data class ClientCredentials(val clientId: String, val secret: String, val scope: String?) : PodTokenRead
+
+  /** `client_credentials` authenticated by a client assertion, its JWT as sent. */
+  data class ClientAssertion(val clientId: String, val assertion: String, val scope: String?) : PodTokenRead
 
   /** Not a request the pod can act on — answered here, because syntax is this layer's. */
   data class Refused(val result: PodTokenResult) : PodTokenRead

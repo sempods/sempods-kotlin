@@ -72,6 +72,11 @@ disconnect. `consent` records the version of the consent text the person approve
 (`PrivilegedAuthorityRows.consentTextOf`); a row without it reads as the first,
 `PrivilegedAuthorityRows.FIRST_CONSENT`.
 
+`oauth.clientAssertionJtis` holds the `jti`s `did:web` services spent on client assertions and
+software statements. `_id` is the SHA-256 of issuer and `jti`; the insert is the check, so of two
+requests with one assertion only one succeeds. A TTL index on `expiresAt` removes a row after seven
+minutes, longer than an assertion is accepted.
+
 `oauth.installationAuthorities` is retired with the installer authority. Its rows expired within an
 hour; once every node runs a release without it, an operator may `drop()` the empty collection. A
 node still on the old code recreates its indexes when it starts.

@@ -249,7 +249,7 @@ Authorization-server metadata (RFC 8414):
   "grant_types_supported":                 ["authorization_code", "refresh_token", "client_credentials"],
   "scopes_supported":                      ["public-read", "offline_access"],
   "code_challenge_methods_supported":      ["S256"],
-  "token_endpoint_auth_methods_supported": ["none", "client_secret_basic"]
+  "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "private_key_jwt"]
 }
 ```
 

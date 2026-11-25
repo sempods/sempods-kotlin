@@ -159,8 +159,13 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(listOf("S256"), body["code_challenge_methods_supported"])
     assertEquals(
-      listOf("none", "client_secret_basic"),
+      listOf("none", "client_secret_basic", "private_key_jwt"),
       body["token_endpoint_auth_methods_supported"],
+    )
+    assertEquals(
+      listOf("RS256", "PS256", "ES256"),
+      body["token_endpoint_auth_signing_alg_values_supported"],
+      "what a did:web service may sign its client assertion with",
     )
     assertEquals(
       true,

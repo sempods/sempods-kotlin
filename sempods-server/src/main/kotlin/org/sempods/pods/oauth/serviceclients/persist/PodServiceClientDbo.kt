@@ -10,8 +10,9 @@ import java.time.Instant
  * An operator provisions one through the host admin surface, or a service registers itself at
  * `POST {pod}/_system/auth/register` and waits for the owner to activate it ([pendingUntil]); see
  * `sempods-server/docs/auth/service-clients.md`. Public clients registered there live in
- * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. Each row carries a bcrypt hash of the
- * shared secret; the plaintext never persists here.
+ * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. A row carries a bcrypt hash of the
+ * shared secret, and the plaintext never persists here — except a `did:web` client's, which holds
+ * no secret and authenticates with the keys of its DID document.
  *
  * Its grants live on this row, in [scopes], and nowhere else: the resolver reads them per request,
  * and a single-document update is what makes a replace of them optimistic ([grantsVersion]).
@@ -30,8 +31,11 @@ internal data class PodServiceClientDbo(
 
   val clientId: String,
 
-  /** bcrypt hash of the shared secret. Plaintext is never persisted. */
-  val secretHash: String,
+  /**
+   * bcrypt hash of the shared secret. Plaintext is never persisted. Absent on a `did:web` client,
+   * which authenticates with `private_key_jwt` instead.
+   */
+  val secretHash: String?,
 
   /**
    * The context grants the client holds, stored under the field name `scopes`.

@@ -88,14 +88,17 @@ internal object PodRegistrationResponses {
     return ClientInformation(ClientID(client.clientId), null, metadata, null)
   }
 
+  /** A service client; a `did:web` one, which holds no secret, with `private_key_jwt` and none. */
   private fun serviceClient(client: PodRegistrationResult.ServiceRegistered): ClientInformation {
     val metadata = ClientMetadata().apply {
-      setTokenEndpointAuthMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+      setTokenEndpointAuthMethod(
+        if (client.secret == null) ClientAuthenticationMethod.PRIVATE_KEY_JWT else ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+      )
       setGrantTypes(setOf(GrantType.CLIENT_CREDENTIALS))
       setName(client.clientName)
       client.redirectUris.takeIf { it.isNotEmpty() }?.let { uris -> setRedirectionURIs(uris.mapTo(mutableSetOf(), URI::create)) }
     }
-    return ClientInformation(ClientID(client.clientId), Date.from(client.issuedAt), metadata, Secret(client.secret))
+    return ClientInformation(ClientID(client.clientId), Date.from(client.issuedAt), metadata, client.secret?.let(::Secret))
   }
 
   private fun created(information: ClientInformation): Response =
@@ -122,6 +125,7 @@ internal object PodRegistrationResponses {
   private fun errorObject(error: PodRegistrationError): ErrorObject = when (error) {
     PodRegistrationError.INVALID_REDIRECT_URI -> RegistrationError.INVALID_REDIRECT_URI
     PodRegistrationError.INVALID_CLIENT_METADATA -> RegistrationError.INVALID_CLIENT_METADATA
+    PodRegistrationError.INVALID_SOFTWARE_STATEMENT -> RegistrationError.INVALID_SOFTWARE_STATEMENT
   }
 
   private fun jaxrs(response: HTTPResponse): Response {

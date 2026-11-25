@@ -41,6 +41,7 @@ class SempodsCollectionsTest {
         "oauth.loginStates",
         "oauth.consentTransactions",
         "oauth.managementAuthorities",
+        "oauth.clientAssertionJtis",
         "oauth.authCodes",
         "oauth.reauthChallenges",
       ),
