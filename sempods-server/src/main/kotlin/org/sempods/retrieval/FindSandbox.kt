@@ -28,9 +28,10 @@ import java.net.URI
  *   to set as a concrete `context IN (…)` index clause, and conflating the two would erase the
  *   distinction between the security ceiling and a functional narrowing.
  *
- * Each adapter (and the expander) is solely responsible for self-scoping to [effectiveScope] — the
- * endpoint does not post-filter adapter output. Because [contextFilter] is pre-intersected with the
- * ceiling, an adapter that scopes to it alone can never leak.
+ * The expander and every [FindAdapter.selfScoped] adapter scope to [effectiveScope] themselves, and
+ * [FindService] takes their output as it is. Because [contextFilter] is pre-intersected with the
+ * ceiling, one that scopes to it alone can never leak. What any other adapter returns, [FindService]
+ * checks against the store through the expander.
  */
 class FindSandbox(
   val podUri: URI,

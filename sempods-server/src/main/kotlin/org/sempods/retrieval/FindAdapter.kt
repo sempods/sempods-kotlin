@@ -46,10 +46,11 @@ interface FindAdapter {
   /**
    * @param request the parsed query: tokens, an optional `rdf:type` constraint, and the limit.
    * @param sandbox the pod-scoped authorization context. The pod is identified by
-   *   [FindSandbox.podUri] (its global URI); the adapter must self-scope to
-   *   [FindSandbox.effectiveScope].
-   * @return a model whose **IRI subjects are the found resources** (matched edges optional);
-   *   never exceeds the sandbox.
+   *   [FindSandbox.podUri] (its global URI); the adapter scopes to [FindSandbox.effectiveScope] as
+   *   far as it can.
+   * @return a model whose **IRI subjects are the found resources** (matched edges optional). A
+   *   [selfScoped] adapter's never exceeds the sandbox; another's may, and [FindService] checks it
+   *   against the store.
    */
   fun find(request: FindRequest, sandbox: FindSandbox): Model
 }
