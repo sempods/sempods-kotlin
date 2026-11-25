@@ -1,10 +1,9 @@
 package org.sempods.api.system.sparql
 
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
-import org.sempods.pods.PodFacade
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.query.ForbiddenSparqlException
 import org.sempods.query.SparqlQueryService
 import org.sempods.query.SparqlSandbox
@@ -20,12 +19,7 @@ import org.sempods.rdf.stream.toStreamingOutput
 class SparqlEndpoint @Inject constructor(
   private val sparqlQueryService: SparqlQueryService,
   private val podResourceReadService: PodResourceReadService,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+) : PodBaseEndpoint() {
 
   @Consumes("application/sparql-query", MediaType.TEXT_PLAIN)
   @Produces(
@@ -39,6 +33,7 @@ class SparqlEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     body: InputStream,
     @Context httpHeaders: HttpHeaders,
+    @Context requestContext: ContainerRequestContext,
     @QueryParam("default-graph-uri") defaultGraphUris: List<String>?,
     @QueryParam("named-graph-uri") namedGraphUris: List<String>?,
   ): Response {
@@ -51,7 +46,7 @@ class SparqlEndpoint @Inject constructor(
       return Response.status(Response.Status.BAD_REQUEST).entity("Missing SPARQL query").build()
     }
 
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
 
     val validated = try {
       sparqlQueryService.validateReadOnly(sparqlQuery)

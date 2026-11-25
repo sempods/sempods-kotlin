@@ -41,7 +41,7 @@ import java.net.URI
  *
  * The routes that exist for this server's bearer only — registration, service clients, the AI
  * routes — read the same steps through [verify] and [authorizeAndAudit] and answer the cases
- * differently; see `org.sempods.api.SempodsBaseEndpoint`.
+ * differently; see `org.sempods.api.PodBearerRoutes`.
  */
 class BearerPodRequestAuthenticator @Inject internal constructor(
   private val config: SempodsConfig,
@@ -105,7 +105,10 @@ class BearerPodRequestAuthenticator @Inject internal constructor(
    * The MCP endpoint sends it too; `docs/mcp/authentication.md` §"Bearer challenge format" says
    * how that deviates from `SPS-MCP-009`.
    */
-  internal fun challenge(podName: String, error: String = BearerChallenge.INVALID_TOKEN): String {
+  override fun challenge(pod: String): String = challenge(pod, BearerChallenge.INVALID_TOKEN)
+
+  /** [challenge] with the RFC 6750 error code a route refuses with, `insufficient_scope` for one. */
+  internal fun challenge(podName: String, error: String): String {
     val podBaseUrl = "${config.apiBaseUrl}$podName"
     return BearerChallenge.forResource(
       realm = podName,

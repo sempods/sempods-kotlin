@@ -1,10 +1,13 @@
 package org.sempods.api.pod.system.contexts
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import org.sempods.SempodsConfig
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
 import org.sempods.SempodsUriBuilder
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.ContextUriResolution
@@ -18,7 +21,6 @@ import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
 import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
 import org.sempods.pods.oauth.flows.PodOwnerAuthorityRefusal
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.Context
@@ -83,12 +85,10 @@ class PodContextsEndpoint @Inject constructor(
   private val contextPermissionResolver: PodContextPermissionResolver,
   private val contextWriteAuthorizer: PodContextWriteAuthorizer,
   private val ownerAuthority: PodOwnerAuthority,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podFacade: PodFacade,
+  private val bearerRoutes: PodBearerRoutes,
+  private val config: SempodsConfig,
+) : PodBaseEndpoint() {
 
   @PUT
   @Path("{contextPath: .+}")
@@ -98,16 +98,17 @@ class PodContextsEndpoint @Inject constructor(
     @PathParam("contextPath") contextPath: String,
     @Context httpHeaders: HttpHeaders,
     body: PutPodContextRequest?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     // Negotiated before anything is written: Jersey has already answered an unsatisfiable `Accept`
     // with 406 during matching, so no context comes into existence for one (`SPS-CTX-037`).
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
     // Authority before the naming rules, which hold for creation only: a caller without it gets 403
     // whether the context exists or not (`SPS-CORE-018`).
-    val createdBy = authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
+    val createdBy = authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri, requestContext = requestContext)
     requireCreatableContextPathOrThrow(ContextPathRules.normalize(contextPath))
     val podId = checkNotNull(podDbo.id)
     val fields = body ?: PutPodContextRequest()
@@ -159,8 +160,9 @@ class PodContextsEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("contextPath") contextPath: String,
     @Context httpHeaders: HttpHeaders,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     // Before the lookup: a withdrawn authority answers the same for a context that exists and one that does not.
     val registryAuthority = holdsRegistryAuthority(pod, credentials)
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
@@ -185,7 +187,7 @@ class PodContextsEndpoint @Inject constructor(
     // (`SPS-CTX-035`).
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.describe(row = dbo, podBaseUrl = podBaseUrl)
-    return registryRead(format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
+    return registryRead(requestContext, format, model, Values.iri(dbo.contextUri)) { dbo.toResponse(entry) }
   }
 
   @GET
@@ -193,8 +195,9 @@ class PodContextsEndpoint @Inject constructor(
   fun list(
     @PathParam("pod") pod: String,
     @Context httpHeaders: HttpHeaders,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     val podId = checkNotNull(podFacade.getPodId(credentials.pod.name))
     val podBaseUrl = "${config.apiBaseUrl}${pod}/"
 
@@ -212,7 +215,7 @@ class PodContextsEndpoint @Inject constructor(
 
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return notAcceptable()
     val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
-    return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
+    return registryRead(requestContext, format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",
         authenticated = credentials.authenticated,
@@ -227,12 +230,13 @@ class PodContextsEndpoint @Inject constructor(
   fun delete(
     @PathParam("pod") pod: String,
     @PathParam("contextPath") contextPath: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val contextUri = resolveContextUri(pod = pod, contextPath = contextPath)
     // Before the existence check: a caller without authority gets 403 whether the context exists or
     // not (`SPS-CORE-018`).
-    authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri)
+    authorizeContextManageOrThrow(pod = pod, podDbo = podDbo, contextUri = contextUri, requestContext = requestContext)
     val podId = checkNotNull(podDbo.id)
     if (!podContextsDao.exists(podId = podId, contextUri = contextUri.toString())) {
       throw unknownContext()
@@ -251,13 +255,13 @@ class PodContextsEndpoint @Inject constructor(
    */
   private fun holdsRegistryAuthority(pod: String, credentials: SempodsCredentials): Boolean {
     if (CONTEXTS_MANAGE_SCOPE !in credentials.oauthScopes) return false
-    return when (val check = ownerAuthority.check(fetchPodOrThrow(pod).hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
+    return when (val check = ownerAuthority.check(bearerRoutes.hosted(bearerRoutes.fetchPodOrThrow(pod)), credentials, CONTEXTS_MANAGE_SCOPE)) {
       is PodOwnerAuthorityCheck.Standing -> true
       is PodOwnerAuthorityCheck.Refused ->
         if (check.reason == PodOwnerAuthorityRefusal.NOT_OWNER) {
           false
         } else {
-          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
+          throw WebApplicationException(bearerRoutes.ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
         }
     }
   }
@@ -283,15 +287,20 @@ class PodContextsEndpoint @Inject constructor(
    * authority → 401; an authenticated caller outside its sandbox → 403. Every 401 carries the pod's
    * Bearer challenge (`SPS-AUTH-064`).
    */
-  private fun authorizeContextManageOrThrow(pod: String, podDbo: PodDbo, contextUri: URI): String {
-    val credentials = authenticate(pod)
+  private fun authorizeContextManageOrThrow(
+    pod: String,
+    podDbo: PodDbo,
+    contextUri: URI,
+    requestContext: ContainerRequestContext,
+  ): String {
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
 
     if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
-      when (val check = ownerAuthority.check(podDbo.hosted, credentials, CONTEXTS_MANAGE_SCOPE)) {
+      when (val check = ownerAuthority.check(bearerRoutes.hosted(podDbo), credentials, CONTEXTS_MANAGE_SCOPE)) {
         is PodOwnerAuthorityCheck.Standing -> return check.authority.webId
         is PodOwnerAuthorityCheck.Refused ->
-          throw WebApplicationException(ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
+          throw WebApplicationException(bearerRoutes.ownerAuthorityRefused(pod, check.reason, CONTEXTS_MANAGE_SCOPE, manages = "contexts"))
       }
     }
 
@@ -383,12 +392,18 @@ class PodContextsEndpoint @Inject constructor(
    * gets what this route gave before the registry became RDF: no tag, no conditional read, until
    * [#184](https://github.com/sempods/sempods-kotlin/issues/184) removes the shape.
    */
-  private fun registryRead(format: RegistryFormat, model: Model, subject: IRI, legacy: () -> Any): Response {
+  private fun registryRead(
+    requestContext: ContainerRequestContext,
+    format: RegistryFormat,
+    model: Model,
+    subject: IRI,
+    legacy: () -> Any,
+  ): Response {
     if (format == RegistryFormat.LEGACY_JSON) {
       return deprecationHeaders(Response.ok(legacy()).type(format.contentType), format).build()
     }
     val tag = registryTag(model = model, format = format)
-    evaluatePreconditions(tag)?.let { return deprecationHeaders(Response.fromResponse(it), format).build() }
+    evaluatePreconditions(requestContext, tag)?.let { return deprecationHeaders(Response.fromResponse(it), format).build() }
     val entity = registryEntity(format, model, subject) { legacy() }
     return deprecationHeaders(Response.ok(entity).type(format.contentType).tag(tag), format).build()
   }

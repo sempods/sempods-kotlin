@@ -1,12 +1,12 @@
 package org.sempods.api.pod.resources
 
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
 import org.sempods.SempodsUriBuilder
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.IriSyntax
-import org.sempods.pods.PodFacade
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.toIri
 import org.sempods.rdf.stream.RdfSource
@@ -36,12 +36,7 @@ class PodResourceEndpoint @Inject constructor(
   private val podResourceWriteService: PodResourceWriteService,
   private val podResourceReadService: PodResourceReadService,
   private val podContextWriteAuthorizer: PodContextWriteAuthorizer,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+) : PodBaseEndpoint() {
 
   companion object {
     private val logger = KotlinLogging.logger {}
@@ -56,9 +51,10 @@ class PodResourceEndpoint @Inject constructor(
     @QueryParam("context") contextParams: List<String>?,
     @HeaderParam("Content-Type") contentTypeHeader: String?,
     body: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
@@ -70,7 +66,7 @@ class PodResourceEndpoint @Inject constructor(
       contentTypeHeader = contentTypeHeader,
       body = body,
       credentials = credentials,
-      conditions = writeConditions(),
+      conditions = writeConditions(requestContext),
     )
     val auditOutcome = when (outcome) {
       PodResourceWriteService.PutResourceOutcome.CREATED -> "created"
@@ -94,9 +90,10 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
     body: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
@@ -107,7 +104,7 @@ class PodResourceEndpoint @Inject constructor(
       contextUri = contextUri,
       body = body,
       credentials = credentials,
-      conditions = writeConditions(),
+      conditions = writeConditions(requestContext),
     )
     logLodAudit("patched", pod, resourceUri, contextUri, credentials)
     return Response.status(204).build()
@@ -119,9 +116,10 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val resourceUri = buildResourceUri(pod, resourcePath)
     val contextUri = podContextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
@@ -131,7 +129,7 @@ class PodResourceEndpoint @Inject constructor(
       resourceUri = resourceUri,
       contextUri = contextUri,
       credentials = credentials,
-      conditions = writeConditions(),
+      conditions = writeConditions(requestContext),
     )
     logLodAudit("deleted", pod, resourceUri, contextUri, credentials)
     return Response.status(204).build()
@@ -145,10 +143,11 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
     @QueryParam("include_contexts") includeContextsParam: String?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
     val includeContexts = parseIncludeContextsOrThrow(includeContextsParam)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     val resourceUri = buildResourceUri(pod, resourcePath)
 
     // Resolve visibility and load the visible representation BEFORE any precondition handling. A
@@ -160,7 +159,7 @@ class PodResourceEndpoint @Inject constructor(
 
     val form = if (includeContexts) RepresentationTags.Form.JSON_LD_WITH_CONTEXTS else RepresentationTags.Form.JSON_LD
     val entityTag = RepresentationTags.resource(model, scope.selection, form)
-    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
+    evaluatePreconditions(requestContext, entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     val body = if (includeContexts) {
       RdfWriterUtil.toJsonLdNamedGraphs(model = model, resource = resourceUri.toIri())
@@ -183,9 +182,10 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     val resourceUri = buildResourceUri(pod, resourcePath)
 
     // Visibility 404 before any precondition handling — see getEntry for the rationale.
@@ -193,7 +193,7 @@ class PodResourceEndpoint @Inject constructor(
     val model = podResourceReadService.loadVisibleResourceModelOrThrow(pod, resourceUri, scope.visible)
 
     val entityTag = RepresentationTags.resource(model, scope.selection, RepresentationTags.Form.N_QUADS)
-    evaluatePreconditions(entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
+    evaluatePreconditions(requestContext, entityTag)?.let { return Response.fromResponse(it).revalidatedPrivately().build() }
 
     return Response.ok(RdfSource.of(model).toStreamingOutput(RDFFormat.NQUADS)).tag(entityTag).revalidatedPrivately().build()
   }
@@ -210,7 +210,8 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
     @QueryParam("include_contexts") includeContextsParam: String?,
-  ): Response = getEntry(pod, resourcePath, contextParams, includeContextsParam)
+    @Context requestContext: ContainerRequestContext,
+  ): Response = getEntry(pod, resourcePath, contextParams, includeContextsParam, requestContext)
 
   @HEAD
   @Path("{resourcePath: .+}")
@@ -219,16 +220,18 @@ class PodResourceEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("resourcePath") resourcePath: String,
     @QueryParam("context") contextParams: List<String>?,
-  ): Response = nQuads(pod, resourcePath, contextParams)
+    @Context requestContext: ContainerRequestContext,
+  ): Response = nQuads(pod, resourcePath, contextParams, requestContext)
 
   @OPTIONS
   @Path("{resourcePath: .+}")
   fun options(
     @PathParam("pod") pod: String,
     @PathParam("resourcePath") resourcePath: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     rejectSystemArea(resourcePath)
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     // Only for its refusal: a path that names no resource has no methods to advertise.
     buildResourceUri(pod, resourcePath)
     val allow = buildAllowHeader(pod, resourcePath, credentials)

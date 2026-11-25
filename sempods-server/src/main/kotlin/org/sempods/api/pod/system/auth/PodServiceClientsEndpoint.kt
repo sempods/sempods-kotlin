@@ -1,5 +1,9 @@
 package org.sempods.api.pod.system.auth
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
@@ -13,13 +17,10 @@ import jakarta.ws.rs.core.EntityTag
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.HostedPod
-import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientManagementRefusal
@@ -35,29 +36,28 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 @Produces(MediaType.APPLICATION_JSON)
 class PodServiceClientsEndpoint @Inject constructor(
   private val management: PodServiceClientManagement,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(podFacade = podFacade, podDao = podDao) {
+  private val bearerRoutes: PodBearerRoutes,
+) : PodBaseEndpoint() {
 
   /** Every registration on the pod, with when it was last used. Never a secret. */
   @GET
-  fun list(@PathParam("pod") pod: String): Response = answer(pod, { p, caller -> management.list(p, caller) }) {
+  fun list(@PathParam("pod") pod: String, @Context requestContext: ContainerRequestContext): Response = answer(pod, requestContext, { p, caller -> management.list(p, caller) }) {
     noStore(Response.ok(mapOf("serviceClients" to it.map(::describe))))
   }
 
   /** A new secret, answered once. */
   @POST
   @Path("{clientId}/secret")
-  fun rotate(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String): Response =
-    answer(pod, { p, caller -> management.rotate(p, caller, clientId) }) {
+  fun rotate(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String, @Context requestContext: ContainerRequestContext): Response =
+    answer(pod, requestContext, { p, caller -> management.rotate(p, caller, clientId) }) {
       noStore(Response.ok(mapOf("client_id" to it.registration.clientId, "client_secret" to it.secret)))
     }
 
   /** One registration, with its grants version as a strong `ETag` for [replaceGrants]. */
   @GET
   @Path("{clientId}")
-  fun get(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String): Response =
-    answer(pod, { p, caller -> management.get(p, caller, clientId) }, ::described)
+  fun get(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String, @Context requestContext: ContainerRequestContext): Response =
+    answer(pod, requestContext, { p, caller -> management.get(p, caller, clientId) }, ::described)
 
   /**
    * Makes the JSON array of scopes in [body] the service's grants, at the version `If-Match` names.
@@ -72,29 +72,31 @@ class PodServiceClientsEndpoint @Inject constructor(
     @PathParam("clientId") clientId: String,
     @HeaderParam(HttpHeaders.IF_MATCH) ifMatch: String?,
     body: String?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
-    val caller = requireBearerOrThrow(podDbo)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
+    val caller = bearerRoutes.requireBearerOrThrow(podDbo, requestContext)
     ifMatch ?: return error(428, "send If-Match with the ETag a read of this service client answered")
     val expectedVersion = grantsVersionOf(ifMatch) ?: return error(400, "If-Match is the one ETag a read of this service client answered")
     val scopes = scopesOf(body) ?: return error(400, "the body is a JSON array of scope strings")
-    return answer(podDbo, management.replaceGrants(podDbo.hosted, caller, clientId, expectedVersion, scopes), ::described)
+    return answer(podDbo, management.replaceGrants(bearerRoutes.hosted(podDbo), caller, clientId, expectedVersion, scopes), ::described)
   }
 
   /** Removes the registration. */
   @DELETE
   @Path("{clientId}")
-  fun revoke(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String): Response =
-    answer(pod, { p, caller -> management.revoke(p, caller, clientId) }) { Response.noContent().build() }
+  fun revoke(@PathParam("pod") pod: String, @PathParam("clientId") clientId: String, @Context requestContext: ContainerRequestContext): Response =
+    answer(pod, requestContext, { p, caller -> management.revoke(p, caller, clientId) }) { Response.noContent().build() }
 
   /** Reads the pod and the bearer, runs [operation], and words a refusal; [done] renders the rest. */
   private inline fun <T> answer(
     pod: String,
+    requestContext: ContainerRequestContext,
     operation: (HostedPod, SempodsCredentials) -> PodServiceClientManagementResult<T>,
     done: (T) -> Response,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
-    return answer(podDbo, operation(podDbo.hosted, requireBearerOrThrow(podDbo)), done)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
+    return answer(podDbo, operation(bearerRoutes.hosted(podDbo), bearerRoutes.requireBearerOrThrow(podDbo, requestContext)), done)
   }
 
   private inline fun <T> answer(podDbo: PodDbo, result: PodServiceClientManagementResult<T>, done: (T) -> Response): Response =
@@ -102,7 +104,7 @@ class PodServiceClientsEndpoint @Inject constructor(
       is PodServiceClientManagementResult.Done -> done(result.value)
       is PodServiceClientManagementResult.Refused -> refused(result.reason, result.detail)
       is PodServiceClientManagementResult.Unauthorized ->
-        ownerAuthorityRefused(podDbo.name, result.reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
+        bearerRoutes.ownerAuthorityRefused(podDbo.name, result.reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
     }
 
   /** A registration, with its grants version as the `ETag` a replace names in `If-Match`. */

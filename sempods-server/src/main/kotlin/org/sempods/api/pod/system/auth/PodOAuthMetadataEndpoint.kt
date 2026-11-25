@@ -1,11 +1,12 @@
 package org.sempods.api.pod.system.auth
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import org.sempods.SempodsConfig
 import com.google.inject.Inject
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
@@ -51,18 +52,16 @@ import jakarta.ws.rs.core.Response
  */
 @Path("{pod}")
 class PodOAuthMetadataEndpoint @Inject constructor(
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podFacade: PodFacade,
+  private val bearerRoutes: PodBearerRoutes,
+  private val config: SempodsConfig,
+) : PodBaseEndpoint() {
 
   @GET
   @Path(".well-known/oauth-protected-resource")
   @Produces(MediaType.APPLICATION_JSON)
   fun protectedResourceMetadata(@PathParam("pod") pod: String): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
@@ -73,7 +72,7 @@ class PodOAuthMetadataEndpoint @Inject constructor(
   @Path(".well-known/oauth-authorization-server")
   @Produces(MediaType.APPLICATION_JSON)
   fun authorizationServerMetadata(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
+    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl)
 }
 
 /**
@@ -83,24 +82,22 @@ class PodOAuthMetadataEndpoint @Inject constructor(
  */
 @Path(".well-known")
 class RootOAuthMetadataEndpoint @Inject constructor(
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podFacade: PodFacade,
+  private val bearerRoutes: PodBearerRoutes,
+  private val config: SempodsConfig,
+) : PodBaseEndpoint() {
 
   @GET
   @Path("oauth-authorization-server/{pod}")
   @Produces(MediaType.APPLICATION_JSON)
   fun authorizationServerMetadataForPod(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(fetchPodOrThrow(pod), config.apiBaseUrl)
+    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl)
 
   @GET
   @Path("oauth-protected-resource/{pod}")
   @Produces(MediaType.APPLICATION_JSON)
   fun protectedResourceMetadataForPodResource(@PathParam("pod") pod: String): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
@@ -116,7 +113,7 @@ class RootOAuthMetadataEndpoint @Inject constructor(
   @Path("oauth-protected-resource/{pod}/_system/mcp")
   @Produces(MediaType.APPLICATION_JSON)
   fun protectedResourceMetadataForMcp(@PathParam("pod") pod: String): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,

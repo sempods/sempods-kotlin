@@ -1,5 +1,8 @@
 package org.sempods.api.pod.system.media
 
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
@@ -7,7 +10,6 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.commons.utils.HashUtil
 import org.sempods.SempodsUriBuilder
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.pods.PodFacade
@@ -17,7 +19,6 @@ import org.sempods.pods.media.PodMediaConfig
 import org.sempods.pods.media.PodMediaFacade
 import org.sempods.pods.media.persist.MediaAssignment
 import org.sempods.pods.media.persist.PodMedia
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.media.PodMediaSource
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
@@ -82,12 +83,8 @@ class PodMediaEndpoint @Inject constructor(
   private val mediaSourceFetcher: MediaSourceFetcher,
   private val contextWriteAuthorizer: PodContextWriteAuthorizer,
   private val sempodsUriBuilder: SempodsUriBuilder,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podFacade: PodFacade,
+) : PodBaseEndpoint() {
 
   /**
    * Take a media into the pod and assign it to `?context=` — either the bytes in the request body,
@@ -124,8 +121,9 @@ class PodMediaEndpoint @Inject constructor(
     @QueryParam("filename") filename: String?,
     @HeaderParam(HttpHeaders.CONTENT_TYPE) contentTypeHeader: String?,
     body: InputStream?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val contextUri = contextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
     contextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
@@ -303,8 +301,9 @@ class PodMediaEndpoint @Inject constructor(
   fun metadata(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     val podMedia = readableOrThrow(credentials, mediaId)
     return Response.ok(podMedia.toResponse(pod, credentials.restrictedContexts))
       .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
@@ -318,7 +317,8 @@ class PodMediaEndpoint @Inject constructor(
   fun headMetadata(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
-  ): Response = metadata(pod, mediaId)
+    @Context requestContext: ContainerRequestContext,
+  ): Response = metadata(pod, mediaId, requestContext)
 
   /**
    * The bytes.
@@ -355,8 +355,9 @@ class PodMediaEndpoint @Inject constructor(
   fun content(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
 
     // Visibility first, preconditions after — the same ordering rule the LOD layer states: a
     // conditional request from a caller who may not see the object must not short-circuit to 304
@@ -369,7 +370,7 @@ class PodMediaEndpoint @Inject constructor(
     val contentType = describedBy(podMedia, credentials).contentType
 
     val entityTag = representationTag(podMedia.mediaId, contentType)
-    evaluatePreconditions(entityTag)?.let {
+    evaluatePreconditions(requestContext, entityTag)?.let {
       // The `304` repeats the policy rather than relying on the stored one: a cache updates its
       // held headers from this response, and one that arrived without the directive would be free
       // to fall back on heuristic freshness for the next round.
@@ -401,7 +402,8 @@ class PodMediaEndpoint @Inject constructor(
   fun headContent(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
-  ): Response = content(pod, mediaId)
+    @Context requestContext: ContainerRequestContext,
+  ): Response = content(pod, mediaId, requestContext)
 
   /**
    * Assign an existing media to another context — one upload, visible in a second place, one copy
@@ -419,8 +421,9 @@ class PodMediaEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
     @QueryParam("context") contextParams: List<String>?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val contextUri = contextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
     contextWriteAuthorizer.authorizeWriteOrThrow(credentials, contextUri)
@@ -474,8 +477,9 @@ class PodMediaEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     @PathParam("mediaId") mediaId: String,
     @QueryParam("context") contextParams: List<String>?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     requireAuthenticatedOrThrow(credentials)
     val contextUri = contextWriteAuthorizer.resolveSingleWriteContextOrThrow(pod, contextParams)
     contextWriteAuthorizer.requireWriteAuthorityOrThrow(credentials, contextUri)

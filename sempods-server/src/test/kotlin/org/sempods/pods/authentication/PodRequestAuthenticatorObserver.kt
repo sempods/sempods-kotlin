@@ -1,5 +1,6 @@
 package org.sempods.pods.authentication
 
+import org.sempods.pods.authentication.spi.PodApiRequest
 import com.google.inject.Binder
 import com.google.inject.Provider
 import org.sempods.commons.guice.GuiceAppTestProxy
@@ -34,7 +35,11 @@ class PodRequestAuthenticatorObserver private constructor(
       val authenticator: Provider<BearerPodRequestAuthenticator> =
         binder.getProvider(BearerPodRequestAuthenticator::class.java)
       val observer = PodRequestAuthenticatorObserver(
-        real = PodRequestAuthenticator { pod, request -> authenticator.get().authenticate(pod, request) },
+        real = object : PodRequestAuthenticator {
+          override fun authenticate(pod: String, request: PodApiRequest) = authenticator.get().authenticate(pod, request)
+          override fun challenge(pod: String) = authenticator.get().challenge(pod)
+          override val credentialHeaders get() = authenticator.get().credentialHeaders
+        },
       )
       binder.bind(PodRequestAuthenticator::class.java).toInstance(observer.injectableProxy)
       binder.bind(PodRequestAuthenticatorObserver::class.java).toInstance(observer)

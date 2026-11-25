@@ -85,6 +85,20 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `an anonymous write is refused with the authenticator's challenge`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    requestAuthenticator.answerWith(object : PodRequestAuthenticator by requestAuthenticator.real {
+      override fun challenge(pod: String) = "Session realm=\"$pod\""
+    })
+
+    val response = http.preparePut("${SempodsModule.config.apiBaseUrl}${pod.name}/notes/a?context=x")
+      .addHeader("Content-Type", "application/n-quads").setBody("").execute()
+
+    assertEquals(401, response.statusCode, response.responseBody)
+    assertEquals("Session realm=\"${pod.name}\"", response.getHeader("WWW-Authenticate"))
+  }
+
+  @Test
   fun `a refusal without a challenge cannot be written`() {
     assertFailsWith<IllegalArgumentException> { PodRequestAuthentication.Unauthenticated(" ") }
   }
@@ -122,8 +136,7 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
   @Test
   fun `a caller-dependent answer varies on every header the authenticator reads credentials from`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    requestAuthenticator.answerWith(object : PodRequestAuthenticator {
-      override fun authenticate(pod: String, request: PodApiRequest) = requestAuthenticator.real.authenticate(pod, request)
+    requestAuthenticator.answerWith(object : PodRequestAuthenticator by requestAuthenticator.real {
       override val credentialHeaders = setOf("Authorization", "Cookie")
     })
 

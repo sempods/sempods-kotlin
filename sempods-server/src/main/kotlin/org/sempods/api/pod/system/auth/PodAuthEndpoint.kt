@@ -1,5 +1,9 @@
 package org.sempods.api.pod.system.auth
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import org.sempods.SempodsConfig
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import jakarta.ws.rs.*
@@ -9,7 +13,6 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriInfo
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.auth.PendingLogin
 import org.sempods.auth.PodBrowserCookies
 import org.sempods.auth.core.BrowserSignIn
@@ -17,9 +20,7 @@ import org.sempods.auth.core.OAuthErrorCode
 import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.logging.LogSafeText
-import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.SessionPrincipal
@@ -55,12 +56,9 @@ class PodAuthEndpoint @Inject constructor(
   private val tokenRateLimiter: PodTokenRateLimiter,
   private val registrationRateLimiter: PodRegistrationRateLimiter,
   private val podSignInCompletion: PodSignInCompletion,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val bearerRoutes: PodBearerRoutes,
+  private val config: SempodsConfig,
+) : PodBaseEndpoint() {
 
   // ─── OAuth Dynamic Client Registration (RFC 7591) ────────────────────────
   // One route: a pod has one registration endpoint, which is what `registration_endpoint` in
@@ -77,20 +75,21 @@ class PodAuthEndpoint @Inject constructor(
     // The raw body, so that a body which is not JSON earns RFC 7591's `invalid_client_metadata`
     // — an answer a registering client can act on.
     body: String?,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     // Ahead of the pod row, as at `/token`, so a refused request costs no query at all.
-    if (!registrationRateLimiter.tryAcquireAddress(forwardedFor, bearerPresented = bearerToken() != null)) {
+    if (!registrationRateLimiter.tryAcquireAddress(forwardedFor, bearerPresented = bearerRoutes.bearerToken(requestContext) != null)) {
       return PodRegistrationResponses.rateLimited()
     }
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     // Asked before the body is read, so that a caller which presented a credential hears about the
     // credential whatever its body looks like. It costs the unauthenticated profile nothing: with
     // no `Authorization` header this returns before anything is verified.
-    val caller = resolveBearerOrNull(podDbo)
+    val caller = bearerRoutes.resolveBearerOrNull(podDbo, requestContext)
     val result = when (val read = PodRegistrationMessages.read(body)) {
       is PodRegistrationRead.Unreadable -> read.refusal
       is PodRegistrationRead.Metadata -> podClientRegistration.register(
-        pod = podDbo.hosted,
+        pod = bearerRoutes.hosted(podDbo),
         request = PodRegistrationRequest(
           client = read.client,
           raw = read.raw,
@@ -101,7 +100,7 @@ class PodAuthEndpoint @Inject constructor(
       )
     }
     return PodRegistrationResponses.render(result) { reason ->
-      ownerAuthorityRefused(podDbo.name, reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
+      bearerRoutes.ownerAuthorityRefused(podDbo.name, reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
     }
   }
 
@@ -117,12 +116,12 @@ class PodAuthEndpoint @Inject constructor(
     // Who the pod already knows, from a cookie on its own origin. Never from a parameter a browser
     // carried — that was the arrangement the OIDC cutover removed. A session saves the round trip
     // to the id-server and is what makes `prompt=none` answerable at all.
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val session = readSession(podDbo, sessionCookie)
     val answer = render(
       podDbo.name,
       podAuthorizeFlow.authorize(
-        pod = podDbo.hosted,
+        pod = bearerRoutes.hosted(podDbo),
         request = PodAuthorizeMessages.read(uriInfo.queryParameters),
         session = session,
       ),
@@ -182,12 +181,12 @@ class PodAuthEndpoint @Inject constructor(
     @FormParam("durable") durable: String?,
     @FormParam("action") action: String?,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val session = readSession(podDbo, sessionCookie)
     return render(
       podDbo.name,
       podConsentFlow.submit(
-        pod = podDbo.hosted,
+        pod = bearerRoutes.hosted(podDbo),
         form = PodConsentForm(
           clientId = clientId,
           redirectUri = redirectUri,
@@ -221,12 +220,12 @@ class PodAuthEndpoint @Inject constructor(
     @QueryParam("state") state: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val session = readSession(podDbo, sessionCookie)
     val answer = render(
       podDbo.name,
       podServiceConsentFlow.open(
-        pod = podDbo.hosted,
+        pod = bearerRoutes.hosted(podDbo),
         request = PodServiceConsentRequest(clientId = clientId, redirectUri = redirectUri, state = state),
         session = session,
       ),
@@ -247,12 +246,12 @@ class PodAuthEndpoint @Inject constructor(
     @FormParam("action") action: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val session = readSession(podDbo, sessionCookie)
     return render(
       podDbo.name,
       podServiceConsentFlow.submit(
-        pod = podDbo.hosted,
+        pod = bearerRoutes.hosted(podDbo),
         form = PodServiceConsentForm(
           csrf = csrf,
           clientId = clientId,
@@ -283,7 +282,7 @@ class PodAuthEndpoint @Inject constructor(
       return PodTokenResponses.rateLimited()
     }
 
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
 
     return when (val read = PodTokenMessages.read(form, authorizationHeader)) {
       is PodTokenRead.Refused -> read.result
@@ -349,7 +348,7 @@ class PodAuthEndpoint @Inject constructor(
     @QueryParam("error_description") errorDescription: String?,
     @Context httpHeaders: HttpHeaders,
   ): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     // Whatever this callback answers, the pin that guarded it is spent. Cookie names now carry the
     // flow's `state`, so a pin left behind is not overwritten by the next attempt — it lingers for
     // its full fifteen minutes, and a handful of cancelled sign-ins would pile up on the callback
@@ -364,7 +363,7 @@ class PodAuthEndpoint @Inject constructor(
       error = error,
       errorDescription = errorDescription,
     )
-    val result = podSignInCompletion.complete(podDbo.hosted, callback)
+    val result = podSignInCompletion.complete(bearerRoutes.hosted(podDbo), callback)
     val answer = answer(podDbo, result)
     return if (result == PodSignInResult.IdentityProviderUnavailable) answer else withPinCleared(podDbo.name, state, answer)
   }

@@ -4,7 +4,6 @@ import com.google.inject.Inject
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.sempods.pods.authentication.spi.PodRequestAuthenticator
-import org.sempods.pods.authentication.spi.PodApiRequest
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.jaxrs.errors.ApiExceptionMapper
 import org.sempods.commons.logging.CapturedLog
@@ -569,8 +568,7 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
     val pod = sempodsTestFactory.newPod()
     val (context, token) = contextWithToken(pod, "tests/public-${randomId()}", public = true)
     val mediaId = mediaIdOf(upload(pod, context, token))
-    requestAuthenticator.answerWith(object : PodRequestAuthenticator {
-      override fun authenticate(pod: String, request: PodApiRequest) = requestAuthenticator.real.authenticate(pod, request)
+    requestAuthenticator.answerWith(object : PodRequestAuthenticator by requestAuthenticator.real {
       override val credentialHeaders = setOf("Authorization", "Cookie")
     })
 
