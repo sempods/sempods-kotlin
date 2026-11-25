@@ -12,6 +12,10 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -117,6 +121,28 @@ class DidWebKeysTest {
     clock.advance(Duration.ofSeconds(31))
     assertEquals(1, keys.publicKeys(did, key.keyID).size)
     assertEquals(2, reads)
+  }
+
+  @Test
+  fun `callers that find the document wanting at once share one read`() {
+    val reads = AtomicInteger()
+    val release = CountDownLatch(1)
+    val keys = DidWebKeys(
+      fetcher = { reads.incrementAndGet(); release.await(5, TimeUnit.SECONDS); json(document(key)) },
+      allowLoopbackHttp = false,
+    )
+    val pool = Executors.newFixedThreadPool(8)
+    try {
+      val lookups = (1..8).map { pool.submit<Int> { keys.publicKeys(did, key.keyID).size } }
+      // Every caller is either reading or waiting on the one read before it is let go.
+      Thread.sleep(200)
+      release.countDown()
+
+      assertEquals(List(8) { 1 }, lookups.map { it.get(5, TimeUnit.SECONDS) })
+      assertEquals(1, reads.get(), "eight lookups, one fetch")
+    } finally {
+      pool.shutdownNow()
+    }
   }
 
   @Test
