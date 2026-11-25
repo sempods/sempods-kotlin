@@ -180,6 +180,9 @@ internal fun buildAuthorizationServerMetadata(
     // A sempods extension member (RFC 8414 §2 allows them): where a registered service sends the
     // owner to decide its access. `sempods-server/docs/auth/service-clients.md` §"Consent".
     "sempods_service_consent_endpoint" to "$endpoints/service-consent",
+    // Another: the scopes a service client's lasting management authority puts in its tokens,
+    // granted at that endpoint with `authority=manage`. A pod without it offers no such authority.
+    "sempods_service_management_scopes" to PodScopeValidator.serviceManagementScopes.sorted(),
   )
   return Response.ok(body).build()
 }

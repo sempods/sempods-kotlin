@@ -35,7 +35,15 @@ class PodServiceClientManagement @Inject internal constructor(
 
   /** Every registration on [pod], with no secret. */
   internal fun list(pod: HostedPod, caller: SempodsCredentials): PodServiceClientManagementResult<List<ServiceClientRegistration>> =
-    authorized(pod, caller) { PodServiceClientManagementResult.Done(serviceClients.list(pod.id)) }
+    authorized(pod, caller) { PodServiceClientManagementResult.Done(serviceClients.list(pod.id).map { standing(pod, it) }) }
+
+  /**
+   * [registration] with its management authority only while it stands: an authority a former owner
+   * granted has ended, as the token endpoint and the consent page treat it. Every answer of this
+   * class goes through here.
+   */
+  private fun standing(pod: HostedPod, registration: ServiceClientRegistration): ServiceClientRegistration =
+    registration.copy(management = registration.management?.takeIf { podGrantsFacade.isPodOwner(pod, it.subjectUris) })
 
   /** A new secret for [clientId], answered once. The identifier and the grants stay. */
   internal fun rotate(
@@ -74,7 +82,7 @@ class PodServiceClientManagement @Inject internal constructor(
   /** The registration [clientId] names, with no secret. */
   internal fun get(pod: HostedPod, caller: SempodsCredentials, clientId: String): PodServiceClientManagementResult<ServiceClientRegistration> =
     authorized(pod, caller) {
-      serviceClients.find(pod.id, clientId)?.let { PodServiceClientManagementResult.Done(it) }
+      serviceClients.find(pod.id, clientId)?.let { PodServiceClientManagementResult.Done(standing(pod, it)) }
         ?: PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
     }
 
@@ -141,7 +149,7 @@ class PodServiceClientManagement @Inject internal constructor(
             "[service-clients] Grants replaced: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}', " +
                 "webId='${authority.webId}', scopes='${LogSafeText.of(replaced.scopes.sorted().joinToString(" "))}'"
           }
-          PodServiceClientManagementResult.Done(replaced)
+          PodServiceClientManagementResult.Done(standing(pod, replaced))
         }
         GrantReplacement.Conflict -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.VERSION_MISMATCH)
         GrantReplacement.NotFound -> PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)

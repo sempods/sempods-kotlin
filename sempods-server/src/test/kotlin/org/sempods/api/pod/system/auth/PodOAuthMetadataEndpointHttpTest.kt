@@ -178,6 +178,11 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "where a registered service sends the owner to decide its access",
     )
     assertEquals(
+      listOf("contexts:manage"),
+      body["sempods_service_management_scopes"],
+      "what a service client's lasting management authority carries",
+    )
+    assertEquals(
       listOf("public-read", "service-clients:manage", "contexts:manage", "offline_access"),
       body["scopes_supported"],
       "the AS metadata must name the same scope set as the protected-resource metadata",

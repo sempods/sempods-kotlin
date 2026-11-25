@@ -65,11 +65,17 @@ class PodDao internal constructor(
    * A second pod under the same name is rejected by the unique index, as before — the write throws
    * rather than silently replacing the existing registration.
    */
-  internal fun insert(name: String, owner: String): PodDbo {
+  internal fun insert(name: String, owner: String): PodDbo = insert(name, owner, ObjectId(), serviceClientEpoch = null)
+
+  /**
+   * The same, under an [id] the caller minted, so rows keyed by it can be written first; and with
+   * [serviceClientEpoch] already counted where such a row took one ([nextServiceClientEpoch]).
+   */
+  internal fun insert(name: String, owner: String, id: ObjectId, serviceClientEpoch: Long?): PodDbo {
     SempodsUriBuilder.checkPodName(name)
     webIdUriDeriver.requireEmailBasedWebId(owner)
-    val dbo = PodDbo(id = ObjectId(), name = name, owner = owner, resourceRowCount = 0L)
-    pods.insertOne(dbo.toDocument())
+    val dbo = PodDbo(id = id, name = name, owner = owner, resourceRowCount = 0L)
+    pods.insertOne(dbo.toDocument().putNotNull(PodDboFields.serviceClientEpoch, serviceClientEpoch))
     return dbo
   }
 

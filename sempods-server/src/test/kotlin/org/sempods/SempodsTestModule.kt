@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.api.pod.system.auth.DidWebAccessFlow
 import org.sempods.api.pod.system.auth.DidWebServiceFixture
 import org.sempods.pods.oauth.didweb.DidWebKeys
 import com.google.inject.Provides
@@ -41,6 +42,7 @@ data class SempodsTestModule(
     bind<SempodsTestFactory>().asSingleton()
     bind<DelegatedAccessFlow>().asSingleton()
     bind<ServiceAccessFlow>().asSingleton()
+    bind<DidWebAccessFlow>().asSingleton()
 
     // How the suite seeds pod state: an HTTP client against this JVM's own server, see
     // `docs/testing.md` §"Seeding a pod". Deliberately without an in-process alternative to

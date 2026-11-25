@@ -100,6 +100,25 @@ class SempodsControlPlaneClient(
   fun createPod(podName: String, ownerWebId: URI): SempodsResponse<CreatePodResult> =
     create(podName, body = ControlPlaneJson.podOwnerWebId(ownerWebId))
 
+  /**
+   * As the WebID form, and registers the `did:web` service [managementClient] on the new pod with
+   * the lasting authority to manage it for [ownerWebId]: create and delete contexts, read no data.
+   * [managementClientName] is what the owner sees it called. The server writes the service before
+   * the pod, so a pod exists only with it. A call the server refused created nothing; one that
+   * failed in transport may have created the pod, and its retry then answers
+   * [CreatePodResult.alreadyExists]. An existing pod is left as it is, the service included. What the authority
+   * covers is the server's `sempods-server/docs/auth/service-clients.md` §"Managing a pod as a
+   * service".
+   */
+  @Throws(IOException::class)
+  fun createPod(
+    podName: String,
+    ownerWebId: URI,
+    managementClient: String,
+    managementClientName: String?,
+  ): SempodsResponse<CreatePodResult> =
+    create(podName, body = ControlPlaneJson.podOwnerWebId(ownerWebId, managementClient, managementClientName))
+
   private fun create(podName: String, body: String): SempodsResponse<CreatePodResult> {
     val request = pods("PUT", podName)
       .header("Accept", APPLICATION_JSON)

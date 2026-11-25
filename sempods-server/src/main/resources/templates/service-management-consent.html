@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Let a service manage your pod</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f7; color: #1d1d1f; line-height: 1.5; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem;
+    }
+    .consent-card {
+      background: #fff; border-radius: 12px; max-width: 540px; width: 100%; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1), 0 4px 12px rgba(0,0,0,.06);
+    }
+    .consent-header { padding: 1.5rem 1.5rem 1rem; border-bottom: 1px solid #e5e5e7; }
+    .consent-header h1 { font-size: 1.25rem; font-weight: 600; }
+    .authority { padding: 1rem 1.5rem; font-size: .9375rem; }
+    .authority ul { margin: .5rem 0 0 1.25rem; }
+    .note { margin-top: .5rem; font-size: .875rem; color: #6e6e73; }
+    .facts { margin-top: .75rem; font-size: .875rem; color: #6e6e73; }
+    .facts dt { font-weight: 600; color: #1d1d1f; }
+    .facts dd { margin-bottom: .25rem; word-break: break-all; }
+    .btn-link { padding: 0; border: none; background: none; color: #0071e3; font: inherit; cursor: pointer; }
+    .btn-link:hover { text-decoration: underline; }
+    .consent-footer {
+      padding: 1rem 1.5rem 1.5rem; border-top: 1px solid #e5e5e7;
+      display: flex; gap: .75rem; justify-content: flex-end;
+    }
+    .btn {
+      padding: .5rem 1.25rem; border-radius: 8px; font-size: .875rem; font-weight: 500;
+      cursor: pointer; border: 1px solid transparent;
+    }
+    .btn-primary { background: #0071e3; color: #fff; }
+    .btn-secondary { background: #e5e5e7; color: #1d1d1f; }
+    .btn-danger { background: #d70015; color: #fff; }
+  </style>
+</head>
+<body>
+<!-- The service consent's management variant. As on the context variant, the page claims nothing it
+     cannot know: the name is the service's own claim, the identifier and the time are the pod's
+     facts. Where the service holds the authority, the page offers to remove it, which ends the
+     authority. -->
+<div class="consent-card">
+  <form id="serviceConsentForm" method="post" th:action="${consentAction}">
+    <input type="hidden" name="csrf" th:value="${csrfToken}"/>
+
+    <div class="consent-header">
+      <h1 th:if="${!held}">Let a service manage your pod?</h1>
+      <h1 th:if="${held}">This service manages your pod</h1>
+      <p class="note" th:if="${!clientName.isEmpty()}">
+        It calls itself <strong id="clientName" th:text="${clientName}">Owner Console</strong>.
+        Any service can choose that name.
+      </p>
+      <dl class="facts">
+        <dt>Identifier on this pod</dt>
+        <dd id="clientId" th:text="${clientId}">did:web:console.example</dd>
+        <dt>Registered</dt>
+        <dd id="registeredAt" th:text="${registeredAt}">2026-01-01T00:00:00Z</dd>
+        <th:block th:if="${!activationExpiresAt.isEmpty()}">
+          <dt>Removed unless you confirm by</dt>
+          <dd id="activationExpiresAt" th:text="${activationExpiresAt}">2026-01-02T00:00:00Z</dd>
+        </th:block>
+      </dl>
+    </div>
+
+    <div class="authority" id="authority">
+      <p>It acts without you, until you remove it. It can:</p>
+      <ul>
+        <li>see the name of every context on your pod,</li>
+        <li>create contexts,</li>
+        <li>delete contexts, with everything in them.</li>
+      </ul>
+      <p class="note">
+        It reads none of your data. It loses this when you remove it or no longer own the pod.
+      </p>
+      <p class="note" th:if="${!held}">
+        If you did not just set up this service, or the identifier is not the one it showed you,
+        cancel.
+      </p>
+      <p class="note">
+        Signed in as <strong th:text="${webId}">https://id.sempods.org/e/abc</strong> ·
+        <button type="submit" class="btn-link" id="signOutBtn" name="action" value="signout" formnovalidate
+                onclick="return confirm('Sign out of this pod everywhere? Your sign-in ends in every browser, and every app connected to this pod loses its connection right away. The access you granted stays as it is.')">
+          Sign out everywhere
+        </button>
+      </p>
+    </div>
+
+    <div class="consent-footer">
+      <button type="submit" class="btn btn-secondary" id="cancelBtn" name="action" value="cancel"
+              formnovalidate th:text="${held} ? 'Keep it' : 'Cancel'">Cancel</button>
+      <button th:if="${!held}" type="submit" class="btn btn-primary" id="confirmBtn">Allow management</button>
+      <button th:if="${held}" type="submit" class="btn btn-danger" id="removeBtn" name="action" value="remove"
+              formnovalidate>Remove service</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>

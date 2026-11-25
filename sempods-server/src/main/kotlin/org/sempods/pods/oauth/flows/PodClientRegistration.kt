@@ -67,6 +67,22 @@ class PodClientRegistration @Inject internal constructor(
     }
   }
 
+  /**
+   * A service removing its own registration (RFC 7592 §2.3, with its own access token in place of
+   * a registration access token): its grants and a management authority go with it. Only a service
+   * registered at the pod removes itself. An operator's registration is the operator's.
+   */
+  internal fun deregister(pod: HostedPod, caller: SempodsCredentials, clientId: String): PodDeregistration {
+    if (!caller.isServiceToken || caller.oauthClientId != clientId) return PodDeregistration.NOT_YOURS
+    val registration = serviceClients.find(pod.id, clientId) ?: return PodDeregistration.NOT_FOUND
+    // The registration the token was issued for, and not one made since under its identifier.
+    if (registration.id.value != caller.serviceRegistrationId) return PodDeregistration.NOT_FOUND
+    if (!registration.registered) return PodDeregistration.NOT_YOURS
+    if (!serviceClients.remove(pod.id, clientId, registration.id)) return PodDeregistration.NOT_FOUND
+    logger.info { "[oauth/register] Service client removed itself: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}'" }
+    return PodDeregistration.REMOVED
+  }
+
   // ─── The unauthenticated profile ──────────────────────────────────────────
 
   private fun registerDynamic(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
@@ -532,6 +548,17 @@ internal sealed interface PodRegistrationResult {
 
   /** The DID document could not be read for want of room; see `DidWebKeys`. Retryable. */
   data object Busy : PodRegistrationResult
+}
+
+/** What [PodClientRegistration.deregister] did. */
+internal enum class PodDeregistration {
+  REMOVED,
+
+  /** No live registration under that identifier, or it went in between. */
+  NOT_FOUND,
+
+  /** The bearer is not that service's own token, or the registration is the operator's. */
+  NOT_YOURS,
 }
 
 /**

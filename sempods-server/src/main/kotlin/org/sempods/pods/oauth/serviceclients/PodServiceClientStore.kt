@@ -223,10 +223,23 @@ class PodServiceClientStore @Inject constructor(
    * let a client name itself here when a `svc:` one may not. A provisional registration of
    * [clientId] whose window has passed gives way: it is gone to every read already.
    *
+   * @param management the authority to manage the pod, where the operator provisions the client
+   *   for the owner. Such a registration is active.
+   * @param epoch the service-client epoch the pod row will carry, for a pod whose row is not
+   *   written yet; otherwise the row counts the next one.
    * @throws ServiceClientAlreadyRegistered where [clientId] is registered on [pod] already.
    */
-  internal fun registerDidWeb(pod: HostedPod, clientId: String, label: String, redirectUris: List<String>, provisional: Boolean): ServiceClientRegistration {
+  internal fun registerDidWeb(
+    pod: HostedPod,
+    clientId: String,
+    label: String,
+    redirectUris: List<String>,
+    provisional: Boolean,
+    management: ServiceManagementAuthority? = null,
+    epoch: Long? = null,
+  ): ServiceClientRegistration {
     require(clientId.startsWith(DidWeb.PREFIX)) { "not a did:web identifier: '$clientId'" }
+    require(management == null || !provisional) { "a registration holding the management authority is active" }
     val createdAt = Instant.now()
     val dbo = PodServiceClientDbo(
       podId = pod.id.objectId(),
@@ -236,9 +249,12 @@ class PodServiceClientStore @Inject constructor(
       label = label,
       createdAt = createdAt,
       // See `PodServiceClientDbo.grantsVersion`: the service can register this identifier again.
-      grantsVersion = podDao.nextServiceClientEpoch(pod.id.objectId()) shl EPOCH_SHIFT,
+      grantsVersion = (epoch ?: podDao.nextServiceClientEpoch(pod.id.objectId())) shl EPOCH_SHIFT,
       redirectUris = redirectUris,
       pendingUntil = if (provisional) createdAt.plus(ACTIVATION_WINDOW) else null,
+      managementGrantedBy = management?.grantedBy,
+      managementSubjectUris = management?.subjectUris.orEmpty(),
+      managementGrantedAt = management?.grantedAt,
     )
     dao.deleteExpired(dbo.podId, clientId)
     val stored = try {
@@ -247,6 +263,21 @@ class PodServiceClientStore @Inject constructor(
       if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
     }
     return stored.toRegistration()
+  }
+
+  /**
+   * Grants the registration [expected] names the lasting authority to manage [pod] on behalf of
+   * [grantedBy], recognised by [subjectUris], and activates it. `false` where it is gone.
+   */
+  internal fun grantManagement(
+    pod: PodId,
+    clientId: String,
+    expected: ServiceClientRegistrationId,
+    grantedBy: String,
+    subjectUris: Set<String>,
+  ): Boolean {
+    require(grantedBy in subjectUris) { "the URIs a person was recognised by include the one they are" }
+    return dao.grantManagement(pod.objectId(), clientId, expected.objectId(), grantedBy, subjectUris)
   }
 
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
@@ -264,6 +295,13 @@ class PodServiceClientStore @Inject constructor(
     pendingUntil = pendingUntil,
     // Derived from the hash, whose salt is new with every secret, so no row needs a field for it.
     secretId = secretHash?.let { sha256Hex(it).take(SECRET_ID_LENGTH) },
+    management = managementGrantedBy?.let { webId ->
+      ServiceManagementAuthority(
+        grantedBy = webId,
+        subjectUris = managementSubjectUris.ifEmpty { setOf(webId) },
+        grantedAt = managementGrantedAt ?: createdAt,
+      )
+    },
   )
 
   /**
@@ -407,6 +445,8 @@ internal data class ServiceClientRegistration(
    * client, which holds none.
    */
   val secretId: String?,
+  /** The lasting authority to manage the pod this client holds, or `null`. */
+  val management: ServiceManagementAuthority? = null,
 ) {
 
   /**
@@ -419,6 +459,22 @@ internal data class ServiceClientRegistration(
   /** Whether it authenticates with its DID document's keys (`private_key_jwt`) rather than a secret. */
   val authenticatesWithKeys: Boolean get() = clientId.startsWith(DidWeb.PREFIX)
 }
+
+/**
+ * A service client's lasting authority to manage the pod for its owner: the scopes
+ * [org.sempods.pods.grants.PodScopeValidator.serviceManagementScopes] in its tokens, and no data. It
+ * holds while its owner does: every call compares the pod's current owner with [subjectUris]
+ * (`PodOwnerAuthority`). It ends with the registration.
+ *
+ * @param grantedBy the owner who granted it, in the consent or through the operator provisioning
+ *   the pod for them.
+ * @param subjectUris every URI [grantedBy] was recognised by when granting, [grantedBy] among them.
+ */
+internal data class ServiceManagementAuthority(
+  val grantedBy: String,
+  val subjectUris: Set<String>,
+  val grantedAt: Instant,
+)
 
 /**
  * A handle to one registration, opaque to everyone holding it.

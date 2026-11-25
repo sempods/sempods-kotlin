@@ -95,6 +95,7 @@ class PodSignInCompletion @Inject internal constructor(
             clientId = pending.clientId,
             redirectUri = pending.redirectUri,
             state = pending.clientState,
+            authority = pending.serviceAuthority,
           ),
           session = session,
         ),

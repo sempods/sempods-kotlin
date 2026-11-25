@@ -107,11 +107,20 @@ internal object PodAuthorizeResponses {
       when {
         target == null -> finishedPage(
           templates, 200,
-          if (result.outcome == PodServiceConsentOutcome.CONFIRMED) "Access saved" else "Nothing changed",
+          when (result.outcome) {
+            PodServiceConsentOutcome.CONFIRMED -> "Access saved"
+            PodServiceConsentOutcome.CANCELLED -> "Nothing changed"
+            PodServiceConsentOutcome.REMOVED -> "Service removed"
+          },
           "You can close this page and go back to the program that sent you here.",
         )
-        result.outcome == PodServiceConsentOutcome.CANCELLED -> PodOAuthErrorResponses.render(
-          OAuthErrorDelivery.Redirect(target, OAuthErrorCode.ACCESS_DENIED, "cancelled", result.state),
+        // A removed service hears what a cancelled one hears: it holds nothing from this page.
+        result.outcome != PodServiceConsentOutcome.CONFIRMED -> PodOAuthErrorResponses.render(
+          OAuthErrorDelivery.Redirect(
+            target, OAuthErrorCode.ACCESS_DENIED,
+            if (result.outcome == PodServiceConsentOutcome.REMOVED) "removed" else "cancelled",
+            result.state,
+          ),
           podName, config,
         )
         else -> {
@@ -138,6 +147,13 @@ internal object PodAuthorizeResponses {
         templates, 400, "Unknown service",
         "This pod holds no service under that identifier. It may have expired: a service that nobody " +
             "confirms within a day is removed. Ask the program to register again.",
+      )
+      PodServiceConsentRefusal.UNKNOWN_AUTHORITY -> finishedPage(
+        templates, 400, "Unknown request", "This link asks for an authority this pod does not offer.",
+      )
+      PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR -> finishedPage(
+        templates, 403, "Set up by your host",
+        "Your host set up this service and holds its registration, so it cannot manage your pod from here.",
       )
       PodServiceConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> finishedPage(
         templates, 400, "Unknown return address", "The service did not register the address this link returns to.",
@@ -201,7 +217,7 @@ internal object PodAuthorizeResponses {
     screen: PodServiceConsentScreen,
     templates: TemplateRenderer,
     config: SempodsConfig,
-  ): String = templates.render(
+  ): String = if (screen.management) serviceManagementPage(screen, templates, config) else templates.render(
     "service-consent", mapOf(
       "consentAction" to "${config.apiBaseUrl}${screen.podName}/_system/auth/service-consent",
       "clientId" to screen.clientId,
@@ -213,6 +229,24 @@ internal object PodAuthorizeResponses {
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
     ) + grantSelectionModel(screen.contexts, screen.podBaseUrl, contextCreationAvailable = true))
+
+  /** The management variant: the authority in words, and no rows. */
+  private fun serviceManagementPage(
+    screen: PodServiceConsentScreen,
+    templates: TemplateRenderer,
+    config: SempodsConfig,
+  ): String = templates.render(
+    "service-management-consent", mapOf(
+      "consentAction" to "${config.apiBaseUrl}${screen.podName}/_system/auth/service-consent",
+      "clientId" to screen.clientId,
+      "clientName" to (screen.clientName ?: ""),
+      "registeredAt" to instantInWords(screen.registeredAt),
+      "activationExpiresAt" to (screen.activationExpiresAt?.let(::instantInWords) ?: ""),
+      "held" to screen.managementHeld,
+      "csrfToken" to screen.csrfToken,
+      "webId" to screen.webId,
+    ),
+  )
 
   private fun instantInWords(instant: Instant): String =
     DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(ChronoUnit.SECONDS))

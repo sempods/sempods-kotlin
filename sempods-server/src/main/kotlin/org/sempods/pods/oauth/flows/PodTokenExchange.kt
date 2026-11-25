@@ -363,21 +363,20 @@ class PodTokenExchange @Inject internal constructor(
    *   [issueServiceToken].
    */
   internal fun exchangeServiceClient(
-    pod: PodId,
-    podName: String,
+    pod: HostedPod,
     clientId: String,
     secret: String,
     requestedScope: String?,
   ): PodTokenResult {
-    val client = serviceClients.authenticate(pod, clientId, secret)
+    val client = serviceClients.authenticate(pod.id, clientId, secret)
     if (client == null) {
       logger.info {
-        "[oauth/token] client_credentials auth failed: pod='$podName', " +
+        "[oauth/token] client_credentials auth failed: pod='${pod.name}', " +
             "clientId='${LogSafeText.of(clientId)}'"
       }
       return PodTokenResult.ClientAuthenticationRequired("unknown client_id or invalid secret")
     }
-    return issueServiceToken(pod, podName, client, requestedScope)
+    return issueServiceToken(pod, client, requestedScope)
   }
 
   /**
@@ -411,7 +410,7 @@ class PodTokenExchange @Inject internal constructor(
       }
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_CLIENT, reason)
     }
-    return issueServiceToken(pod.id, pod.name, checkNotNull(client), requestedScope)
+    return issueServiceToken(pod, checkNotNull(client), requestedScope)
   }
 
   /** What a client assertion may name as its audience: the token endpoint, or the issuer it belongs to. */
@@ -422,11 +421,11 @@ class PodTokenExchange @Inject internal constructor(
 
   /** The token an authenticated service client gets, or why it gets none. */
   private fun issueServiceToken(
-    pod: PodId,
-    podName: String,
+    pod: HostedPod,
     client: ServiceClientRegistration,
     requestedScope: String?,
   ): PodTokenResult {
+    val podName = pod.name
     // Down-scoping is NOT supported on client_credentials. A slim service token carries no
     // per-token state to express a subset, and the resolver always grants the client's full
     // registered set from `PodServiceClientDao` at request time. Accepting `scope=` and
@@ -442,13 +441,27 @@ class PodTokenExchange @Inject internal constructor(
       )
     }
 
-    if (client.scopes.isEmpty()) {
+    // The management authority's scopes, while the owner who granted it still owns the pod. The
+    // routes check the owner again on every call; this keeps a token from claiming one that has
+    // already ended. Ended, it refuses the token outright, context grants or not: a management
+    // token resolves none, and the person who now owns the pod has not seen this service.
+    val management = client.management?.let { authority ->
+      if (!podGrantsFacade.isPodOwner(pod, authority.subjectUris)) {
+        return PodTokenResult.Refused(
+          OAuthErrorCode.INVALID_SCOPE,
+          "the authority to manage this pod ended when its owner changed; the owner grants it again in the service consent",
+        )
+      }
+      PodScopeValidator.serviceManagementScopes
+    }.orEmpty()
+
+    if (client.scopes.isEmpty() && management.isEmpty()) {
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")
     }
 
-    // Only feature scopes travel in a slim service token. Service clients register context
-    // scopes only (feature scopes are rejected at registration), so this is empty today.
-    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes)
+    // Only feature scopes travel in a slim service token: the management authority's, and none
+    // a registration holds, since feature scopes are rejected there.
+    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes) + management
 
     val accessToken = podTokenIssuer.issueServiceToken(
       pod = podName,
@@ -456,7 +469,7 @@ class PodTokenExchange @Inject internal constructor(
       scopes = tokenFeatureScopes,
       registrationId = client.id.value,
     )
-    serviceClients.touchLastUsed(pod, client.clientId)
+    serviceClients.touchLastUsed(pod.id, client.clientId)
 
     logger.info {
       "[oauth/token] Service token issued (client_credentials): pod='$podName', " +

@@ -19,6 +19,7 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
@@ -213,6 +214,11 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val listed = listServiceClients(owned, manager).single { it["client_id"] == service.did }
     assertEquals("private_key_jwt", listed["token_endpoint_auth_method"])
     assertEquals("registered", listed["origin"])
+    assertFalse("management_granted_at" in listed, "the owner's tool registers it without the management authority")
+    val podId = checkNotNull(owned.pod.id).toPodId()
+    val registration = checkNotNull(serviceClientStore.find(podId, service.did))
+    assertTrue(serviceClientStore.grantManagement(podId, service.did, registration.id, owned.webId, setOf(owned.webId)))
+    assertNotNull(listServiceClients(owned, manager).single { it["client_id"] == service.did }["management_granted_at"])
     val before = read(owned, manager, service.did)
     assertEquals(200, replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = before.tag).statusCode)
 
