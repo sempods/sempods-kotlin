@@ -45,6 +45,19 @@ class PodRepositoryCache @Inject constructor(
   }
 
   /**
+   * Drops the cached repository for [pod] only while it is the one loaded for [podId]. A repository
+   * loaded for a pod created again under the name has another id and stays, still open.
+   */
+  internal fun invalidate(pod: String, podId: ObjectId) {
+    val repo = cache[pod] as? InMemoryPodRepository ?: return
+    if (repo.podId != podId.toPodId()) return
+    if (cache.remove(pod, repo)) {
+      repo.shutDown()
+      logger.debug { "Cache invalidated for pod: $pod" }
+    }
+  }
+
+  /**
    * Invalidate all cached repositories (useful in tests).
    */
   fun invalidateAll() {

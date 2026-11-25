@@ -106,11 +106,20 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
     val secondId = checkNotNull(second.id)
     seedAllPodScopedRecords(second.name, secondId)
 
-    sempodsFacade.deletePod(firstId)
+    assertFalse(sempodsFacade.deletePod(firstId), "the first pod's row was gone already")
 
     assertEquals(secondId, podDao.fetchByName(second.name)?.id, "the second pod's row stays")
     assertEquals(1, backupDao.fetchAllByPod(secondId).size, "and so do its rows")
     assertTrue(podGrantsDao.anyForPod(secondId))
+  }
+
+  @Test
+  fun `deletePod by id says whether it removed the row`() {
+    val pod = sempodsTestFactory.newPod(createPublicContext = false)
+    val podId = checkNotNull(pod.id)
+
+    assertTrue(sempodsFacade.deletePod(podId))
+    assertFalse(sempodsFacade.deletePod(podId), "a second delete of the same pod finds the row gone")
   }
 
   @Test

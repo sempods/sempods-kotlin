@@ -108,8 +108,9 @@ The [control-plane client](../../sempods-control-plane-client/README.md) calls i
 
 ## Deleting a pod
 
-`DELETE {hostUrl}/_system/admin/pods/{podName}` deletes the pod and everything stored for it. It
-answers `204`, also for a pod that was never there.
+`DELETE {hostUrl}/_system/admin/pods/{podName}` deletes the pod and its data. It answers `204`,
+also for a pod that was never there. The pod's media stay until the sweep removes them after the
+grace period; [media lifecycle](../../docs/media.md#lifecycle) has the details.
 
 A caller deleting for an owner checks the owner first, for example through the listing above.
 Between that check and the delete, the pod can be deleted and its name taken by another owner. To

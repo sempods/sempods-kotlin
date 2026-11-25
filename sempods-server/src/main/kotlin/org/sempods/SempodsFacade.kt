@@ -69,15 +69,18 @@ class SempodsFacade @Inject constructor(
     // unknown pod is a no-op by contract, and a name that is not a pod name never becomes one.
     logger.info { "Delete pod ${LogSafeText.of(pod)}" }
     podIdCache.clear()
-    getPodId(pod = pod)?.let(::deletePod)
+    getPodId(pod = pod)?.let { deletePod(it) }
   }
 
   /**
    * Deletes the pod stored under [podId] — the instance its caller read, and no other. Every row
    * goes by that id, so a pod deleted and created again under the same name in the meantime has a
    * new id and stays as it is.
+   *
+   * Returns whether this call removed the pod's row. `false` means the row was gone already: another
+   * delete of the same pod got there first. The cascade still runs, and removes nothing it left.
    */
-  internal fun deletePod(podId: ObjectId) {
+  internal fun deletePod(podId: ObjectId): Boolean {
     podIdCache.clear()
     // Security-sensitive rows first: tokens, DCR rows and statically-registered
     // service-client credentials so a stale session or client cannot keep any
@@ -112,12 +115,13 @@ class SempodsFacade @Inject constructor(
     }
     podGrantsDao.deleteByPod(podId)
     podWebIdGrantsDao.deleteByPod(podId)
-    podDao.delete(podId)
+    val removed = podDao.delete(podId)
     // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
     // resolved and its grants stood, a token or session its person had signed out of would be
     // accepted again for that moment.
     signOutStore.deleteByPod(pod)
     podIdCache.clear()
+    return removed
   }
 
   companion object {

@@ -203,6 +203,10 @@ class AdminPodsEndpoint @Inject constructor(
    * one that is not an absolute IRI. The owner is compared on the row read here, and
    * [SempodsFacade.deletePod] deletes that row's pod by its id and no other. That is atomic because
    * a stored owner never changes: [createPod] does not transfer ownership.
+   *
+   * Two such deletes can read the same row, and only the one that removes it answers 204. The other
+   * reads the name again: 404 when no pod holds it, 412 when a pod created since does — the pod it
+   * checked is gone either way.
    */
   @DELETE
   @Path("{pod}")
@@ -222,9 +226,16 @@ class AdminPodsEndpoint @Inject constructor(
       throw WebApplicationException(errorResponse(412, "pod '$pod' is not owned by the expected owner"))
     }
 
-    // Only once the owner matched: a refused delete leaves the pod's repository as it was.
-    podRepositoryCache.invalidate(pod)
-    sempodsFacade.deletePod(checkNotNull(stored.id) { "a stored pod has an id" })
+    // Only once the owner matched, and only the repository loaded for this row: a refused delete,
+    // or a pod created again under the name, keeps the repository it has.
+    val podId = checkNotNull(stored.id) { "a stored pod has an id" }
+    podRepositoryCache.invalidate(pod, podId)
+    if (!sempodsFacade.deletePod(podId)) {
+      podDao.fetchByName(pod)?.let {
+        throw WebApplicationException(errorResponse(412, "pod '$pod' was created again since it was checked"))
+      }
+      throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
+    }
 
     logger.info { "Admin '$adminClientId' deleted pod '$pod' of owner '${stored.owner}'" }
     return Response.noContent().build()
