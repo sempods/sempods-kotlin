@@ -154,14 +154,16 @@ assertion, and one for a service not registered on the pod, gets `invalid_client
 an assertion together are `invalid_request`.
 
 The pod reads the document only for a registered service or a registration, and keeps it for five
-minutes. At most eight reads run at once; past that a request gets no key. An assertion with a key the cached document does not name reads it again, at most once a
+minutes. At most eight reads run at once. Past that, registration and token requests that need a read answer
+`429 slow_down` with `Retry-After`, and nothing about the service is decided. An assertion with a key the cached document does not name reads it again, at most once a
 minute, so a new key works within a minute of publishing it. A removed key stops working when the
 cached document expires.
 
 The owner manages a `did:web` service as any other. It has no secret, so rotating one answers
-`409`. Its grants version starts at its registration time in milliseconds, so an `ETag` read before
-the service was removed and registered again is `412`. Registration refuses an identifier with a port, such as `did:web:console.example%3A8443`,
-because the server refuses the `%25` its path segment would need. Development accepts a loopback
+`409`. Each registration's grants version starts in a range no earlier one used, so an `ETag` read before
+the service was removed and registered again is `412`. Registration refuses an identifier no route could name: one with a port, such as
+`did:web:console.example%3A8443`, because the server refuses the `%25` its path segment would need,
+and any segment of other characters than letters, digits, `.`, `-` and `_`. Development accepts a loopback
 one, such as `did:web:localhost%3A5173`, which no management route can name.
 
 ## Managing service clients

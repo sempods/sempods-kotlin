@@ -76,6 +76,13 @@ class DidWebClientAuthentication @Inject internal constructor(
     if (DidWeb.targetOf(clientId) == null) {
       return DidWebAssertion.Refused("the assertion's subject is not a did:web identifier")
     }
+    // Before anything is read: an identifier no route could name is never one this pod holds.
+    if (!keys.isAddressable(clientId)) {
+      return DidWebAssertion.Refused(
+        "a did:web with a port, a percent-encoded character or a segment of anything but letters, digits, " +
+          "'.', '-' and '_' cannot be named in this pod's routes; use one without",
+      )
+    }
     if (expectedClientId != null && clientId != expectedClientId) {
       return DidWebAssertion.Refused("the assertion is not issued by '$expectedClientId'")
     }
@@ -85,6 +92,7 @@ class DidWebClientAuthentication @Inject internal constructor(
       return DidWebAssertion.Refused("the assertion names one audience, as a single aud value")
     }
 
+    val selector = Selector()
     val verifier = ClientAuthenticationVerifier(
       selector,
       null as PKIClientX509CertificateBindingVerifier<Unit>?,
@@ -98,9 +106,10 @@ class DidWebClientAuthentication @Inject internal constructor(
       if (!jtis.claim(clientId, jti.value, JTI_RETENTION)) {
         return DidWebAssertion.Refused("the assertion's jti was used before")
       }
-      DidWebAssertion.Verified(clientId, signed.jwtClaimsSet.claims)
+      // The payload as sent, rather than the SDK's claims set, which drops a claim stated as `null`.
+      DidWebAssertion.Verified(clientId, signed.payload.toJSONObject())
     } catch (e: InvalidClientException) {
-      DidWebAssertion.Refused(e.message ?: "the assertion does not verify")
+      if (selector.busy) DidWebAssertion.Busy else DidWebAssertion.Refused(e.message ?: "the assertion does not verify")
     } catch (_: JOSEException) {
       DidWebAssertion.Refused("the assertion's signature cannot be checked against the key its kid names")
     }
@@ -109,7 +118,13 @@ class DidWebClientAuthentication @Inject internal constructor(
   /** See [DidWebKeys.isAddressable]. */
   internal fun isAddressable(clientId: String): Boolean = keys.isAddressable(clientId)
 
-  private val selector = object : ClientCredentialsSelector<Unit> {
+  /**
+   * The keys for one verification. The SDK knows only keys or a refusal, so [busy] records that the
+   * refusal was for want of room to read the document, not for what it said.
+   */
+  private inner class Selector : ClientCredentialsSelector<Unit> {
+    var busy = false
+
     override fun selectClientSecrets(clientId: ClientID, method: ClientAuthenticationMethod, context: Context<Unit>): List<Secret> =
       throw InvalidClientException("a did:web client authenticates with private_key_jwt")
 
@@ -119,10 +134,16 @@ class DidWebClientAuthentication @Inject internal constructor(
       header: JWSHeader,
       forceRefresh: Boolean,
       context: Context<Unit>,
-    ): List<PublicKey> = keys.publicKeys(clientId.value, header.keyID, header.algorithm).ifEmpty {
-      throw InvalidClientException(
-        "the DID document of '${clientId.value}' names no authentication key '${header.keyID}' for ${header.algorithm}",
-      )
+    ): List<PublicKey> = when (val lookup = keys.lookup(clientId.value, header.keyID, header.algorithm)) {
+      DidWebKeyLookup.Busy -> {
+        busy = true
+        throw InvalidClientException("the pod is reading too many DID documents at once")
+      }
+      is DidWebKeyLookup.Found -> lookup.keys.ifEmpty {
+        throw InvalidClientException(
+          "the DID document of '${clientId.value}' names no authentication key '${header.keyID}' for ${header.algorithm}",
+        )
+      }
     }
   }
 
@@ -149,4 +170,7 @@ internal sealed interface DidWebAssertion {
   data class Verified(val clientId: String, val claims: Map<String, Any?>) : DidWebAssertion
 
   data class Refused(val reason: String) : DidWebAssertion
+
+  /** The DID document could not be read for want of room: nothing was decided, retry shortly. */
+  data object Busy : DidWebAssertion
 }

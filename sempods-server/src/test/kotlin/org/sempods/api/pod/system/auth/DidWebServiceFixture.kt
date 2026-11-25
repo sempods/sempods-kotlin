@@ -3,6 +3,8 @@ package org.sempods.api.pod.system.auth
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
+import com.nimbusds.jose.JWSObject
+import com.nimbusds.jose.Payload
 import com.nimbusds.jose.crypto.ECDSASigner
 import com.nimbusds.jose.crypto.RSASSASigner
 import com.nimbusds.jose.jwk.Curve
@@ -12,7 +14,6 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
-import com.nimbusds.jwt.SignedJWT
 import org.sempods.SempodsModule
 import org.sempods.commons.json.JsonMappers
 import org.sempods.pods.mongo.persist.PodDbo
@@ -90,7 +91,7 @@ internal class DidWebService(val did: String, val reads: () -> Int = { 0 }, priv
   /**
    * A JWT signed with [key]: `iss` and `sub` this identifier, [audience] — or every one of
    * [audiences], as a list — a fresh `jti`, and `exp` [lifetimeSeconds] from now. [claims] are
-   * added or, as `null`, removed.
+   * added or, as `null`, removed; [nullClaims] are sent as JSON `null`.
    */
   fun sign(
     audience: String,
@@ -100,6 +101,7 @@ internal class DidWebService(val did: String, val reads: () -> Int = { 0 }, priv
     lifetimeSeconds: Long = 60,
     keyId: String? = key.keyID,
     claims: Map<String, Any?> = emptyMap(),
+    nullClaims: Set<String> = emptySet(),
   ): String {
     val now = Instant.now()
     val builder = JWTClaimsSet.Builder()
@@ -111,7 +113,8 @@ internal class DidWebService(val did: String, val reads: () -> Int = { 0 }, priv
       .expirationTime(Date.from(now.plusSeconds(lifetimeSeconds)))
     claims.forEach { (name, value) -> builder.claim(name, value) }
     val algorithm = if (key is RSAKey) JWSAlgorithm.RS256 else JWSAlgorithm.ES256
-    val jwt = SignedJWT(JWSHeader.Builder(algorithm).type(JOSEObjectType.JWT).keyID(keyId).build(), builder.build())
+    val payload = builder.build().toJSONObject() + nullClaims.associateWith { null }
+    val jwt = JWSObject(JWSHeader.Builder(algorithm).type(JOSEObjectType.JWT).keyID(keyId).build(), Payload(payload))
     jwt.sign(if (key is RSAKey) RSASSASigner(key) else ECDSASigner(key as ECKey))
     return jwt.serialize()
   }
@@ -121,8 +124,8 @@ internal class DidWebService(val did: String, val reads: () -> Int = { 0 }, priv
     sign(tokenEndpoint(pod), key = key, jti = jti, lifetimeSeconds = lifetimeSeconds)
 
   /** A software statement for [pod]'s registration endpoint, stating [claims]. */
-  fun statement(pod: PodDbo, claims: Map<String, Any?> = emptyMap()): String =
-    sign("${issuer(pod)}/_system/auth/register", claims = claims)
+  fun statement(pod: PodDbo, claims: Map<String, Any?> = emptyMap(), nullClaims: Set<String> = emptySet()): String =
+    sign("${issuer(pod)}/_system/auth/register", claims = claims, nullClaims = nullClaims)
 
   companion object {
     fun issuer(pod: PodDbo) = "${SempodsModule.config.apiBaseUrl}${pod.name}"

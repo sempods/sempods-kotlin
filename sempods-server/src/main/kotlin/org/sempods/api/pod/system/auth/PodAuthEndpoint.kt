@@ -340,6 +340,8 @@ class PodAuthEndpoint @Inject constructor(
 
     is PodTokenResult.ClientAuthenticationRequired ->
       PodTokenResponses.clientAuthenticationRequired(realm, description)
+
+    is PodTokenResult.Busy -> PodTokenResponses.rateLimited(description)
   }
 
   // ─── JWKS ─────────────────────────────────────────────────────────────────

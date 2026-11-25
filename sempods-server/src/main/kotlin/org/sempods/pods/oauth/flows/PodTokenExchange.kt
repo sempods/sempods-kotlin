@@ -400,6 +400,9 @@ class PodTokenExchange @Inject internal constructor(
     val verified = client?.let {
       didWebAuthentication.verify(assertion, audiences = tokenAudiences(pod), expectedClientId = it.clientId)
     }
+    if (verified == DidWebAssertion.Busy) {
+      return PodTokenResult.Busy("the pod is reading too many DID documents at once; retry later")
+    }
     if (verified !is DidWebAssertion.Verified) {
       val reason = (verified as? DidWebAssertion.Refused)?.reason ?: "no did:web service client by that identifier on this pod"
       logger.info {
@@ -830,4 +833,7 @@ internal sealed interface PodTokenResult {
    * is the pod, which the adapter knows and this does not.
    */
   data class ClientAuthenticationRequired(val description: String) : PodTokenResult
+
+  /** Nothing was decided for want of room, and a retry shortly may be: `429` with `Retry-After`. */
+  data class Busy(val description: String) : PodTokenResult
 }

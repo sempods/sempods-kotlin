@@ -54,8 +54,8 @@ internal fun interface DidDocumentFetcher {
  * share one read. At most [maxEntries] documents are kept; the one used longest ago goes first.
  *
  * **The reads.** At most [maxConcurrentReads] run at once. A read past that is not made: the
- * lookup answers no key, and nothing is cached, so the DID is read on the next request that finds
- * room. Every read is a request the pod makes to a host a caller named; this bounds how many
+ * lookup answers [DidWebKeyLookup.Busy], which the caller answers as retryable, and nothing is
+ * cached, so the DID is read on the next request that finds room. Every read is a request the pod makes to a host a caller named; this bounds how many
  * threads and connections those can hold at once.
  */
 internal class DidWebKeys(
@@ -71,20 +71,26 @@ internal class DidWebKeys(
 
   private val reads = Semaphore(maxConcurrentReads)
 
-  private class Entry(val keys: Map<String, JWK>?, val readAt: Instant)
+  /** @param busy a read that was not made, for want of room; never cached. */
+  private class Entry(val keys: Map<String, JWK>?, val readAt: Instant, val busy: Boolean = false)
 
   private val entries = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?): Boolean = size > maxEntries
   }
 
+  /** [lookup]'s keys, with [DidWebKeyLookup.Busy] as none. */
+  internal fun publicKeys(did: String, keyId: String, algorithm: Algorithm): List<PublicKey> =
+    (lookup(did, keyId, algorithm) as? DidWebKeyLookup.Found)?.keys.orEmpty()
+
   /**
    * The public key [did]'s document names [keyId] for, to verify [algorithm] with, as a one-element
    * list; empty where it names none, the key's `alg` is another, or the document cannot be read.
+   * [DidWebKeyLookup.Busy] where the document had to be read and there was no room.
    * [keyId] is a full DID URL or, relative to [did], `#key-1`.
    */
-  internal fun publicKeys(did: String, keyId: String, algorithm: Algorithm): List<PublicKey> {
+  internal fun lookup(did: String, keyId: String, algorithm: Algorithm): DidWebKeyLookup {
     val kid = if (keyId.startsWith("#")) did + keyId else keyId
-    if (!kid.startsWith("$did#")) return emptyList()
+    if (!kid.startsWith("$did#")) return DidWebKeyLookup.Found(emptyList())
     val now = clock.instant()
     var entry = cached(did)
     if (entry == null || now.isAfter(entry.readAt.plus(if (entry.keys == null) failureTtl else ttl))) {
@@ -92,8 +98,9 @@ internal class DidWebKeys(
     } else if (entry.keys?.containsKey(kid) != true && now.isAfter(entry.readAt.plus(refreshAfter))) {
       entry = refresh(did, entry, now)
     }
+    if (entry.busy) return DidWebKeyLookup.Busy
     val jwk = entry.keys?.get(kid)?.takeIf { it.algorithm == null || it.algorithm.name == algorithm.name }
-    return listOfNotNull(jwk?.let(::toPublicKey))
+    return DidWebKeyLookup.Found(listOfNotNull(jwk?.let(::toPublicKey)))
   }
 
   private fun cached(did: String): Entry? = synchronized(entries) { entries[did] }
@@ -129,7 +136,7 @@ internal class DidWebKeys(
   private fun read(did: String, now: Instant): Entry {
     if (!reads.tryAcquire()) {
       logger.info { "[oauth/did-web] DID document not read, too many reads at once: did='${LogSafeText.of(did)}'" }
-      return Entry(null, now)
+      return Entry(null, now, busy = true)
     }
     val keys = try {
       val url = documentUrl(did) ?: throw IllegalArgumentException("not a did:web identifier this pod reads")
@@ -144,12 +151,22 @@ internal class DidWebKeys(
   }
 
   /**
-   * Whether [did] can be named in a path segment of this pod's routes. A `%` — a port is written
-   * `%3A` — would have to travel as `%25`, which the server refuses in a path. Development accepts
-   * a loopback one, which cannot be withdrawn by path either: a local console runs on a port.
+   * Whether [did] can be named in one path segment of this pod's routes: every segment after
+   * `did:web:` made of letters, digits, `.`, `-` and `_` (DID Core's `idchar` without the
+   * percent-encoding), and none of them `.` or `..`. A `/` would split the path, and a `%` — a
+   * port is written `%3A` — would have to travel as `%25`, which the server refuses in a path.
+   * Development accepts a loopback host with a port, which cannot be withdrawn by path either: a
+   * local console runs on one.
    */
-  internal fun isAddressable(did: String): Boolean =
-    '%' !in did || (allowLoopbackHttp && DidWeb.targetOf(did)?.host?.let(::isLoopback) == true)
+  internal fun isAddressable(did: String): Boolean {
+    if (!did.startsWith(DidWeb.PREFIX)) return false
+    val segments = did.removePrefix(DidWeb.PREFIX).split(':')
+    val host = segments.first().let { first ->
+      val port = LOOPBACK_PORT.matchEntire(first)
+      if (port != null && allowLoopbackHttp && isLoopback(port.groupValues[1])) port.groupValues[1] else first
+    }
+    return (listOf(host) + segments.drop(1)).all { it.matches(ID_SEGMENT) && it != "." && it != ".." }
+  }
 
   /** Where the did:web method puts [did]'s document; `null` for an identifier this pod does not read. */
   internal fun documentUrl(did: String): String? {
@@ -212,5 +229,17 @@ internal class DidWebKeys(
     private val logger = KotlinLogging.logger {}
     private const val DEFAULT_HTTPS_PORT = 443
     private const val MIN_RSA_BITS = 2048
+    private val ID_SEGMENT = Regex("[A-Za-z0-9._-]+")
+    private val LOOPBACK_PORT = Regex("(.+)%3[Aa][0-9]{1,5}")
   }
+}
+
+/** What [DidWebKeys.lookup] answers. */
+internal sealed interface DidWebKeyLookup {
+
+  /** The keys found, possibly none. */
+  data class Found(val keys: List<PublicKey>) : DidWebKeyLookup
+
+  /** The document had to be read, and no read could start: retry shortly. */
+  data object Busy : DidWebKeyLookup
 }

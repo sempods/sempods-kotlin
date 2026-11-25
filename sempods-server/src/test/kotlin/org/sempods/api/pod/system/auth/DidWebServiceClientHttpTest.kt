@@ -13,7 +13,14 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
+import com.mongodb.client.MongoDatabase
+import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.oauth.didweb.ClientAssertionJtiStore
+import org.sempods.pods.oauth.didweb.DidWebAssertion
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
+import org.sempods.pods.oauth.didweb.DidWebKeys
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import java.util.UUID
 import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
 import org.sempods.pods.oauth.spi.SERVICE_REGISTRATION_CLAIM
 import kotlin.test.assertEquals
@@ -39,6 +46,12 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var serviceClientStore: PodServiceClientStore
+
+  @Inject
+  private lateinit var podTokenIssuer: PodTokenIssuer
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   // ── Registration ────────────────────────────────────────────────────────────
 
@@ -106,6 +119,10 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
         register(pod, service.statement(pod, claims = mapOf("redirect_uris" to "https://evil.example/cb")))
       },
       "a signed client_name that is not a name" to { pod -> register(pod, service.statement(pod, claims = mapOf("client_name" to 7))) },
+      "a signed client_name of null" to { pod -> register(pod, service.statement(pod, nullClaims = setOf("client_name"))) },
+      "a signed redirect_uris of null" to { pod ->
+        register(pod, service.statement(pod, nullClaims = setOf("redirect_uris")), redirectUris = listOf("https://evil.example/cb"))
+      },
     )
 
     refusals.forEach { (case, send) ->
@@ -142,6 +159,44 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
     assertEquals(400, response.statusCode, response.responseBody)
     assertEquals("invalid_software_statement", json(response)["error"])
     assertTrue("port" in (json(response)["error_description"] as String), response.responseBody)
+  }
+
+  @Test
+  fun `an identifier with a segment no route can name is refused before its document is read`() {
+    val owned = ownedPod()
+    for (did in listOf("did:web:did.test:svc-${UUID.randomUUID()}/evil", "did:web:did.test:..", "did:web:did.test:a+b")) {
+      val service = DidWebService(did) { }
+
+      val response = register(owned.pod, service.statement(owned.pod))
+
+      assertEquals("invalid_software_statement", json(response)["error"], "$did: ${response.responseBody}")
+      assertTrue("did:web" in (json(response)["error_description"] as String), "refused for its form: ${response.responseBody}")
+    }
+  }
+
+  @Test
+  fun `a token without the registration claim holds nothing of a did-web service's grants`() {
+    val owned = ownedPod()
+    val service = activated(owned, setOf("${owned.context("c")}#read"))
+
+    // What a public caller of the issuer, or a verifier of a deployment's own, could hand in.
+    val unbound = podTokenIssuer.issueServiceToken(pod = owned.pod.name, clientId = service.did, scopes = emptySet())
+
+    assertEquals(emptyList(), services.contexts(owned.pod, unbound))
+  }
+
+  @Test
+  fun `no room to read the document is retryable, not a refusal`() {
+    val service = DidWebServiceFixture.newService()
+    val full = DidWebClientAuthentication(
+      DidWebKeys(fetcher = DidWebServiceFixture.fetcher, allowLoopbackHttp = false, maxConcurrentReads = 0),
+      ClientAssertionJtiStore(db),
+    )
+    val owned = ownedPod()
+
+    val verified = full.verify(service.assertion(owned.pod), audiences = setOf(DidWebService.tokenEndpoint(owned.pod)))
+
+    assertEquals(DidWebAssertion.Busy, verified)
   }
 
   @Test

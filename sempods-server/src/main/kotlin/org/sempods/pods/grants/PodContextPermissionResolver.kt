@@ -2,6 +2,7 @@ package org.sempods.pods.grants
 
 import com.google.inject.Inject
 import org.bson.types.ObjectId
+import org.sempods.auth.core.DidWeb
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.oauth.spi.PodAccessToken
@@ -74,9 +75,12 @@ class PodContextPermissionResolver @Inject constructor(
     val rawGrants = if (token.isServiceClient) {
       // The registration the token was issued for: one made again under the same `client_id` since
       // holds nothing of this token's. A token without the claim is from a server before it, and at
-      // most a service token's lifetime old.
+      // most a service token's lifetime old — for a `svc:` or an operator's client. No such server
+      // issued one for a `did:web` service, so one of those without the claim holds nothing.
       podServiceClientDao.findByClientId(podId, token.clientId)
-        ?.takeIf { row -> token.registrationId == null || row.id?.toHexString() == token.registrationId }
+        ?.takeIf { row ->
+          if (token.registrationId == null) !token.clientId.startsWith(DidWeb.PREFIX) else row.id?.toHexString() == token.registrationId
+        }
         ?.scopes ?: emptySet()
     } else {
       podGrantsDao.fetchGrantStrings(podId, token.clientId, listOf(checkNotNull(token.sub)))
