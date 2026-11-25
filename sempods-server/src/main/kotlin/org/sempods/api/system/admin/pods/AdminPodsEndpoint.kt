@@ -134,9 +134,11 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, CreatePodRequest::class.java)
       ?: throw badRequest("missing JSON request body")
     val ownerWebId = ownerWebIdOf(request)
-    val managementClient = request.managementClient?.trim()?.takeIf { it.isNotEmpty() }?.also {
+    // Every value sent is checked, a blank one included: read as absent, it would create the pod
+    // without the service the caller asked for, and a corrected retry would find the pod there.
+    val managementClient = request.managementClient?.trim()?.also {
       if (!podServiceClientProvisioning.acceptsManagementClient(it)) {
-        throw badRequest("managementClient must be a did:web identifier without a port or another percent-encoded character")
+        throw badRequest("managementClient must be a did:web identifier whose segments are letters, digits, '.', '-' and '_', with no port")
       }
     }
     val managementClientName = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() }

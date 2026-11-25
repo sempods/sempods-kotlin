@@ -158,10 +158,10 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a management client that is not a did-web, or carries a port, is refused, and nothing is created`() {
+  fun `a management client that is blank, not a did-web, or carries a port is refused, and nothing is created`() {
     val owner = sempodsTestFactory.newOwner()
 
-    for (client in listOf("svc:abc", DidWebServiceFixture.newService(port = 8443).did)) {
+    for (client in listOf("svc:abc", DidWebServiceFixture.newService(port = 8443).did, "", "   ")) {
       val podName = "mgmt-${java.util.UUID.randomUUID().toString().take(8)}"
       val refused = createPod(podName, webIdUriDeriver.deriveFromEmail(owner.email), client)
 

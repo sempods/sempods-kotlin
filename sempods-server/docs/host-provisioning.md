@@ -39,11 +39,15 @@ lists what is refused with a `400`.
 
 An optional `managementClient`, a `did:web` identifier, registers that service on the new pod
 holding the [authority to manage it](auth/service-clients.md#managing-a-pod-as-a-service) for the
-owner, with no consent screen; `managementClientName` is what the owner sees it called. Anything but
-a `did:web`, or one with a port, is a `400`.
+owner, with no consent screen; `managementClientName` is what the owner sees it called. A value that
+is not a `did:web` a route can name is a `400`: a blank one, or one with a port, `/` or another
+character outside letters, digits, `.`, `-` and `_` in a segment. Development accepts a loopback one
+with a port, as [registration does](auth/service-clients.md#didweb-services).
 
 The management service is written before the pod, so a pod exists only with it. A creation that
-fails leaves no pod, and a retry starts afresh. A repeated `PUT` answers `alreadyExists` and keeps
+fails before the pod is written leaves none, and a retry starts afresh. A call whose answer is
+lost may have created the pod: its retry answers `alreadyExists`, and the pod has the service if
+the first call wrote the pod. A repeated `PUT` answers `alreadyExists` and keeps
 the stored owner. It sets up no management service either. `GET` on the same address
 answers the pod as [listing an owner's pods](#listing-an-owners-pods) does, plus `exists`, so a
 caller can confirm the owner before it records the pod for a person.
