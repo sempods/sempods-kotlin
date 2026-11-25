@@ -47,12 +47,15 @@ class FindUncheckedAdapterHttpTest : SempodsIntegrationTest() {
     val publicEvent = seeded(publicContext)
     val privateEvent = seeded(privateContext)
 
-    /** An observation for each event, and what the index remembers of the private one. */
+    /**
+     * An observation for each event where the index matched it, one for the public event in the
+     * private context, and what the index remembers of the private event.
+     */
     val model = LinkedHashModel().apply {
-      listOf(publicEvent, privateEvent).forEach { event ->
+      listOf(publicEvent to publicContext, privateEvent to privateContext, publicEvent to privateContext).forEach { (event, context) ->
         val observation = bnode()
-        add(event, findResult, observation)
-        add(observation, text, literal("…seen by the index…"))
+        add(event, findResult, observation, context)
+        add(observation, text, literal("…seen by the index…"), context)
       }
       add(privateEvent, name, literal("private name"), privateContext)
       add(privateEvent, name, literal("private name, filed as public"), publicContext)

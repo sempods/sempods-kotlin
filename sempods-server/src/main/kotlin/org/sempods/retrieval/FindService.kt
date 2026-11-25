@@ -23,23 +23,24 @@ import java.util.concurrent.Executors
  *
  * - **A self-scoped adapter is trusted on what it matched**, and on the contexts its stored
  *   statements name ([FindAdapter.selfScoped]).
- * - **Any other adapter's answer is checked against the store first**, with one expansion over the
- *   resources it names, reused for those that are kept. A candidate no self-scoped adapter returned
- *   stays only when the store holds it in [FindSandbox.effectiveScope] — the expansion shows that,
- *   or [ResourceExpander.holdingContexts] before the limit — and, when [FindRequest.types] are
+ * - **Any other adapter's answer is checked against the store first.** Its candidate is a resource
+ *   it links to an observation placed in a context of [FindSandbox.effectiveScope]: that is where
+ *   it says the match was (`SPS-FIND-010`), and a resource it names otherwise is no candidate. One
+ *   expansion over these candidates, before the limit and reused for those that are kept, decides
+ *   the rest: a candidate stays only when the store holds it in the selection — the expansion shows
+ *   that, or [ResourceExpander.holdingContexts] before the limit — and, when [FindRequest.types] are
  *   given, only when the expansion reads one of them as its `rdf:type` there. It goes with its
- *   observations otherwise, and so does one with neither an observation nor an expansion: there
- *   would be nothing to show of it. Its stored statements only name candidates and do not reach the
- *   answer: what is stored about a kept hit comes from the expansion, and the contexts the
- *   expansion shows are where the hit is held.
+ *   observations otherwise. The adapter's stored statements do not reach the answer: what is stored
+ *   about a kept hit comes from the expansion, and the contexts the expansion shows are where the
+ *   hit is held.
  * - **Hits = IRI subjects** of the merged model that a context in [FindSandbox.effectiveScope]
  *   holds (`SPS-FIND-029`), at most [FindRequest.limit] of them (`SPS-FIND-025`). Under the limit a
  *   hit ranks by the lowest `schema:position` among its observations, then by IRI; a hit with no
- *   position ranks after every hit with one. A candidate the answer shows only through an
+ *   position from 1 up ranks after every hit with one. A candidate the answer shows only through an
  *   observation is checked with [ResourceExpander.holdingContexts] before the limit applies, so a
- *   stale candidate takes no place from a held one. The expansion runs only over the kept hits, via
- *   the [ResourceExpander] (itself sandboxed), so this orchestrator stays free of any store/query
- *   specifics.
+ *   stale candidate takes no place from a held one. A self-scoped adapter's hits are expanded after
+ *   the limit, the kept ones only, via the [ResourceExpander] (itself sandboxed), so this
+ *   orchestrator stays free of any store/query specifics.
  * - **A kept hit keeps the blank nodes it reaches.** An observation (`<hit> sps:findResult _:b`,
  *   `SPS-FIND-028`) survives the cap with its details; a blank node no kept hit reaches is dropped.
  *   Each adapter's blank nodes are its own: two adapters' `_:m` stay two nodes.
@@ -102,13 +103,17 @@ class FindService @Inject constructor(
       (if (selfScoped) trusted else unchecked).addAll(admitted(withOwnBlankNodes(model), scope))
     }
 
-    // What an adapter that does not self-scope said is checked against the store: one expansion
-    // over the resources it names, reused for those that are kept. Its candidate is a hit only where
-    // the store holds it in the selection, typed as requested when a type is. Its stored statements
-    // name the candidates and stay out of the answer: a context it gives a statement cannot be
-    // checked, so the store's own expansion speaks for the resource.
+    // What an adapter that does not self-scope said is checked against the store. Its candidate is
+    // one it matched in the selection: a hit linked to an observation it placed in a selected
+    // context (SPS-FIND-010); an observation placed outside was dropped on admission, and one with
+    // no context says nothing of where the match was. One expansion over those candidates, reused
+    // for the kept ones, then says whether the store holds them there, typed as requested when a
+    // type is. Its stored statements stay out of the answer: a context it gives a statement cannot
+    // be checked, so the store's own expansion speaks for the resource.
     val vouched = trusted.subjects().filterIsInstance<IRI>().toSet()
-    val checked = unchecked.subjects().filterIsInstance<IRI>().toSet()
+    val checked = unchecked
+      .filter { it.predicate == FIND_RESULT && it.`object` is BNode && it.context != null }
+      .mapNotNullTo(HashSet()) { it.subject as? IRI }
     val verification = if (checked.isEmpty()) emptyList() else stored(expander.expand(checked, sandbox), scope)
     val storeHolding = HashMap<IRI, MutableSet<Resource>>()
     verification.forEach { st -> (st.subject as? IRI)?.let { storeHolding.getOrPut(it) { HashSet() } += checkNotNull(st.context) } }
@@ -122,11 +127,7 @@ class FindService @Inject constructor(
     // statement shows that; a candidate the answer names only through observations, and one the
     // expansion did not show, is looked up before the cap, so it cannot take a place a held
     // candidate would have had.
-    // An unchecked candidate with neither an observation nor an expansion would leave the answer
-    // empty-handed: its adapter's stored statements stay out, so it takes no place either.
-    val shown = verification.mapNotNullTo(HashSet()) { it.subject as? IRI }
-    merged.filter(::isGenerated).mapNotNullTo(shown) { it.subject as? IRI }
-    val candidates = vouched + ((if (request.types.isEmpty()) checked else typed) intersect checked intersect shown)
+    val candidates = vouched + if (request.types.isEmpty()) checked else typed intersect checked
     val holding = storedHolding(trusted)
     storeHolding.forEach { (hit, contexts) -> if (hit in candidates) holding.getOrPut(hit) { HashSet() } += contexts }
     val unseen = candidates.filterTo(HashSet()) { it !in holding }
@@ -147,12 +148,12 @@ class FindService @Inject constructor(
     return placed(result, keep, holding, asked = unseen, sandbox)
   }
 
-  /** The lowest `schema:position` among [hit]'s observations in [model], or null when none has one. */
+  /** The lowest `schema:position` among [hit]'s observations in [model], or null when none has one; positions count from 1. */
   private fun lowestPosition(hit: IRI, model: Model): Long? =
     model.filter(hit, FIND_RESULT, null).objects()
       .filterIsInstance<BNode>()
       .flatMap { observation -> model.filter(observation, POSITION, null).objects() }
-      .mapNotNull { (it as? Literal)?.label?.trim()?.toLongOrNull() }
+      .mapNotNull { (it as? Literal)?.label?.trim()?.toLongOrNull()?.takeIf { position -> position >= 1 } }
       .minOrNull()
 
   /** For each IRI subject of a stored statement in [model], the contexts those statements are in. */

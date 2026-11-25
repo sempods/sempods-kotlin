@@ -399,9 +399,10 @@ class FindServiceTest {
   private val article = vf.createIRI("https://schema.org/Article")
   private val event = vf.createIRI("https://schema.org/Event")
 
-  private fun observed(model: Model, of: IRI, at: Int? = null, nested: Boolean = false): BNode {
+  /** Links [of] to a new observation the engine placed in [placed], the context it matched in. */
+  private fun observed(model: Model, of: IRI, at: Int? = null, nested: Boolean = false, placed: Resource? = contextA): BNode {
     val observation = vf.createBNode()
-    model.add(of, findResult, observation)
+    if (placed == null) model.add(of, findResult, observation) else model.add(of, findResult, observation, placed)
     model.add(observation, text, vf.createLiteral("…match…"))
     at?.let { model.add(observation, position, vf.createLiteral(it)) }
     if (nested) vf.createBNode().also { detail ->
@@ -429,6 +430,20 @@ class FindServiceTest {
     assertEquals(setOf(c.stringValue(), b.stringValue()), subjectsOf(find(first, second, limit = 2)))
     assertEquals(setOf(c.stringValue()), subjectsOf(find(first, second, limit = 1)))
     assertEquals(setOf(a, b, c).map { it.stringValue() }.toSet(), subjectsOf(find(first, second, limit = 3)))
+  }
+
+  @Test
+  fun `a position below 1 counts as none`() {
+    val a = vf.createIRI("https://e/a")
+    val b = vf.createIRI("https://e/b")
+    val c = vf.createIRI("https://e/c")
+    val answer = modelOf("https://e/a", "https://e/b", "https://e/c").apply {
+      observed(this, a, at = -1)
+      observed(this, b, at = 0)
+      observed(this, c, at = 1)
+    }
+
+    assertEquals(setOf(c.stringValue()), subjectsOf(find(answer, limit = 1)))
   }
 
   @Test
@@ -476,7 +491,10 @@ class FindServiceTest {
       add(hit, name, secret, contextB)
     }
     // The hit is typed in A, and the index files B's fact under A.
-    val answer = LinkedHashModel().apply { add(hit, name, secret, contextA) }
+    val answer = LinkedHashModel().apply {
+      add(hit, name, secret, contextA)
+      observed(this, hit)
+    }
 
     val result = search(index(answer), expander = StoreExpander(store), on = scopedTo(contextA))
 
@@ -515,19 +533,35 @@ class FindServiceTest {
   }
 
   @Test
-  fun `an index's candidate with nothing to show takes no place under the limit`() {
+  fun `an index names a candidate only by an observation it placed in the selection`() {
     val bare = vf.createIRI("https://e/a-bare")
-    val shown = vf.createIRI("https://e/b-shown")
-    val store = LinkedHashModel().apply {
-      add(bare, text, vf.createLiteral("outside the fixed set"), contextA)
-      add(shown, rdfType, article, contextA)
-    }
+    val unplaced = vf.createIRI("https://e/b-unplaced")
+    val placed = vf.createIRI("https://e/c-placed")
+    val store = LinkedHashModel().apply { listOf(bare, unplaced, placed).forEach { add(it, rdfType, article, contextA) } }
     val answer = LinkedHashModel().apply {
-      add(bare, text, vf.createLiteral("outside the fixed set"), contextA)
-      add(shown, text, vf.createLiteral("matched"), contextA)
+      add(bare, name, vf.createLiteral("a stored edge alone"), contextA)
+      observed(this, unplaced, placed = null)
+      observed(this, placed)
     }
+    val expander = StoreExpander(store)
 
-    assertEquals(setOf(shown.stringValue()), subjectsOf(search(index(answer), expander = StoreExpander(store), limit = 1)))
+    assertEquals(setOf(placed.stringValue()), subjectsOf(search(index(answer), expander = expander, limit = 1)))
+    assertEquals(listOf(setOf(placed)), expander.expanded, "only a candidate is expanded")
+  }
+
+  @Test
+  fun `an index's match outside the selection is no hit, though the store holds the hit inside it`() {
+    // SPS-FIND-010: the article's type is in A, and only its title in B matches.
+    val store = LinkedHashModel().apply {
+      add(hit, rdfType, article, contextA)
+      add(hit, name, vf.createLiteral("Harbour"), contextB)
+    }
+    val answer = LinkedHashModel().apply { observed(this, hit, placed = contextB) }
+
+    assertTrue(search(index(answer), expander = StoreExpander(store), on = scopedTo(contextA)).isEmpty())
+    val both = search(index(answer), expander = StoreExpander(store), on = scopedTo(contextA, contextB))
+    assertEquals(setOf(hit.stringValue()), subjectsOf(both))
+    assertEquals(setOf(contextB), both.filter(hit, findResult, null).contexts().toSet(), "the observation stays where the match was: $both")
   }
 
   @Test

@@ -83,11 +83,12 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   observations, then by IRI; it has no rank fusion.
 - **An engine that cannot scope itself is checked against the store.** One that is not
   [`selfScoped`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindAdapter.kt) — an
-  index that may lag behind the store, say — keeps a hit only where the store holds it in the
-  selection, and with a requested `type` only where the expansion reads that type for it there. Its stored
-  statements only name candidates: what the answer holds as stored comes from the expansion,
-  because the context an index gives a statement cannot be checked. A candidate with neither an
-  observation nor anything in the expansion is therefore no hit. A dropped hit
+  index that may lag behind the store, say — names a hit by an observation placed in the
+  selected context it matched in; a match elsewhere is no hit (`SPS-FIND-010`). The hit stays only
+  where the store holds it in the selection, and with a requested `type` only where the expansion
+  reads that type for it there. Its stored statements stay out: what the answer holds as stored
+  comes from the expansion, because the context an index gives a statement cannot be checked. A
+  dropped hit
   takes its observations with it; a kept hit keeps them unchecked, since the store holds nothing to
   check a snippet against. The built-in SPARQL adapter is self-scoped.
   Only a candidate a selected context holds counts towards the limit, so a stale
