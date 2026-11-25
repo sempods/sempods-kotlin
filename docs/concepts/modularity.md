@@ -88,6 +88,7 @@ The same reading applies in reverse to what a seam *returns*. `SempodsCredential
 | Seam | Contract | Implementations today |
 |---|---|---|
 | RDF store per pod | `pods/PodRepository` | `InMemoryPodRepository` (MemoryStore, write-through to MongoDB sinks); lifecycle owned by `PodRepositoryCache` |
+| SPARQL connection per pod | `query/spi/PodConnections` — a read connection to a pod's store, keyed by `PodRef`. `SparqlQueryService` takes it, so the `_system/sparql` route, `SparqlTextFindAdapter` and `SparqlResourceExpander` read from whatever store a deployment binds; the read-only check, the time limit and the `Dataset` stay in the service | `query/impls/mongo/MongoPodConnections` — the `PodRepository` that `PodRepositoryCache` holds for the pod's name |
 | Write-path sinks | `pods/changes/PodChangeListener` (Multibinder) — a `PodChangeSet` names its pod by `PodId` and by name, so a sink a deployment supplies inherits no key type | `BackupSinkPodChangeListener` (critical — the pod's durable persistence); a deployment contributes listeners without changing the write path |
 | `find` engine | `retrieval/FindAdapter` (Multibinder) | `SparqlTextFindAdapter`; the interface KDoc states the intent — "find is a specification, not an algorithm" |
 | Resource expansion | `retrieval/ResourceExpander` | `SparqlResourceExpander` |
