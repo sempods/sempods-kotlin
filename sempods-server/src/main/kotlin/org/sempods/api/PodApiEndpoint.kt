@@ -37,15 +37,33 @@ open class PodApiEndpoint : BaseEndpoint() {
   protected fun authenticate(pod: String, request: PodApiRequest): SempodsCredentials =
     when (val outcome = podRequestAuthenticator.authenticate(pod, request)) {
       is PodRequestAuthentication.Authenticated -> outcome.credentials
-      PodRequestAuthentication.PodNotFound -> throw WebApplicationException(Response.status(404).build())
+      // Not stored: where a deployment hides a pod from some callers, the next one may see it.
+      PodRequestAuthentication.PodNotFound ->
+        throw WebApplicationException(Response.status(404).header(HttpHeaders.CACHE_CONTROL, "no-store").build())
       is PodRequestAuthentication.Unauthenticated -> throw invalidBearer(pod, outcome.challenge)
     }
 
-  /** The request as [PodRequestAuthenticator] takes it. */
-  protected fun podApiRequest(method: String, uriInfo: UriInfo, headers: MultivaluedMap<String, String>): PodApiRequest =
+  /**
+   * The `Vary` value of a response that depends on the caller: `Accept`, and every header the bound
+   * authenticator reads credentials from ([PodRequestAuthenticator.credentialHeaders]).
+   */
+  protected fun varyOnCaller(): String =
+    (listOf(HttpHeaders.ACCEPT) + podRequestAuthenticator.credentialHeaders).distinct().joinToString(", ")
+
+  /**
+   * The request as [PodRequestAuthenticator] takes it. [receivedRawPath] is the path as the client
+   * sent it, where a filter rewrote it before matching — see [PathSemicolonFilter]; without it the
+   * path is the one [uriInfo] matched.
+   */
+  protected fun podApiRequest(
+    method: String,
+    uriInfo: UriInfo,
+    headers: MultivaluedMap<String, String>,
+    receivedRawPath: String? = null,
+  ): PodApiRequest =
     PodApiRequest(
       method = method,
-      path = uriInfo.getPath(false),
+      path = receivedRawPath?.removePrefix(uriInfo.baseUri.rawPath) ?: uriInfo.getPath(false),
       query = uriInfo.requestUri.rawQuery,
       headers = headers.mapValues { it.value.toList() },
     )
@@ -64,11 +82,11 @@ open class PodApiEndpoint : BaseEndpoint() {
     }
   }
 
-  internal fun invalidBearer(podName: String, challenge: String?): InvalidBearerException =
+  internal fun invalidBearer(podName: String, challenge: String): InvalidBearerException =
     InvalidBearerException(
       podName = podName,
       response = Response.status(401)
-        .apply { if (challenge != null) header(HttpHeaders.WWW_AUTHENTICATE, challenge) }
+        .header(HttpHeaders.WWW_AUTHENTICATE, challenge)
         .entity("missing or invalid app bearer token")
         .type("text/plain")
         .build()

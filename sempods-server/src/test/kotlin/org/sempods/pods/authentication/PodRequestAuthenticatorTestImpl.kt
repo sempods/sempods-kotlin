@@ -21,4 +21,6 @@ class PodRequestAuthenticatorTestImpl(val real: PodRequestAuthenticator) : PodRe
 
   override fun authenticate(pod: String, request: PodApiRequest): PodRequestAuthentication =
     answer.authenticate(pod, request)
+
+  override val credentialHeaders: Set<String> get() = answer.credentialHeaders
 }

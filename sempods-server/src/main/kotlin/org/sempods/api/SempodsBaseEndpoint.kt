@@ -75,12 +75,12 @@ open class SempodsBaseEndpoint(
    * The cache policy of a resource or slot read, for its `200` and its `304`.
    *
    * What a read returns depends on the credential, so a shared cache must not store it and a private
-   * cache has to key it on `Authorization` as well as `Accept`. A private cache may keep it, but has
+   * cache has to key it on the credential headers as well as `Accept` ([varyOnCaller]). A private cache may keep it, but has
    * to revalidate before reusing it (RFC 9111 §5.2.2.4).
    */
   protected fun Response.ResponseBuilder.revalidatedPrivately(): Response.ResponseBuilder =
     header(HttpHeaders.CACHE_CONTROL, "private, no-cache")
-      .header(HttpHeaders.VARY, "${HttpHeaders.ACCEPT}, ${HttpHeaders.AUTHORIZATION}")
+      .header(HttpHeaders.VARY, varyOnCaller())
 
   /**
    * Resolve caller credentials for a pod request through [PodRequestAuthenticator], anonymous
@@ -134,7 +134,9 @@ open class SempodsBaseEndpoint(
 
   /** This request as [PodRequestAuthenticator] takes it, read from the request this thread serves. */
   private fun currentApiRequest(): PodApiRequest =
-    currentRequestContext().let { podApiRequest(it.method, it.uriInfo, it.headers) }
+    currentRequestContext().let {
+      podApiRequest(it.method, it.uriInfo, it.headers, it.getProperty(PathSemicolonFilter.RECEIVED_RAW_PATH) as String?)
+    }
 
   internal fun fetchPodOrThrow(pod: String): PodDbo {
     return podDao.fetchByName(pod) ?: throw WebApplicationException(Response.status(404).build())

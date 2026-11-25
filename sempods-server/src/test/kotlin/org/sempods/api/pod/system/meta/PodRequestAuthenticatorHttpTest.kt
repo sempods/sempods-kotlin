@@ -7,10 +7,12 @@ import org.sempods.SempodsModule
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.pods.authentication.spi.PodApiRequest
 import org.sempods.pods.authentication.spi.PodRequestAuthentication
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 /**
  * The routes below `{pod}/…` take their caller from the
@@ -47,11 +49,28 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a pod the authenticator does not find is a 404, whatever the registry holds`() = withSetup {
+  fun `a literal semicolon reaches the authenticator as the client sent it`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val seen = CopyOnWriteArrayList<PodApiRequest>()
+    requestAuthenticator.answerWith { name, request ->
+      seen += request
+      requestAuthenticator.real.authenticate(name, request)
+    }
+
+    http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/notes/a;b").execute()
+
+    assertEquals("${pod.name}/notes/a;b", seen.single().path)
+  }
+
+  @Test
+  fun `a pod the authenticator does not find is a 404 no cache keeps, whatever the registry holds`() = withSetup {
     val pod = sempodsTestFactory.newPod()
     requestAuthenticator.answerWith { _, _ -> PodRequestAuthentication.PodNotFound }
 
-    assertEquals(404, http.prepareGet(url(pod.name)).execute().statusCode)
+    val response = http.prepareGet(url(pod.name)).execute()
+
+    assertEquals(404, response.statusCode)
+    assertEquals("no-store", response.getHeader("Cache-Control"))
   }
 
   @Test
@@ -66,14 +85,22 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `an unauthenticated caller without a challenge is a 401 without one`() = withSetup {
+  fun `a refusal without a challenge cannot be written`() {
+    assertFailsWith<IllegalArgumentException> { PodRequestAuthentication.Unauthenticated(" ") }
+  }
+
+  @Test
+  fun `credentials an authorizer copies from an anonymous template with a client id count as authenticated`() = withSetup {
     val pod = sempodsTestFactory.newPod()
-    requestAuthenticator.answerWith { _, _ -> PodRequestAuthentication.Unauthenticated(challenge = null) }
+    requestAuthenticator.answerWith { name, request ->
+      val anonymous = assertIs<PodRequestAuthentication.Authenticated>(requestAuthenticator.real.authenticate(name, request))
+      PodRequestAuthentication.Authenticated(anonymous.credentials.copy(oauthClientId = "dyn:an-app"))
+    }
 
-    val response = http.prepareGet(url(pod.name)).execute()
+    val response = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/find?text=harbour").execute()
 
-    assertEquals(401, response.statusCode, response.responseBody)
-    assertNull(response.getHeader("WWW-Authenticate"))
+    assertEquals(200, response.statusCode, response.responseBody)
+    assertEquals("private, no-store", response.getHeader("Cache-Control"))
   }
 
   @Test
@@ -82,7 +109,7 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
     requestAuthenticator.answerWith { name, request ->
       val anonymous = assertIs<PodRequestAuthentication.Authenticated>(requestAuthenticator.real.authenticate(name, request))
       PodRequestAuthentication.Authenticated(
-        anonymous.credentials.copy(authenticated = true, tokenSub = "https://id.test/someone"),
+        anonymous.credentials.copy(identified = true, tokenSub = "https://id.test/someone"),
       )
     }
 
@@ -90,5 +117,24 @@ class PodRequestAuthenticatorHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, response.statusCode, response.responseBody)
     assertEquals("private, no-store", response.getHeader("Cache-Control"))
+  }
+
+  @Test
+  fun `a caller-dependent answer varies on every header the authenticator reads credentials from`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    requestAuthenticator.answerWith(object : PodRequestAuthenticator {
+      override fun authenticate(pod: String, request: PodApiRequest) = requestAuthenticator.real.authenticate(pod, request)
+      override val credentialHeaders = setOf("Authorization", "Cookie")
+    })
+
+    val find = http.prepareGet("${SempodsModule.config.apiBaseUrl}${pod.name}/_system/find?text=harbour").execute()
+    val dateModified = http.prepareGet(url(pod.name)).execute()
+
+    listOf(find, dateModified).forEach { response ->
+      assertEquals(200, response.statusCode, response.responseBody)
+      // Jetty's gzip handler adds Accept-Encoding of its own.
+      val vary = response.headers.values("Vary").flatMap { it.split(",") }.map { it.trim() }.toSet()
+      assertTrue(vary.containsAll(setOf("Accept", "Authorization", "Cookie")), "Vary was $vary")
+    }
   }
 }

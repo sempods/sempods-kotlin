@@ -46,13 +46,21 @@ data class SempodsCredentials(
   val tokenSub: String? = null,
   val tokenIssuedAt: Instant? = null,
   /**
-   * Whether the deployment identified the caller. `false` is the anonymous reader of public
-   * contexts. Defaults to the presence of [oauthClientId], which is what it means for this
-   * server's bearer; a [org.sempods.pods.authentication.spi.PodRequestAuthenticator] whose callers carry another credential sets it.
+   * Set by a [org.sempods.pods.authentication.spi.PodRequestAuthenticator] that identified a caller
+   * who carries no [oauthClientId] — a session of the deployment's own, for instance. Read
+   * [authenticated], not this.
+   */
+  val identified: Boolean = false,
+) {
+
+  /**
+   * Whether the deployment identified the caller; `false` is the anonymous reader of public
+   * contexts. A caller with an [oauthClientId] always is, so credentials copied from an anonymous
+   * template with a client id added count as authenticated without anyone setting [identified].
    *
    * An authenticated caller names itself through [tokenSub] (its WebID) or [oauthClientId]: a
    * context or media write records that as its creator, and a context write refuses a caller that
    * names neither.
    */
-  val authenticated: Boolean = oauthClientId != null,
-)
+  val authenticated: Boolean get() = identified || oauthClientId != null
+}

@@ -171,11 +171,12 @@ class FindEndpoint @Inject constructor(
     // caller — an anonymous caller sees public contexts only, an authenticated one sees private
     // contexts too, whatever credential identified them. Such a result must never be served to a
     // different caller from a shared cache, so it is marked `private, no-store`; anonymous results
-    // may be cached. `Vary` keys shared caches on both.
+    // may be cached. `Vary` keys shared caches on both: Accept and the headers the authenticator
+    // reads the caller from, so a cached anonymous answer is not reused once the caller signs in.
     val cacheControl = if (credentials.authenticated) "private, no-store" else "public"
     return Response.ok(entity)
       .type(format.contentType)
-      .header(HttpHeaders.VARY, "Accept, Authorization")
+      .header(HttpHeaders.VARY, varyOnCaller())
       .header(HttpHeaders.CACHE_CONTROL, cacheControl)
       .build()
   }
