@@ -45,7 +45,7 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   @Inject
   protected lateinit var sempodsUriBuilder: SempodsUriBuilder
 
-  /** A seeded row as the pod a seam takes — the same conversion `SempodsBaseEndpoint` makes. */
+  /** A seeded row as the pod a seam takes — the same conversion `PodBearerRoutes.ref` makes. */
   internal val PodDbo.hosted: HostedPod get() = toHostedPod(sempodsUriBuilder)
 
   /**

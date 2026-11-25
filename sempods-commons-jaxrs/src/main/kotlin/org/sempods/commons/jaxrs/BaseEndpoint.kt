@@ -53,10 +53,13 @@ open class BaseEndpoint {
     return Response.status(404).build()
   }
 
-  protected fun evaluatePreconditions(entityTag: EntityTag): Response? {
+  protected fun evaluatePreconditions(entityTag: EntityTag): Response? =
+    evaluatePreconditions(currentRequestContext(), entityTag)
+
+  /** [evaluatePreconditions] for [requestContext], which a resource method takes by `@Context`. */
+  protected fun evaluatePreconditions(requestContext: ContainerRequestContext, entityTag: EntityTag): Response? {
     try {
-      val request = currentRequestContext().request
-      val response = request.evaluatePreconditions(entityTag)
+      val response = requestContext.request.evaluatePreconditions(entityTag)
       if (response == null) return null
       return response.tag(entityTag).build()
     } catch (e: Exception) {

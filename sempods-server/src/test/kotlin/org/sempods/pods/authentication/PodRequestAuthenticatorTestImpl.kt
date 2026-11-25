@@ -19,8 +19,17 @@ class PodRequestAuthenticatorTestImpl(val real: PodRequestAuthenticator) : PodRe
     answer = authenticator
   }
 
+  /** Lets [authenticate] decide every request from now on; challenge and headers stay [real]'s. */
+  fun answerWith(authenticate: (pod: String, request: PodApiRequest) -> PodRequestAuthentication) {
+    answerWith(object : PodRequestAuthenticator by real {
+      override fun authenticate(pod: String, request: PodApiRequest) = authenticate(pod, request)
+    })
+  }
+
   override fun authenticate(pod: String, request: PodApiRequest): PodRequestAuthentication =
     answer.authenticate(pod, request)
+
+  override fun challenge(pod: String): String = answer.challenge(pod)
 
   override val credentialHeaders: Set<String> get() = answer.credentialHeaders
 }

@@ -1,5 +1,10 @@
 package org.sempods.api.pod.system.mcp
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import org.sempods.SempodsConfig
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import org.sempods.mcp.core.Capabilities
 import org.sempods.mcp.core.ContentItem
 import org.sempods.mcp.core.Implementation
@@ -37,7 +42,6 @@ import org.sempods.commons.logging.LogSafeText
 import org.sempods.SempodsServerVersion
 import org.sempods.api.InvalidBearerException
 import org.sempods.api.OAuthUpgradeRequiredException
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
@@ -45,7 +49,6 @@ import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.api.pod.system.auth.buildProtectedResourceMetadata
 import org.sempods.pods.PodFacade
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.toPodId
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
@@ -91,12 +94,10 @@ class McpEndpoint @Inject constructor(
   private val refreshTokenStore: PodRefreshTokenStore,
   private val consentDecisionStore: PodConsentDecisionStore,
   private val webIdUriDeriver: WebIdUriDeriver,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podFacade: PodFacade,
+  private val bearerRoutes: PodBearerRoutes,
+  private val config: SempodsConfig,
+) : PodBaseEndpoint() {
 
   private val objectMapper = JsonMappers.default()
 
@@ -121,9 +122,9 @@ class McpEndpoint @Inject constructor(
    * same reason the tools do: what the session may reach is the pod's answer, and asking it twice
    * in two different ways is how the two answers start to differ.
    */
-  private fun buildInstructions(pod: String, credentials: SempodsCredentials): String {
+  private fun buildInstructions(pod: String, credentials: SempodsCredentials, bearer: String?): String {
     val podBaseUrl = "${config.apiBaseUrl}${pod}"
-    val contexts = contextsForInstructions(pod)
+    val contexts = contextsForInstructions(pod, bearer)
 
     val grantedBlock = when {
       contexts == null ->
@@ -322,11 +323,11 @@ class McpEndpoint @Inject constructor(
    * so losing it must not cost the connection. The caller says so in the text rather than
    * pretending the answer was "none".
    */
-  private fun contextsForInstructions(pod: String): InstructionContexts? {
+  private fun contextsForInstructions(pod: String, bearer: String?): InstructionContexts? {
     val plan = podToolExecutor.plan("list_contexts", objectMapper.createObjectNode())
     if (plan !is PodToolPlan.Call) return null
     return try {
-      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearerToken(), mcpPodCalls.calls))
+      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearer, mcpPodCalls.calls))
       val body = objectMapper.valueToTree<JsonNode>(payload)
       InstructionContexts(
         entries = body.path("contexts").mapNotNull { node ->
@@ -356,7 +357,7 @@ class McpEndpoint @Inject constructor(
   @Path(".well-known/oauth-protected-resource")
   @Produces(MediaType.APPLICATION_JSON)
   fun mcpProtectedResourceMetadata(@PathParam("pod") pod: String): Response {
-    val podDbo = fetchPodOrThrow(pod)
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
@@ -368,8 +369,11 @@ class McpEndpoint @Inject constructor(
   @Produces(MediaType.APPLICATION_JSON)
   fun handleMcpRequest(
     @PathParam("pod") pod: String,
-    requestBody: String
+    requestBody: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
+    // The bearer the tools carry when they re-enter this pod over HTTP.
+    val bearer = bearerRoutes.bearerToken(requestContext)
     // 2000 chars is enough to capture a full `tools/call` body with arguments; we keep
     // the cap because SPARQL-heavy bodies can run into many KB and would spam the log.
     // `params._meta` is redacted first — ChatGPT puts user geolocation, session IDs,
@@ -399,7 +403,7 @@ class McpEndpoint @Inject constructor(
         // WebApplicationException branch below, which answers with a JSON-RPC error
         // carrying no id — what MCP's Streamable HTTP transport prescribes for a
         // notification POST the server cannot accept.
-        fetchPodOrThrow(pod)
+        bearerRoutes.fetchPodOrThrow(pod)
         logger.info { "[mcp/audit] outcome=notification pod='$podForLog' method='$auditMethod'" }
         return Response.status(Response.Status.ACCEPTED).build()
       }
@@ -407,13 +411,13 @@ class McpEndpoint @Inject constructor(
       // Anonymous callers get public-read only. Write tools throw InvalidBearerException
       // for anonymous callers (→ 401 with WWW-Authenticate), which kicks the MCP client
       // into the OAuth flow advertised at oauth-protected-resource.
-      val credentials = authenticate(pod)
+      val credentials = authenticate(pod, requestContext)
       val authenticated = credentials.authenticated
       // Audit reports JWT truth, not the manage-cascade-expanded view, so
       // the count stays stable as the pod owner registers new descendants.
       val scopesCount = credentials.oauthRawScopes.size
 
-      val result = handleMethod(pod, credentials, request)
+      val result = handleMethod(pod, credentials, request, bearer)
       if (result == null) {
         logger.info {
           "[mcp/audit] outcome=accepted pod='$podForLog' method='$auditMethod' " +
@@ -487,7 +491,7 @@ class McpEndpoint @Inject constructor(
         )
       )
       return Response.status(Response.Status.UNAUTHORIZED)
-        .header("WWW-Authenticate", buildBearerChallenge(podName = e.podName))
+        .header("WWW-Authenticate", bearerRoutes.challenge(e.podName))
         .entity(objectMapper.writeValueAsString(errorResponse))
         .type(MediaType.APPLICATION_JSON)
         .build()
@@ -585,10 +589,11 @@ class McpEndpoint @Inject constructor(
   private fun handleMethod(
     pod: String,
     credentials: SempodsCredentials,
-    request: JsonRpcRequest
+    request: JsonRpcRequest,
+    bearer: String?,
   ): Any? {
     return when (request.method) {
-      "initialize" -> handleInitialize(pod, credentials, request.params)
+      "initialize" -> handleInitialize(pod, credentials, request.params, bearer)
       // TODO: a `notifications/initialized` that *does* carry an `id` is a request, and answering
       //  it with 202 and an empty body leaves the client waiting for a response that never comes.
       //  The `isNotification` check above already catches the well-formed case, so this branch only
@@ -599,7 +604,7 @@ class McpEndpoint @Inject constructor(
       }
 
       "tools/list" -> handleToolsList(credentials)
-      "tools/call" -> handleToolsCall(pod, credentials, request.params)
+      "tools/call" -> handleToolsCall(pod, credentials, request.params, bearer)
       // ChatGPT and Open-Code probe these standard MCP discovery methods
       // alongside `tools/list`. sempods does not expose any resources or
       // prompts (everything is a tool), but answering with an empty list keeps
@@ -613,7 +618,12 @@ class McpEndpoint @Inject constructor(
     }
   }
 
-  private fun handleInitialize(pod: String, credentials: SempodsCredentials, params: Map<String, Any>?): InitializeResult {
+  private fun handleInitialize(
+    pod: String,
+    credentials: SempodsCredentials,
+    params: Map<String, Any>?,
+    bearer: String?,
+  ): InitializeResult {
     logger.info { "MCP initialize request for pod '$pod'" }
 
     val initializeParams = try {
@@ -643,7 +653,7 @@ class McpEndpoint @Inject constructor(
         tools = ToolsCapability(listChanged = true),
       ),
       serverInfo = Implementation(name = "sempods-mcp-server", version = SempodsServerVersion.current),
-      instructions = buildInstructions(pod = pod, credentials = credentials)
+      instructions = buildInstructions(pod = pod, credentials = credentials, bearer = bearer)
     )
   }
 
@@ -711,7 +721,8 @@ class McpEndpoint @Inject constructor(
   private fun handleToolsCall(
     pod: String,
     credentials: SempodsCredentials,
-    params: Map<String, Any>?
+    params: Map<String, Any>?,
+    bearer: String?,
   ): ToolCallResult {
     val name = params?.get("name") as? String
       ?: throw JsonRpcException(JsonRpcErrorCodes.INVALID_PARAMS, "Missing 'name' parameter")
@@ -770,7 +781,7 @@ class McpEndpoint @Inject constructor(
       // its own call. This is the one wire change the milestone makes on purpose — the coercion
       // helpers this replaces answered some tools with -32602 and others with `isError`.
       is PodToolPlan.InvalidArguments -> toolError("Error: ${plan.message}")
-      is PodToolPlan.Call -> runTool(pod, name, plan)
+      is PodToolPlan.Call -> runTool(pod, name, plan, bearer)
     }
   }
 
@@ -789,9 +800,9 @@ class McpEndpoint @Inject constructor(
    * an ordinary socket error. Here the whole request is blocking JAX-RS and there is no coroutine to
    * cancel.
    */
-  private fun runTool(pod: String, toolName: String, plan: PodToolPlan.Call): ToolCallResult =
+  private fun runTool(pod: String, toolName: String, plan: PodToolPlan.Call, bearer: String?): ToolCallResult =
     try {
-      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearerToken(), mcpPodCalls.calls))
+      val payload = plan.execute(podAt("${config.apiBaseUrl}$pod", bearer, mcpPodCalls.calls))
       ToolCallResult(content = listOf(ContentItem(type = "text", text = objectMapper.writeValueAsString(payload))))
     } catch (e: PodToolRefusal) {
       logger.info {
@@ -901,7 +912,7 @@ class McpEndpoint @Inject constructor(
     OAuthUpgradeRequiredException(
       podName = podName,
       response = Response.status(401)
-        .header("WWW-Authenticate", buildBearerChallenge(podName = podName))
+        .header("WWW-Authenticate", bearerRoutes.challenge(podName))
         .entity("authorize tool: OAuth upgrade required")
         .type("text/plain")
         .build(),

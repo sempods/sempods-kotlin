@@ -9,9 +9,9 @@ import org.sempods.pods.grants.SempodsCredentials
  * cannot.
  *
  * It covers the whole step, not one part of it. The binding `SempodsModule` installs,
- * `org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator`, looks the pod up, verifies a bearer this
- * server issued, refuses one whose person has signed out since, records a service client's request
- * and asks [PodAuthorizer] which contexts the caller reaches. A deployment whose callers carry
+ * `org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator`, looks the pod up,
+ * verifies a bearer this server issued, refuses one whose person has signed out since, records a
+ * service client's request and asks [PodAuthorizer] which contexts the caller reaches. A deployment whose callers carry
  * another credential binds its own, and with it owns revoking that credential.
  *
  * **What an implementation may decide, and what it may not** is the same as for [PodAuthorizer]:
@@ -19,15 +19,22 @@ import org.sempods.pods.grants.SempodsCredentials
  * [SempodsCredentials.restrictedContexts] is never `null` from here.
  *
  * Takes and returns plain values, so a surface on another web stack can use it as it is. The HTTP
- * status each outcome becomes is the endpoint's: `org.sempods.api.PodApiEndpoint`.
+ * status each outcome becomes is the endpoint's: `org.sempods.api.PodBaseEndpoint`.
  */
-fun interface PodRequestAuthenticator {
+interface PodRequestAuthenticator {
 
   /**
    * Resolves [request] against the pod the route addressed as [pod]. Must not throw for a caller it
    * cannot authenticate; that is [PodRequestAuthentication.Unauthenticated].
    */
   fun authenticate(pod: String, request: PodApiRequest): PodRequestAuthentication
+
+  /**
+   * The `WWW-Authenticate` value for a caller [authenticate] found anonymous, where the route needs
+   * an authenticated one — a write, for instance. The route answers `401` with it, so the client
+   * learns how to authenticate on [pod] (RFC 9110 §15.5.2).
+   */
+  fun challenge(pod: String): String
 
   /**
    * The request headers whose values decide who [authenticate] finds. A response that depends on

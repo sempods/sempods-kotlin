@@ -1,13 +1,12 @@
 package org.sempods.api.pod.system.find
 
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
-import org.sempods.api.SempodsBaseEndpoint
 import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.system.sparql.GraphResultFormat
 import org.sempods.api.system.sparql.GraphResultNegotiation
-import org.sempods.pods.PodFacade
-import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.rdf.stream.RdfSource
 import org.sempods.rdf.stream.toStreamingOutput
@@ -50,9 +49,7 @@ import jakarta.ws.rs.core.Response
 class FindEndpoint @Inject constructor(
   private val findService: FindService,
   private val podResourceReadService: PodResourceReadService,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(podFacade = podFacade, podDao = podDao) {
+) : PodBaseEndpoint() {
 
   private val objectMapper = JsonMappers.default()
 
@@ -65,6 +62,7 @@ class FindEndpoint @Inject constructor(
     @QueryParam("include_contexts") includeContextsParam: String?,
     @QueryParam("limit") limitParam: String?,
     @Context httpHeaders: HttpHeaders,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     // Whitespace-only/absent text → 400, invalid type IRI → 400, a limit that is no integer → 400
     // as on POST (SPS-FIND-004); an integer limit is clamped 1..100.
@@ -83,7 +81,7 @@ class FindEndpoint @Inject constructor(
     val includeContexts = parseIncludeContextsOrThrow(includeContextsParam)
     // An empty repeated `?context=` list means "absent" (→ pod-wide); a present-but-blank value
     // (`?context=`) keeps a non-empty raw list so [executeFind] treats it as a present-empty scope.
-    return executeFind(pod, request, contextParams?.takeIf { it.isNotEmpty() }, includeContexts, httpHeaders)
+    return executeFind(pod, request, contextParams?.takeIf { it.isNotEmpty() }, includeContexts, httpHeaders, requestContext)
   }
 
   @POST
@@ -92,6 +90,7 @@ class FindEndpoint @Inject constructor(
     @PathParam("pod") pod: String,
     body: String?,
     @Context httpHeaders: HttpHeaders,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     val rawBody = body?.takeIf { it.isNotBlank() } ?: return badRequest("missing JSON request body")
     val parsed = try {
@@ -108,7 +107,7 @@ class FindEndpoint @Inject constructor(
     } catch (e: IllegalArgumentException) {
       return badRequest(e.message ?: "invalid request")
     }
-    return executeFind(pod, request, parsed.contexts, parsed.includeContexts == true, httpHeaders)
+    return executeFind(pod, request, parsed.contexts, parsed.includeContexts == true, httpHeaders, requestContext)
   }
 
   /**
@@ -122,6 +121,7 @@ class FindEndpoint @Inject constructor(
     rawContexts: List<String>?,
     includeContexts: Boolean,
     httpHeaders: HttpHeaders,
+    requestContext: ContainerRequestContext,
   ): Response {
     val format = GraphResultNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT))
       ?: return Response.status(Response.Status.NOT_ACCEPTABLE)
@@ -129,7 +129,7 @@ class FindEndpoint @Inject constructor(
         .type(MediaType.TEXT_PLAIN)
         .build()
 
-    val credentials = authenticate(pod)
+    val credentials = authenticate(pod, requestContext)
     // A pod's global identifier is its own URI (sempods are decentralized Linked Open Data); the
     // retrieval layer and its adapters key on this rather than the server-local pod name. The
     // canonical (no-trailing-slash) form comes from SempodsUriBuilder, the same builder that mints

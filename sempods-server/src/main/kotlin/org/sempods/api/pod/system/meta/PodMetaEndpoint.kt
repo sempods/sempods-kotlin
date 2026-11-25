@@ -1,10 +1,11 @@
 package org.sempods.api.pod.system.meta
 
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
-import org.sempods.api.SempodsBaseEndpoint
-import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.PodDao
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
@@ -35,21 +36,18 @@ import jakarta.ws.rs.core.Response
 @Path("{pod}/_system/meta")
 @Produces(MediaType.APPLICATION_JSON)
 class PodMetaEndpoint @Inject constructor(
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val podDao: PodDao,
+) : PodBaseEndpoint() {
 
   @GET
   @Path("date-modified")
   fun dateModified(
     @PathParam("pod") pod: String,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
     // 404 on unknown pod, 401 on invalid bearer; anonymous is accepted (the timestamp is not
     // context-sensitive). Also records the service-client audit row when authenticated.
-    authenticate(pod)
+    authenticate(pod, requestContext)
     val dateModified = podDao.fetchLastModifiedAt(pod)
     // Revalidated per caller: whether the pod is there at all is the authenticator's to say.
     return Response.ok(PodDateModifiedResponse(dateModified = dateModified?.toString())).revalidatedPrivately().build()

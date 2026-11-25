@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.api.PodBearerRoutes
 import org.sempods.auth.core.HttpTransport
 import org.sempods.auth.core.SempodsAuthCoreModule
 import org.sempods.auth.core.SigningKeyStore
@@ -204,6 +205,7 @@ class SempodsModule : BaseModule() {
     bindPodAuthorizer()
     bind<BearerPodRequestAuthenticator>().asSingleton()
     bind<PodRequestAuthenticator>().to(BearerPodRequestAuthenticator::class.java)
+    bind<PodBearerRoutes>().asSingleton()
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
     bind<PodRegistrationRateLimiter>().asSingleton()
@@ -611,7 +613,7 @@ class SempodsModule : BaseModule() {
     /**
      * The address this server is **known by** — not merely reachable at.
      *
-     * Pod IRIs are minted by appending to it (`SempodsBaseEndpoint`, `SempodsUriBuilder`), it is
+     * Pod IRIs are minted by appending to it (`SempodsUriBuilder`, the routes), it is
      * the `iss` claim of every pod token (`PodTokenIssuer`), and grants are compared against it
      * byte for byte (`PodGrantsFacade`). Changing it on a live host therefore does not redirect
      * traffic — it starts writing a second set of identities beside the existing ones.
@@ -806,9 +808,8 @@ class SempodsModule : BaseModule() {
      * The pod server's configuration, read once from the environment.
      *
      * A companion `by lazy` rather than an injected object, and that is not a preference: the value
-     * is read on class initialization, long before an injector exists — `SempodsBaseEndpoint` needs
-     * the base URL to build a bearer challenge, and `SempodsMediaModule` needs the port to register
-     * its routes. `Env` carries a standing note that a global lookup is a hidden dependency and that
+     * is read before an injector exists — `SempodsMediaModule` needs the port to register its
+     * routes, and the modules it binds are built from it. `Env` carries a standing note that a global lookup is a hidden dependency and that
      * configuration belongs in a typed object at the entry point; this *is* that typed object, and
      * everything downstream of the injector takes it by injection.
      */

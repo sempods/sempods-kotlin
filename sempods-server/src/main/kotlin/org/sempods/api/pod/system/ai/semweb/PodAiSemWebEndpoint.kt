@@ -1,5 +1,9 @@
 package org.sempods.api.pod.system.ai.semweb
 
+import org.sempods.api.PodBearerRoutes
+import org.sempods.api.PodBaseEndpoint
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.container.ContainerRequestContext
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
@@ -10,9 +14,6 @@ import org.sempods.ai.AiServiceException
 import org.sempods.ai.sem.AiSemFacade
 import org.sempods.ai.sem.AiSemModel2ModelRequest
 import org.sempods.ai.sem.AiSemText2ModelRequest
-import org.sempods.api.SempodsBaseEndpoint
-import org.sempods.pods.PodFacade
-import org.sempods.pods.mongo.persist.PodDao
 import jakarta.ws.rs.*
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
@@ -24,20 +25,17 @@ import tools.jackson.databind.JsonNode
 @Produces("application/ld+json")
 class PodAiSemWebEndpoint @Inject constructor(
   private val aiSemFacade: AiSemFacade,
-  podFacade: PodFacade,
-  podDao: PodDao,
-) : SempodsBaseEndpoint(
-  podFacade = podFacade,
-  podDao = podDao,
-) {
+  private val bearerRoutes: PodBearerRoutes,
+) : PodBaseEndpoint() {
 
   @POST
   @Path("text2model")
   fun text2model(
     @PathParam("pod") pod: String,
     request: Text2ModelRequest,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = requirePodAppTokenOrThrow(pod)
+    val credentials = bearerRoutes.requirePodAppTokenOrThrow(pod, requestContext)
 
     val contentText = request.content?.text?.trim()?.takeIf { it.isNotEmpty() }
       ?: throw webError(
@@ -98,8 +96,9 @@ class PodAiSemWebEndpoint @Inject constructor(
   fun model2model(
     @PathParam("pod") pod: String,
     request: Model2ModelRequest,
+    @Context requestContext: ContainerRequestContext,
   ): Response {
-    val credentials = requirePodAppTokenOrThrow(pod)
+    val credentials = bearerRoutes.requirePodAppTokenOrThrow(pod, requestContext)
 
     val instructionText = request.instruction?.text?.trim()?.takeIf { it.isNotEmpty() }
       ?: throw webError(

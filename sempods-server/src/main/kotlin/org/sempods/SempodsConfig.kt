@@ -24,7 +24,7 @@ data class SempodsConfig(
   /**
    * The address this server is **known by** — not merely reachable at.
    *
-   * Pod IRIs are minted by appending to it ([SempodsUriBuilder], `SempodsBaseEndpoint`), it is the
+   * Pod IRIs are minted by appending to it ([SempodsUriBuilder], the routes), it is the
    * `iss` claim of every pod token (`PodTokenIssuer`), and grants are compared against it byte for
    * byte (`PodGrantsFacade`). Changing it on a live host therefore does not redirect traffic — it
    * starts writing a second set of identities beside the existing ones.
