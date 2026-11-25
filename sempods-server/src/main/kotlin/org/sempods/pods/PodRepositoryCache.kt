@@ -47,12 +47,22 @@ class PodRepositoryCache @Inject constructor(
   /**
    * Drops the cached repository for [pod] only while it is the one loaded for [podId]. A repository
    * loaded for a pod created again under the name has another id and stays, still open.
+   *
+   * Checked inside the key's compute, so it waits for a [get] still initializing [pod], as
+   * [invalidate] does: a repository published after a plain read would escape the eviction.
    */
   internal fun invalidate(pod: String, podId: ObjectId) {
-    val repo = cache[pod] as? InMemoryPodRepository ?: return
-    if (repo.podId != podId.toPodId()) return
-    if (cache.remove(pod, repo)) {
-      repo.shutDown()
+    var evicted: InMemoryPodRepository? = null
+    cache.computeIfPresent(pod) { _, repo ->
+      if (repo is InMemoryPodRepository && repo.podId == podId.toPodId()) {
+        evicted = repo
+        null
+      } else {
+        repo
+      }
+    }
+    evicted?.let {
+      it.shutDown()
       logger.debug { "Cache invalidated for pod: $pod" }
     }
   }
