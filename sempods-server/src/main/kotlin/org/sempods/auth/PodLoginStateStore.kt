@@ -34,6 +34,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase, cipher:
       putNotNull("codeChallenge", it.codeChallenge)
       putNotNull("codeChallengeMethod", it.codeChallengeMethod)
       if (it.serviceConsent) put("serviceConsent", true)
+      putNotNull("serviceAuthority", it.serviceAuthority)
     },
     read = {
       val serviceConsent = getBoolean("serviceConsent") ?: false
@@ -46,6 +47,7 @@ class PodLoginStateStore @Inject internal constructor(db: MongoDatabase, cipher:
         codeChallenge = getString("codeChallenge"),
         codeChallengeMethod = getString("codeChallengeMethod"),
         serviceConsent = serviceConsent,
+        serviceAuthority = getString("serviceAuthority"),
       )
     },
   )

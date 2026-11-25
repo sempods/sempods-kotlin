@@ -1,5 +1,6 @@
 package org.sempods.api.system.admin.pods
 
+import org.sempods.auth.core.DidWeb
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
@@ -114,6 +115,9 @@ class AdminPodsEndpoint @Inject constructor(
    * [org.sempods.api.pod.system.contexts.PodContextsEndpoint.put]): an existing pod yields
    * 200 `alreadyExists` and its stored owner is **not** overwritten — this route creates pods, it
    * does not transfer ownership. A fresh pod yields 201 `created`.
+   *
+   * `managementClient` registers that `did:web` service on the fresh pod, holding the authority to
+   * manage it for the owner. An existing pod is left as it is, this member included.
    */
   @PUT
   @Path("{pod}")
@@ -127,6 +131,11 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, CreatePodRequest::class.java)
       ?: throw badRequest("missing JSON request body")
     val ownerWebId = ownerWebIdOf(request)
+    val managementClient = request.managementClient?.trim()?.takeIf { it.isNotEmpty() }?.also {
+      if (!it.startsWith(DidWeb.PREFIX) || DidWeb.targetOf(it) == null) {
+        throw badRequest("managementClient must be a did:web identifier")
+      }
+    }
 
     if (sempodsFacade.existsPod(pod)) {
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
@@ -147,6 +156,15 @@ class AdminPodsEndpoint @Inject constructor(
     }
 
     logger.info { "Admin '$adminClientId' created pod '$pod' for owner '$ownerWebId'" }
+    managementClient?.let { clientId ->
+      podServiceClientProvisioning.provisionManagement(
+        pod = checkNotNull(podDao.fetchByName(pod)) { "pod '$pod' was just created" }.toHostedPod(sempodsUriBuilder),
+        clientId = clientId,
+        label = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() } ?: clientId,
+        owner = ownerWebId,
+        ownerUris = webIdUriDeriver.derivableAliases(ownerWebId).toSet(),
+      )
+    }
     return Response.status(201).entity(PodLifecycleResponse(pod = pod, result = CREATED)).build()
   }
 
@@ -404,6 +422,16 @@ data class CreatePodRequest(
    * cannot own a pod yet.
    */
   val ownerWebId: String? = null,
+
+  /**
+   * A `did:web` service to register on the new pod with the lasting authority to manage it for the
+   * owner: contexts, never data (`sempods-server/docs/auth/service-clients.md` §"Managing a pod as a
+   * service"). Optional; ignored where the pod exists already. Anything but a `did:web` is a 400.
+   */
+  val managementClient: String? = null,
+
+  /** What the owner sees that service called; the identifier where absent. */
+  val managementClientName: String? = null,
 )
 
 /** Response of `PUT /_system/admin/pods/{pod}`: `result` is `created` or `alreadyExists`. */

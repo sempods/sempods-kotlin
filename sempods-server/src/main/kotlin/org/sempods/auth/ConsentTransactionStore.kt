@@ -101,6 +101,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         binding.service?.let { service ->
           put("serviceRegistrationId", service.registrationId)
           put("serviceGrantsVersion", service.grantsVersion)
+          if (service.management) put("serviceManagement", true)
         }
       }
     },
@@ -123,6 +124,7 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
             ConsentServiceRecipient(
               registrationId = registrationId,
               grantsVersion = get("serviceGrantsVersion", Number::class.java)?.toLong() ?: return@OneTimeStore null,
+              management = getBoolean("serviceManagement") ?: false,
             )
           }
           ConsentBinding(

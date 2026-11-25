@@ -121,6 +121,8 @@ class PodServiceClientsEndpoint @Inject constructor(
   ).apply {
     // Only while the registration waits for the owner's consent; it is gone after the deadline.
     registration.pendingUntil?.let { put(PodRegistrationResponses.ACTIVATION_EXPIRES_AT, it.epochSecond) }
+    // Only while it holds the lasting authority to manage the pod; removing it ends that.
+    registration.management?.let { put("management_granted_at", it.grantedAt.epochSecond) }
   }
 
   /** Each refusal in words. */

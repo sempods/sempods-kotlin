@@ -668,7 +668,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val minted = serviceClient(pod)
 
     val result = issued(
-      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = null),
+      exchange.exchangeServiceClient(pod, "notes-app", minted.secret, requestedScope = null),
     )
 
     assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, result.expiresInSeconds)
@@ -686,7 +686,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     serviceClient(pod)
 
     for ((client, secret) in listOf("notes-app" to "sc_wrong", "no-such-app" to "sc_wrong")) {
-      val result = exchange.exchangeServiceClient(pod.id, pod.name, client, secret, requestedScope = null)
+      val result = exchange.exchangeServiceClient(pod, client, secret, requestedScope = null)
       assertIs<PodTokenResult.ClientAuthenticationRequired>(result, "clientId='$client'")
     }
   }
@@ -700,7 +700,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val minted = serviceClient(pod)
 
     val result = refused(
-      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = "public-read"),
+      exchange.exchangeServiceClient(pod, "notes-app", minted.secret, requestedScope = "public-read"),
     )
 
     assertEquals(OAuthErrorCode.INVALID_SCOPE, result.code)

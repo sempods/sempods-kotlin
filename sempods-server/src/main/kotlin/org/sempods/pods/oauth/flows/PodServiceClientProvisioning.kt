@@ -8,6 +8,8 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientAlreadyRegistered
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
+import org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority
+import java.time.Instant
 
 /**
  * Giving a service client its credentials, idempotently. Provisioning creates; it never writes the
@@ -25,6 +27,27 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
 class PodServiceClientProvisioning @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
 ) {
+
+  /**
+   * Registers the `did:web` service [clientId] on a pod just created for [owner], active and holding
+   * the authority to manage it on that owner's behalf ([ServiceManagementAuthority]). The operator
+   * names the service; no software statement is asked for, because the admin surface is trusted.
+   * A registration under [clientId] that exists is left as it is.
+   *
+   * @param ownerUris every URI the owner is known by, [owner] among them.
+   */
+  internal fun provisionManagement(pod: HostedPod, clientId: String, label: String, owner: String, ownerUris: Set<String>) {
+    if (serviceClients.find(pod.id, clientId) != null) return
+    try {
+      serviceClients.registerDidWeb(
+        pod, clientId, label, redirectUris = emptyList(), provisional = false,
+        management = ServiceManagementAuthority(grantedBy = owner, subjectUris = ownerUris + owner, grantedAt = Instant.now()),
+      )
+    } catch (_: ServiceClientAlreadyRegistered) {
+      return
+    }
+    logger.info { "Pod '${pod.name}': management service '${LogSafeText.of(clientId)}' provisioned for owner '$owner'" }
+  }
 
   /**
    * @param beforeCreating runs only when there is no registration yet, before one is created: what

@@ -19,7 +19,8 @@ discovery where available.
 | `POST /_system/auth/token` | Exchange a code, refresh token or service credential |
 | `GET /_system/auth/jwks.json` | Read the pod's public signing keys |
 | `POST /_system/auth/register` | Register a public client or service |
-| `GET /_system/auth/service-consent` | Let the owner decide a service's context grants |
+| `DELETE /_system/auth/register/{client_id}` | [Remove the calling service's own registration](service-clients.md#managing-a-pod-as-a-service) |
+| `GET /_system/auth/service-consent` | Let the owner decide a service's context grants, or with `authority=manage` its [management authority](service-clients.md#managing-a-pod-as-a-service) |
 | `POST /_system/auth/service-consent` | Submit the service consent form |
 | `GET /_system/auth/oidc/callback` | Receive the identity provider's login response |
 | `/_system/auth/service-clients` | [List and manage service registrations](service-clients.md#managing-service-clients) |
@@ -274,6 +275,9 @@ Request `contexts:manage` through owner consent to create or delete any context 
 `PUT` or `DELETE /_system/contexts/{path}`. It follows the same authority rules as service management.
 An ordinary app, including the owner's app, can only manage contexts covered by its `#manage` grants.
 For example, authority over `apps/notes` does not authorize deletion of `contacts`.
+
+A service client can hold the same authority lastingly; see
+[Managing a pod as a service](service-clients.md#managing-a-pod-as-a-service).
 
 This privileged scope reads no data, but deleting a context deletes its data. The catalogue
 reports management-only permission, unlike a normal `#manage` grant; see

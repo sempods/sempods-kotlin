@@ -141,6 +141,15 @@ class PodScopeValidator {
       setOf(SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
 
     /**
+     * What a service client's lasting management authority covers: the scopes its
+     * `client_credentials` token carries while the authority stands
+     * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority]). Never
+     * [SERVICE_CLIENTS_MANAGE_SCOPE], which can create a service that reaches data. The pod
+     * advertises this set as `sempods_service_management_scopes`.
+     */
+    val serviceManagementScopes: Set<String> = setOf(CONTEXTS_MANAGE_SCOPE)
+
+    /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not
      * follow the `<context-uri>#<permission>` grammar. `public-read` and the privileged ones today;
      * `ai` / `search` and similar capability gates may be added here. Keeping this an explicit

@@ -190,7 +190,7 @@ internal class ServiceGrantReplaceTest : PodBrowserFlowTest() {
 
     assertEquals(emptySet(), current(owned, "notes-app").scopes)
     val refused = assertIs<PodTokenResult.Refused>(
-      tokens.exchangeServiceClient(owned.pod.id, owned.pod.name, "notes-app", registered.secret, requestedScope = null),
+      tokens.exchangeServiceClient(owned.pod, "notes-app", registered.secret, requestedScope = null),
     )
     assertEquals(OAuthErrorCode.INVALID_SCOPE, refused.code)
   }

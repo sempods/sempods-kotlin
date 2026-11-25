@@ -35,6 +35,9 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var webIdUriDeriver: WebIdUriDeriver
 
+  @Inject
+  private lateinit var didWeb: DidWebAccessFlow
+
   // ── Registration ────────────────────────────────────────────────────────────
 
   @Test
@@ -236,32 +239,13 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
     return service
   }
 
-  private fun register(pod: PodDbo, statement: String?, name: String = "Owner Console"): TestHttpResponse {
-    val body = linkedMapOf<String, Any>(
-      "client_name" to name,
-      "grant_types" to listOf("client_credentials"),
-      "token_endpoint_auth_method" to "private_key_jwt",
-    )
-    statement?.let { body["software_statement"] = it }
-    return http.preparePost(registerEndpoint(pod))
-      .addHeader("Content-Type", "application/json")
-      .setBody(JsonMappers.default().writeValueAsString(body))
-      .execute()
-  }
+  private fun register(pod: PodDbo, statement: String?, name: String = "Owner Console") = didWeb.register(pod, statement, name)
 
-  private fun token(pod: PodDbo, assertion: String): TestHttpResponse = tokenRequest(pod, assertion).execute()
+  private fun token(pod: PodDbo, assertion: String): TestHttpResponse = didWeb.token(pod, assertion)
 
-  private fun tokenRequest(pod: PodDbo, assertion: String, clientId: String? = null) =
-    http.preparePost(DidWebService.tokenEndpoint(pod))
-      .addHeader("Content-Type", "application/x-www-form-urlencoded")
-      .setBody(
-        "grant_type=client_credentials" +
-          "&client_assertion_type=${enc("urn:ietf:params:oauth:client-assertion-type:jwt-bearer")}" +
-          "&client_assertion=${enc(assertion)}" +
-          (clientId?.let { "&client_id=${enc(it)}" } ?: ""),
-      )
+  private fun tokenRequest(pod: PodDbo, assertion: String, clientId: String? = null) = didWeb.tokenRequest(pod, assertion, clientId)
 
-  private fun registerEndpoint(pod: PodDbo) = "${DidWebService.issuer(pod)}/_system/auth/register"
+  private fun registerEndpoint(pod: PodDbo) = didWeb.registerEndpoint(pod)
 
   @Suppress("UNCHECKED_CAST")
   private fun json(response: TestHttpResponse): Map<String, Any?> =

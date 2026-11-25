@@ -82,4 +82,16 @@ internal data class PodServiceClientDbo(
    * update that writes the grants (`PodServiceClientDao.replaceScopes`).
    */
   val pendingUntil: Instant? = null,
+
+  /**
+   * The WebID that granted this client the lasting authority to manage the pod, `null` where it
+   * holds none. Set together with [managementSubjectUris] and [managementGrantedAt], and gone with
+   * the row: removing the registration is how the authority ends.
+   */
+  val managementGrantedBy: String? = null,
+
+  /** Every URI [managementGrantedBy] was recognised by when granting; the owner check reads these. */
+  val managementSubjectUris: Set<String> = emptySet(),
+
+  val managementGrantedAt: Instant? = null,
 )

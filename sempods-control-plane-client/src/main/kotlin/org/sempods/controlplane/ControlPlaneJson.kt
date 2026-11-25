@@ -25,8 +25,13 @@ internal object ControlPlaneJson {
     mapper.writeValueAsString(mapper.createObjectNode().put("ownerEmail", ownerEmail))
 
   /** The body of `PUT {server}/_system/admin/pods/{pod}` naming the owner by WebID. */
-  fun podOwnerWebId(ownerWebId: URI): String =
-    mapper.writeValueAsString(mapper.createObjectNode().put("ownerWebId", ownerWebId.toString()))
+  fun podOwnerWebId(ownerWebId: URI, managementClient: String? = null, managementClientName: String? = null): String =
+    mapper.writeValueAsString(
+      mapper.createObjectNode().put("ownerWebId", ownerWebId.toString()).apply {
+        managementClient?.let { put("managementClient", it) }
+        managementClientName?.let { put("managementClientName", it) }
+      },
+    )
 
   /** The answer of `GET {server}/_system/admin/pods/{pod}`, with its `pod` and `owner`. */
   fun hostedPod(json: String): OwnedPod = ownedPod(objectOf(json))

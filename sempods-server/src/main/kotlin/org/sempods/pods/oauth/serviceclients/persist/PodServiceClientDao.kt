@@ -165,6 +165,27 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     ).matchedCount > 0L
   }
 
+  /**
+   * Grants the registration [expectedId] names the authority to manage the pod, on behalf of
+   * [grantedBy] recognised by [subjectUris], and activates it. `false` where it is gone or expired.
+   */
+  internal fun grantManagement(
+    podId: ObjectId,
+    clientId: String,
+    expectedId: ObjectId,
+    grantedBy: String,
+    subjectUris: Set<String>,
+    at: Instant = Instant.now(),
+  ): Boolean = serviceClients.updateOne(
+    liveRegistrationFilter(podId, clientId, expectedId, at),
+    Updates.combine(
+      Updates.set(PodServiceClientDboFields.managementGrantedBy, grantedBy),
+      Updates.set(PodServiceClientDboFields.managementSubjectUris, subjectUris.toList()),
+      Updates.set(PodServiceClientDboFields.managementGrantedAt, Date.from(at)),
+      Updates.unset(PodServiceClientDboFields.pendingUntil),
+    ),
+  ).matchedCount > 0L
+
   /** Whether the registration [expectedId] names is still stored under `(podId, clientId)`. */
   internal fun exists(podId: ObjectId, clientId: String, expectedId: ObjectId): Boolean =
     serviceClients.find(liveRegistrationFilter(podId, clientId, expectedId)).limit(1).first() != null
@@ -270,6 +291,9 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       .putNotNull(PodServiceClientDboFields.grantsChangedBy, grantsChangedBy)
       .putStrings(PodServiceClientDboFields.redirectUris, redirectUris)
       .putInstant(PodServiceClientDboFields.pendingUntil, pendingUntil)
+      .putNotNull(PodServiceClientDboFields.managementGrantedBy, managementGrantedBy)
+      .putStrings(PodServiceClientDboFields.managementSubjectUris, managementSubjectUris)
+      .putInstant(PodServiceClientDboFields.managementGrantedAt, managementGrantedAt)
 
     private fun Document.toDbo(): PodServiceClientDbo = PodServiceClientDbo(
       id = getObjectId(PodServiceClientDboFields.id),
@@ -293,6 +317,9 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       grantsChangedBy = getString(PodServiceClientDboFields.grantsChangedBy),
       redirectUris = getStringList(PodServiceClientDboFields.redirectUris),
       pendingUntil = getInstant(PodServiceClientDboFields.pendingUntil),
+      managementGrantedBy = getString(PodServiceClientDboFields.managementGrantedBy),
+      managementSubjectUris = getStringSet(PodServiceClientDboFields.managementSubjectUris),
+      managementGrantedAt = getInstant(PodServiceClientDboFields.managementGrantedAt),
     )
   }
 }

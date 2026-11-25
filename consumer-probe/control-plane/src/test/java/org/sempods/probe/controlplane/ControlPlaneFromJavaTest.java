@@ -53,6 +53,7 @@ class ControlPlaneFromJavaTest {
 
   private static final List<String> paths = new ArrayList<>();
   private static final List<String> credentials = new ArrayList<>();
+  private static final List<String> bodies = new ArrayList<>();
   private static volatile int status = 201;
   private static volatile String body = "";
 
@@ -62,7 +63,7 @@ class ControlPlaneFromJavaTest {
     server.createContext("/_system/admin/pods", exchange -> {
       paths.add(exchange.getRequestMethod() + " " + exchange.getRequestURI());
       credentials.add(String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
-      exchange.getRequestBody().readAllBytes();
+      bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
       answer(exchange);
     });
     server.start();
@@ -98,6 +99,7 @@ class ControlPlaneFromJavaTest {
   void forget() {
     paths.clear();
     credentials.clear();
+    bodies.clear();
     status = 201;
     body = "";
   }
@@ -141,6 +143,21 @@ class ControlPlaneFromJavaTest {
     assertTrue(ours);
     assertEquals("alice", pod.getPod());
     assertEquals("GET /_system/admin/pods/alice", paths.get(1));
+  }
+
+  @Test
+  void createsAPodWithAServiceThatManagesItForTheOwner() throws IOException {
+    URI ownerWebId = URI.create("https://id.example/e/" + "0".repeat(64));
+
+    // doc-example:start create-with-management
+    SempodsResponse<CreatePodResult> created =
+        admin.createPod("alice", ownerWebId, "did:web:console.example", "Owner Console");
+    // doc-example:end create-with-management
+
+    assertEquals(CreatePodResult.created, created.getBody());
+    assertEquals("PUT /_system/admin/pods/alice", paths.get(0));
+    assertTrue(bodies.get(0).contains("\"managementClient\":\"did:web:console.example\""), bodies.get(0));
+    assertTrue(bodies.get(0).contains("\"managementClientName\":\"Owner Console\""), bodies.get(0));
   }
 
   @Test
