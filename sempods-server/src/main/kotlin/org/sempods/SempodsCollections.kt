@@ -82,6 +82,9 @@ internal object SempodsCollections {
   /** The right to manage a pod's service clients, read for a bearer's hour — `(jti)`. */
   const val OAUTH_MANAGEMENT_AUTHORITIES = "oauth.managementAuthorities"
 
+  /** The `jti`s `did:web` clients spent on assertions, each once — `(issuer, jti)`. */
+  const val OAUTH_CLIENT_ASSERTION_JTIS = "oauth.clientAssertionJtis"
+
   /** Authorization codes. Owned by `:sempods-auth-core`; named there so all three services agree. */
   const val OAUTH_AUTH_CODES = SempodsAuthCoreModule.AUTHORIZATION_CODES
 
@@ -112,6 +115,7 @@ internal object SempodsCollections {
     OAUTH_LOGIN_STATES,
     OAUTH_CONSENT_TRANSACTIONS,
     OAUTH_MANAGEMENT_AUTHORITIES,
+    OAUTH_CLIENT_ASSERTION_JTIS,
     OAUTH_AUTH_CODES,
     OAUTH_REAUTH_CHALLENGES,
   )

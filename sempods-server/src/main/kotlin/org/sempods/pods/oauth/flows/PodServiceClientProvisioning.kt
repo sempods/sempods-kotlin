@@ -55,6 +55,8 @@ class PodServiceClientProvisioning @Inject internal constructor(
       // not be the one that works.
       ServiceClientSecretRotation.Conflict,
       ServiceClientSecretRotation.NotFound -> PodServiceClientResult.Refused(PodServiceClientRefusal.MODIFIED_CONCURRENTLY)
+      // An operator's identifier carries no `:`, so it never names a `did:web` client.
+      ServiceClientSecretRotation.HoldsNoSecret -> error("an operator-provisioned client holds a secret: '${request.clientId}'")
     }
   }
 

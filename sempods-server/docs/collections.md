@@ -72,6 +72,11 @@ disconnect. `consent` records the version of the consent text the person approve
 (`PrivilegedAuthorityRows.consentTextOf`); a row without it reads as the first,
 `PrivilegedAuthorityRows.FIRST_CONSENT`.
 
+`oauth.clientAssertionJtis` holds the `jti`s `did:web` services spent on client assertions and
+software statements. `_id` is the SHA-256 of issuer and `jti`; the insert is the check, so of two
+requests with one assertion only one succeeds. A TTL index on `expiresAt` removes a row after seven
+minutes, longer than an assertion is accepted.
+
 `oauth.installationAuthorities` is retired with the installer authority. Its rows expired within an
 hour; once every node runs a release without it, an operator may `drop()` the empty collection. A
 node still on the old code recreates its indexes when it starts.
@@ -95,11 +100,19 @@ Each is an instance of a rule stated in the document contract, and all are this 
   older than the field, and on every row whose grants were never written since. `{grantsVersion: 0}`
   matches none of them, so a replace prepared at `0` filters on the absent field as well
   (`PodServiceClientDao.replaceScopes`). No transform: the field appears with the first write. See
-  `PodServiceClientDaoTest`.
+  `PodServiceClientDaoTest`. A `did:web` row is the exception: it is inserted at the pod's next
+  `serviceClientEpoch` times 2^32, a counter on the `pods` row that outlives the registration
+  (`PodDao.nextServiceClientEpoch`).
 - **`oauth.serviceClients` removes a self-registered service by TTL on `pendingUntil`**, and every
   read and write filters a passed deadline out, because the TTL monitor lags. Rows without the field
   — activated, provisioned, or older than it — never expire. Activation unsets it in the update that
-  writes the grants (`PodServiceClientDao.replaceScopes`). No transform.
+  writes the grants (`PodServiceClientDao.replaceScopes`). No transform. A `did:web` service that
+  registers again deletes its own expired row first (`PodServiceClientDao.deleteExpired`), since
+  the unique index still counts it.
+- **`oauth.serviceClients` holds rows without `secretHash`**: a `did:web` service has no secret. A
+  server from before 0.3 decodes the field as required and fails on the whole pod's list. Roll
+  every node forward before a pod accepts a `did:web` registration; rolling back means deleting
+  those rows first.
 
 ## Conventions
 

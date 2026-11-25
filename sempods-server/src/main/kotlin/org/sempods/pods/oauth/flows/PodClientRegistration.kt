@@ -14,7 +14,12 @@ import org.sempods.pods.grants.carriesPrivilegedFeature
 import org.sempods.pods.oauth.DynamicClient
 import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
+import org.sempods.pods.oauth.PrivilegedAuthority
+import org.sempods.pods.oauth.didweb.DidWebAssertion
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import org.sempods.pods.oauth.serviceclients.ServiceClientAlreadyRegistered
+import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import java.time.Instant
 
 /**
@@ -27,8 +32,10 @@ import java.time.Instant
  * `token_endpoint_auth_method` is always `none`: these clients hold no secret, and PKCE is what
  * binds a code to the caller that asked for it.
  *
- * **A service.** A confidential client that authenticates with a secret and uses Client Credentials.
- * The server names it `svc:…`, and it holds no data rights until the owner grants them.
+ * **A service.** A confidential client that uses Client Credentials, and holds no data rights until
+ * the owner grants them. One that authenticates with a secret is named `svc:…` by the server. One
+ * with a `did:web` identity names itself, proves it with a software statement its DID document's
+ * key signed, and authenticates with that key afterwards (`private_key_jwt`); it gets no secret.
  * - **Registering itself**, without a bearer: nobody authorizes the call. The registration is
  *   provisional and is removed after [PodServiceClientStore.ACTIVATION_WINDOW] unless the pod owner
  *   activates it by granting it contexts. The deadline and the per-pod budget bound what an open
@@ -45,6 +52,7 @@ class PodClientRegistration @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
   private val serviceBudget: PodServiceRegistrationBudget,
   private val ownerAuthority: PodOwnerAuthority,
+  private val didWebAuthentication: DidWebClientAuthentication,
 ) {
 
   internal fun register(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
@@ -54,6 +62,7 @@ class PodClientRegistration @Inject internal constructor(
       PodClientShape.PUBLIC ->
         if (request.caller?.carriesPrivilegedFeature == true) wrongProfile() else registerDynamic(pod, request)
       PodClientShape.SERVICE -> registerService(pod, request)
+      PodClientShape.DID_WEB_SERVICE -> registerDidWebService(pod, request)
       PodClientShape.OTHER -> wrongProfile()
     }
   }
@@ -146,11 +155,9 @@ class PodClientRegistration @Inject internal constructor(
    * registration it did not expect.
    */
   private fun registerService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
-    val owner = request.caller?.let { caller ->
-      when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT)) {
-        is PodOwnerAuthorityCheck.Standing -> check.authority
-        is PodOwnerAuthorityCheck.Refused -> return PodRegistrationResult.Unauthorized(check.reason)
-      }
+    val owner = when (val caller = registeringOwner(pod, request)) {
+      is RegisteringOwner.Refused -> return PodRegistrationResult.Unauthorized(caller.reason)
+      is RegisteringOwner.Known -> caller.authority
     }
 
     REFUSED_MEMBERS.firstOrNull { it in request.raw && isGiven(request.raw[it]) }?.let { member ->
@@ -197,6 +204,158 @@ class PodClientRegistration @Inject internal constructor(
     )
   }
 
+  /**
+   * A `did:web` service: the identifier its software statement proves, and no secret. What happens
+   * to each member is `sempods-server/docs/auth/oauth.md` §"Registering a did:web service".
+   *
+   * The statement (RFC 7591 §2.3) is checked as a client assertion is at the token endpoint —
+   * signed by a key the DID document names, `iss` and `sub` the identifier, short-lived, its `jti`
+   * spent — so nobody holds a registration under a `did:web` whose keys they lack. Its `aud` is
+   * this registration endpoint alone, which the token endpoint never accepts, so a statement handed
+   * to a registration tool is no credential (RFC 8725 §3.12). The metadata it states takes
+   * precedence over the body's, as the RFC asks; of what this pod reads, that is `client_name` and
+   * `redirect_uris`, and a member it states in another type is refused rather than read from the
+   * body.
+   *
+   * A self-registration spends the pod's budget before the DID document is read, since that read
+   * is what costs. An identifier no route could name — a port, a `/` — is refused before it is
+   * read ([DidWebClientAuthentication.isAddressable]), since the owner could not withdraw it.
+   *
+   * A repeat answers the registration that stands, unchanged: there is no secret to hand out, and
+   * the owner may have decided its access under what it said the first time.
+   */
+  private fun registerDidWebService(pod: HostedPod, request: PodRegistrationRequest): PodRegistrationResult {
+    val owner = when (val caller = registeringOwner(pod, request)) {
+      is RegisteringOwner.Refused -> return PodRegistrationResult.Unauthorized(caller.reason)
+      is RegisteringOwner.Known -> caller.authority
+    }
+
+    REFUSED_MEMBERS.firstOrNull { it in request.raw && isGiven(request.raw[it]) }?.let { member ->
+      return refused(
+        PodRegistrationError.INVALID_CLIENT_METADATA,
+        "a did:web service registration carries no '$member': its keys are its DID document's, and the owner grants its contexts",
+      )
+    }
+
+    val statement = (request.raw[SOFTWARE_STATEMENT] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+      ?: return refused(
+        PodRegistrationError.INVALID_SOFTWARE_STATEMENT,
+        "a did:web service proves its identifier with a software_statement signed by a key of its DID document",
+      )
+    if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
+
+    val issuer = pod.ref.uri.toString()
+    val verified = when (val check = didWebAuthentication.verify(statement, audiences = setOf("$issuer/_system/auth/register"))) {
+      is DidWebAssertion.Verified -> check
+      is DidWebAssertion.Refused -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, check.reason)
+      DidWebAssertion.Busy -> return PodRegistrationResult.Busy
+    }
+    val clientId = verified.clientId
+
+    // A statement that says what the body says differently, or in a type it cannot mean, is not
+    // one this pod can follow.
+    statedDisagreement(verified.claims)?.let { member ->
+      return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's '$member' disagrees with this profile")
+    }
+
+    serviceClients.find(pod.id, clientId)?.let { return didWebRegistered(it) }
+
+    val label = verified.claims.stated("client_name") { (it as? String)?.trim()?.takeIf(String::isNotBlank) }
+      .let { stated ->
+        when (stated) {
+          Stated.Absent -> request.client.clientName
+          Stated.Malformed -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's 'client_name' is not a name")
+          is Stated.Given -> stated.value
+        }
+      }
+      ?: return refused(
+        PodRegistrationError.INVALID_CLIENT_METADATA,
+        "client_name is required: it is what names this service in the consent that activates it",
+      )
+    val redirectUris = when (val stated = verified.claims.stated("redirect_uris", ::statedStrings)) {
+      Stated.Absent -> request.client.redirectUris.toList()
+      Stated.Malformed -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's 'redirect_uris' is not a list of strings")
+      is Stated.Given -> stated.value
+    }
+    redirectUris.firstOrNull { !RedirectUri.isValid(it) }?.let { uri ->
+      return refused(
+        PodRegistrationError.INVALID_REDIRECT_URI,
+        "redirect_uri must be https, or http on a loopback host, with no fragment " +
+            "and no code/response/state in the query: $uri",
+      )
+    }
+
+    val registration = try {
+      serviceClients.registerDidWeb(pod, clientId, label, redirectUris, provisional = owner == null)
+    } catch (_: ServiceClientAlreadyRegistered) {
+      // The same service registering twice at once: both answer the one that won.
+      return serviceClients.find(pod.id, clientId)?.let(::didWebRegistered)
+        ?: refused(PodRegistrationError.INVALID_CLIENT_METADATA, "the registration of '$clientId' changed in between; register again")
+    }
+
+    logger.info {
+      "[oauth/register] did:web service client registered: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}', " +
+          "label='${LogSafeText.of(label)}', redirectUris=${LogSafeText.of(registration.redirectUris.toString())}, " +
+          "activationExpiresAt=${registration.pendingUntil}, by='${owner?.webId}'"
+    }
+    return didWebRegistered(registration)
+  }
+
+  private fun didWebRegistered(registration: ServiceClientRegistration) = PodRegistrationResult.ServiceRegistered(
+    clientId = registration.clientId,
+    clientName = registration.label ?: registration.clientId,
+    issuedAt = registration.createdAt,
+    secret = null,
+    redirectUris = registration.redirectUris,
+    activationExpiresAt = registration.pendingUntil,
+  )
+
+  /**
+   * The profile member a software statement states otherwise than this profile, or `null`: a
+   * method or grant other than this profile's, or a member [REFUSED_MEMBERS] names.
+   */
+  private fun statedDisagreement(claims: Map<String, Any?>): String? = when {
+    "token_endpoint_auth_method" in claims && claims["token_endpoint_auth_method"] != KEY_AUTH_METHOD -> "token_endpoint_auth_method"
+    "grant_types" in claims && statedStrings(claims["grant_types"]) != listOf(CLIENT_CREDENTIALS_GRANT) -> "grant_types"
+    else -> REFUSED_MEMBERS.firstOrNull { it in claims && isGiven(claims[it]) }
+  }
+
+  /** What a statement says about one member: nothing, something [read] cannot take, or a value. */
+  private sealed interface Stated<out T> {
+    data object Absent : Stated<Nothing>
+    data object Malformed : Stated<Nothing>
+    data class Given<T>(val value: T) : Stated<T>
+  }
+
+  /** A member the statement carries as `null` is malformed: signed, it says something this pod cannot follow. */
+  private fun <T : Any> Map<String, Any?>.stated(member: String, read: (Any) -> T?): Stated<T> {
+    if (member !in this) return Stated.Absent
+    val value = this[member] ?: return Stated.Malformed
+    return read(value)?.let { Stated.Given(it) } ?: Stated.Malformed
+  }
+
+  /** A list of strings, trimmed; `null` where [value] is absent or anything else. */
+  private fun statedStrings(value: Any?): List<String>? =
+    (value as? List<*>)?.takeIf { list -> list.all { it is String } }?.map { (it as String).trim() }
+
+  /**
+   * Whose authority a service registration carries: none, the owner's, or a bearer that is not the
+   * owner's and is refused rather than ignored — so a caller that meant to present authority never
+   * walks away with a provisional registration it did not expect.
+   */
+  private fun registeringOwner(pod: HostedPod, request: PodRegistrationRequest): RegisteringOwner {
+    val caller = request.caller ?: return RegisteringOwner.Known(null)
+    return when (val check = ownerAuthority.check(pod, caller, SERVICE_CLIENTS_MANAGE_SCOPE, PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT)) {
+      is PodOwnerAuthorityCheck.Standing -> RegisteringOwner.Known(check.authority)
+      is PodOwnerAuthorityCheck.Refused -> RegisteringOwner.Refused(check.reason)
+    }
+  }
+
+  private sealed interface RegisteringOwner {
+    data class Known(val authority: PrivilegedAuthority?) : RegisteringOwner
+    data class Refused(val reason: PodOwnerAuthorityRefusal) : RegisteringOwner
+  }
+
   /** Whether a member carries a value: `null`, an empty string and an empty list say nothing. */
   private fun isGiven(value: Any?): Boolean = when (value) {
     null -> false
@@ -213,8 +372,8 @@ class PodClientRegistration @Inject internal constructor(
    * says a member defaults to, and a default must not turn a request nobody made into a profile
    * this pod serves.
    *
-   * [PodClientShape.OTHER] is deliberately wide — `client_secret_post`, `private_key_jwt`, a grant
-   * type this pod has never heard of. Each is a request for a client that holds a secret, and
+   * [PodClientShape.OTHER] is deliberately wide — `client_secret_post`, `private_key_jwt` for a
+   * browser client, a grant type this pod has never heard of. Each is a request for a client that holds a secret, and
    * answering one as a public registration would hand back a `dyn:` client that silently does
    * something else.
    */
@@ -225,6 +384,9 @@ class PodClientRegistration @Inject internal constructor(
       authMethod == CONFIDENTIAL_AUTH_METHOD && grantTypes == listOf(CLIENT_CREDENTIALS_GRANT) ->
         PodClientShape.SERVICE
 
+      authMethod == KEY_AUTH_METHOD && grantTypes == listOf(CLIENT_CREDENTIALS_GRANT) ->
+        PodClientShape.DID_WEB_SERVICE
+
       authMethod != null && authMethod != PUBLIC_AUTH_METHOD -> PodClientShape.OTHER
       grantTypes?.any { it !in PUBLIC_GRANT_TYPES } == true -> PodClientShape.OTHER
       else -> PodClientShape.PUBLIC
@@ -234,7 +396,7 @@ class PodClientRegistration @Inject internal constructor(
   private fun wrongProfile(): PodRegistrationResult = refused(
     PodRegistrationError.INVALID_CLIENT_METADATA,
     "a service registers as a confidential client: grant_types [\"$CLIENT_CREDENTIALS_GRANT\"] " +
-        "and token_endpoint_auth_method \"$CONFIDENTIAL_AUTH_METHOD\"",
+        "and token_endpoint_auth_method \"$CONFIDENTIAL_AUTH_METHOD\", or \"$KEY_AUTH_METHOD\" for a did:web service",
   )
 
   // TODO: full DCR profile on INFO while Stage 1 observes real agents; drop back to FINE once
@@ -273,6 +435,8 @@ class PodClientRegistration @Inject internal constructor(
 
     private const val PUBLIC_AUTH_METHOD = "none"
     private const val CONFIDENTIAL_AUTH_METHOD = "client_secret_basic"
+    private const val KEY_AUTH_METHOD = "private_key_jwt"
+    private const val SOFTWARE_STATEMENT = "software_statement"
     private const val CLIENT_CREDENTIALS_GRANT = "client_credentials"
     private val PUBLIC_GRANT_TYPES = setOf("authorization_code", "refresh_token")
 
@@ -336,7 +500,8 @@ internal sealed interface PodRegistrationResult {
   data class Registered(val clientId: String, val client: PodClientMetadata) : PodRegistrationResult
 
   /**
-   * A service client, and the one moment its secret can be read.
+   * A service client, and the one moment its secret can be read. A `did:web` one has none: [secret]
+   * is `null`, and it authenticates with `private_key_jwt`.
    *
    * [issuedAt] and [clientId] are the pod's own: [clientName] is whatever the service typed, so an
    * owner shown only that has no way to tell an expected service from a crafted one.
@@ -348,7 +513,7 @@ internal sealed interface PodRegistrationResult {
     val clientId: String,
     val clientName: String,
     val issuedAt: Instant,
-    val secret: String,
+    val secret: String?,
     val redirectUris: List<String>,
     val activationExpiresAt: Instant?,
   ) : PodRegistrationResult
@@ -364,6 +529,9 @@ internal sealed interface PodRegistrationResult {
 
   /** The pod's [PodServiceRegistrationBudget] is spent: the caller retries later. */
   data object RateLimited : PodRegistrationResult
+
+  /** The DID document could not be read for want of room; see `DidWebKeys`. Retryable. */
+  data object Busy : PodRegistrationResult
 }
 
 /**
@@ -386,16 +554,20 @@ fun interface PodServiceRegistrationBudget {
 internal enum class PodRegistrationError {
   INVALID_REDIRECT_URI,
   INVALID_CLIENT_METADATA,
+  INVALID_SOFTWARE_STATEMENT,
 }
 
-/** Which of the two clients `POST {pod}/_system/auth/register` serves a body is asking for. */
+/** Which of the clients `POST {pod}/_system/auth/register` serves a body is asking for. */
 internal enum class PodClientShape {
 
   /** A client that holds no secret: RFC 7591's unauthenticated profile. */
   PUBLIC,
 
-  /** The one confidential shape this pod serves, spelled exactly: a service registering itself. */
+  /** A service authenticating with a secret, spelled exactly: `client_secret_basic`. */
   SERVICE,
+
+  /** A `did:web` service authenticating with its DID document's keys, spelled exactly: `private_key_jwt`. */
+  DID_WEB_SERVICE,
 
   /** A client that holds a secret in some other shape, which this pod does not serve. */
   OTHER,

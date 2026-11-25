@@ -2,11 +2,13 @@ package org.sempods.pods.oauth.serviceclients
 
 import com.google.inject.Inject
 import com.mongodb.MongoWriteException
+import org.sempods.auth.core.DidWeb
 import org.sempods.auth.core.Secrets
 import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopeValidationResult
@@ -25,11 +27,14 @@ import java.time.Instant
  * Bcrypt (OpenBSD variant via BouncyCastle) is used for the secret-at-rest
  * hash: deliberately slow, salt embedded in the encoded form, constant-time
  * comparison from the library. The plaintext is generated once at
- * registration and returned to the caller — never persisted.
+ * registration and returned to the caller — never persisted. A `did:web` client ([registerDidWeb])
+ * holds no secret: it proves itself with its DID document's keys, which
+ * [org.sempods.pods.oauth.didweb.DidWebClientAuthentication] checks.
  */
 class PodServiceClientStore @Inject constructor(
   private val dao: PodServiceClientDao,
   private val podScopeValidator: PodScopeValidator,
+  private val podDao: PodDao,
 ) {
 
   internal data class Registered(
@@ -165,10 +170,11 @@ class PodServiceClientStore @Inject constructor(
    */
   internal fun rotateSecret(pod: PodId, clientId: String, expectedSecretId: String? = null): ServiceClientSecretRotation {
     val row = dao.findByClientId(pod.objectId(), clientId) ?: return ServiceClientSecretRotation.NotFound
+    val current = row.secretHash ?: return ServiceClientSecretRotation.HoldsNoSecret
     if (expectedSecretId != null && row.toRegistration().secretId != expectedSecretId) return ServiceClientSecretRotation.Conflict
     val secret = mintSecret()
     val hash = hashSecret(secret)
-    val replaced = dao.replaceSecretHash(pod.objectId(), clientId, row.secretHash, hash)
+    val replaced = dao.replaceSecretHash(pod.objectId(), clientId, current, hash)
     return if (replaced) ServiceClientSecretRotation.Rotated(row.copy(secretHash = hash).toRegistration(), secret) else ServiceClientSecretRotation.Conflict
   }
 
@@ -208,6 +214,41 @@ class PodServiceClientStore @Inject constructor(
       pendingUntil = if (provisional) Instant.now().plus(ACTIVATION_WINDOW) else null,
     )
 
+  /**
+   * Registers the `did:web` service [clientId] with no secret: it authenticates with the keys of its
+   * DID document (`private_key_jwt`). Provisional, with no grants and [ACTIVATION_WINDOW] for the
+   * owner, unless [provisional] is `false` — what the owner's own authority registers.
+   *
+   * The caller has proved that [clientId] signed the registration, which is what makes it safe to
+   * let a client name itself here when a `svc:` one may not. A provisional registration of
+   * [clientId] whose window has passed gives way: it is gone to every read already.
+   *
+   * @throws ServiceClientAlreadyRegistered where [clientId] is registered on [pod] already.
+   */
+  internal fun registerDidWeb(pod: HostedPod, clientId: String, label: String, redirectUris: List<String>, provisional: Boolean): ServiceClientRegistration {
+    require(clientId.startsWith(DidWeb.PREFIX)) { "not a did:web identifier: '$clientId'" }
+    val createdAt = Instant.now()
+    val dbo = PodServiceClientDbo(
+      podId = pod.id.objectId(),
+      clientId = clientId,
+      secretHash = null,
+      scopes = emptySet(),
+      label = label,
+      createdAt = createdAt,
+      // See `PodServiceClientDbo.grantsVersion`: the service can register this identifier again.
+      grantsVersion = podDao.nextServiceClientEpoch(pod.id.objectId()) shl EPOCH_SHIFT,
+      redirectUris = redirectUris,
+      pendingUntil = if (provisional) createdAt.plus(ACTIVATION_WINDOW) else null,
+    )
+    dao.deleteExpired(dbo.podId, clientId)
+    val stored = try {
+      dao.create(dbo)
+    } catch (e: MongoWriteException) {
+      if (e.isDuplicateKey()) throw ServiceClientAlreadyRegistered(clientId) else throw e
+    }
+    return stored.toRegistration()
+  }
+
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
     // A row read back always carries its `_id`; the type is nullable only because the DBO doubles
     // as the pre-insert shape. Asserting it keeps a `null` from reaching [remove] as
@@ -222,7 +263,7 @@ class PodServiceClientStore @Inject constructor(
     redirectUris = redirectUris,
     pendingUntil = pendingUntil,
     // Derived from the hash, whose salt is new with every secret, so no row needs a field for it.
-    secretId = sha256Hex(secretHash).take(SECRET_ID_LENGTH),
+    secretId = secretHash?.let { sha256Hex(it).take(SECRET_ID_LENGTH) },
   )
 
   /**
@@ -249,7 +290,9 @@ class PodServiceClientStore @Inject constructor(
   //   [verifySecret], plus a new pod-scoped verifier key alongside the RSA
   //   signing key.
   internal fun authenticate(pod: PodId, clientId: String, secret: String): ServiceClientRegistration? {
-    val dbo = dao.findByClientId(pod.objectId(), clientId)
+    // A `did:web` client has no hash and is verified against [dummyHash] like an unknown one: it
+    // authenticates with `private_key_jwt`, never with a secret.
+    val dbo = dao.findByClientId(pod.objectId(), clientId)?.takeIf { it.secretHash != null }
     val hash = dbo?.secretHash ?: dummyHash
     val matches = verifySecret(secret, hash)
     return if (dbo != null && matches) dbo.toRegistration() else null
@@ -309,6 +352,13 @@ class PodServiceClientStore @Inject constructor(
      */
     internal const val SERVICE_CLIENT_PREFIX = "svc:"
 
+    /**
+     * Where a `did:web` registration's grants version starts: its epoch times 2^32. Each epoch has
+     * room for four billion grant changes before it reaches the next; 2^21 epochs per pod stay
+     * within the integers a JSON number carries exactly.
+     */
+    private const val EPOCH_SHIFT = 32
+
     /** How long a self-registered service waits for the owner's consent before it is removed. */
     internal val ACTIVATION_WINDOW: Duration = Duration.ofHours(24)
 
@@ -353,13 +403,21 @@ internal data class ServiceClientRegistration(
   /**
    * Names the secret that authenticates now, and changes with every secret issued; it tells nothing
    * about the secret itself. The admin API hands it out as `secretId`, so a caller can tell whether
-   * the secret it holds is still the current one while [id] stays the same.
+   * the secret it holds is still the current one while [id] stays the same. `null` for a `did:web`
+   * client, which holds none.
    */
-  val secretId: String,
+  val secretId: String?,
 ) {
 
-  /** Whether this pod named it (`svc:`). `false` for an operator-provisioned client. */
-  val registered: Boolean get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX)
+  /**
+   * Whether it registered at the pod (`svc:`, or a `did:web` that proved its identifier) rather than
+   * being provisioned by the operator, whose identifiers carry no `:`.
+   */
+  val registered: Boolean
+    get() = clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX) || clientId.startsWith(DidWeb.PREFIX)
+
+  /** Whether it authenticates with its DID document's keys (`private_key_jwt`) rather than a secret. */
+  val authenticatesWithKeys: Boolean get() = clientId.startsWith(DidWeb.PREFIX)
 }
 
 /**

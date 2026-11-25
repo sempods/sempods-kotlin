@@ -2,6 +2,7 @@ package org.sempods.pods.grants
 
 import com.google.inject.Inject
 import org.bson.types.ObjectId
+import org.sempods.auth.core.DidWeb
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.oauth.spi.PodAccessToken
@@ -50,7 +51,8 @@ class PodContextPermissionResolver @Inject constructor(
    *
    * The token's grant type names the recipient ([GrantRecipient]), never its `client_id` alone:
    * - **A Client Credentials token** is a service client acting as itself, and reads the grants on
-   *   its registration (`PodServiceClientDao`), whichever registration holds the `client_id` now.
+   *   the registration it was issued for (`PodServiceClientDao`), and on no other made since under
+   *   its `client_id`.
    *   A single-document write replaces them, so a request sees one version of them or the next.
    * - **Any other token** is an app acting for its `sub`, and reads `PodGrantsDao` under
    *   `(pod, client_id, sub)`. A request overlapping a replace there can see part of either
@@ -71,7 +73,15 @@ class PodContextPermissionResolver @Inject constructor(
     podBaseUrl: String,
   ): ResolvedContextAccess {
     val rawGrants = if (token.isServiceClient) {
-      podServiceClientDao.findByClientId(podId, token.clientId)?.scopes ?: emptySet()
+      // The registration the token was issued for: one made again under the same `client_id` since
+      // holds nothing of this token's. A token without the claim is from a server before it, and at
+      // most a service token's lifetime old — for a `svc:` or an operator's client. No such server
+      // issued one for a `did:web` service, so one of those without the claim holds nothing.
+      podServiceClientDao.findByClientId(podId, token.clientId)
+        ?.takeIf { row ->
+          if (token.registrationId == null) !token.clientId.startsWith(DidWeb.PREFIX) else row.id?.toHexString() == token.registrationId
+        }
+        ?.scopes ?: emptySet()
     } else {
       podGrantsDao.fetchGrantStrings(podId, token.clientId, listOf(checkNotNull(token.sub)))
     }

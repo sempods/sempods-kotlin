@@ -6,6 +6,7 @@ import org.sempods.pods.oauth.spi.PodTokenAuthentication
 import org.sempods.pods.oauth.spi.PodTokenRejection
 import org.sempods.pods.oauth.spi.PodAccessToken
 import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.SERVICE_REGISTRATION_CLAIM
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.core.JwtRejection
@@ -114,6 +115,7 @@ class PodTokenAuthenticator @Inject constructor(
         scopeValues = scopeValues,
         jti = claims.jwtid?.takeIf { it.isNotBlank() },
         issuedAt = claims.issueTime?.toInstant(),
+        registrationId = if (isServiceClient) claims.stringClaimOrNull(SERVICE_REGISTRATION_CLAIM) else null,
       )
     )
   }

@@ -120,6 +120,52 @@ returns `invalid_scope`.
 
 Context grants stay on the pod and are checked on each request. They never travel in the token.
 
+## `did:web` services
+
+A service that is the client of many pods can authenticate at every one of them with one key pair
+and hold no secret. Its identity is a `did:web` identifier, such as `did:web:console.example`, and its public
+keys are in the DID document at `https://console.example/.well-known/did.json`.
+
+It [registers with a software statement](oauth.md#registering-a-didweb-service) and gets no secret.
+Alice activates it in the [consent](#consent) as any other service. For a token, it signs a client
+assertion (RFC 7523 §2.2, `private_key_jwt`) and sends it in the form, with no `Authorization` header:
+
+<!-- doc-example: illustrative; route and form checked against DidWebServiceClientHttpTest -->
+```http
+POST {podUrl}/_system/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
+&client_assertion=eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDp3ZWI6Y29uc29sZS5leGFtcGxlI2tleS0xIn0…
+```
+
+| Assertion | Requirement |
+|---|---|
+| Header | `alg` RS256, PS256 or ES256; `kid` the DID URL of the key, such as `did:web:console.example#key-1` |
+| `iss`, `sub` | The `did:web` identifier |
+| `aud` | The token endpoint or the pod URL, as one value |
+| `exp` | At most five minutes ahead |
+| `jti` | Required; each value is accepted once |
+
+The key has to be a `publicKeyJwk` method named under the document's `authentication`, with the
+`did:web` identifier as its `controller`. An `alg`, `use` or `key_ops` it publishes holds. Any other
+assertion, and one for a service not registered on the pod, gets `invalid_client`. HTTP Basic and
+an assertion together are `invalid_request`.
+
+The pod reads the document only for a registered service or a registration, and keeps it for five
+minutes. At most eight reads run at once. Past that, registration and token requests that need a read answer
+`429 slow_down` with `Retry-After`, and nothing about the service is decided. An assertion with a key the cached document does not name reads it again, at most once a
+minute, so a new key works within a minute of publishing it. A removed key stops working when the
+cached document expires.
+
+The owner manages a `did:web` service as any other. It has no secret, so rotating one answers
+`409`. Each registration's grants version starts in a range no earlier one used, so an `ETag` read before
+the service was removed and registered again is `412`. Registration refuses an identifier no route could name: one with a port, such as
+`did:web:console.example%3A8443`, because the server refuses the `%25` its path segment would need,
+and any segment of other characters than letters, digits, `.`, `-` and `_`. Development accepts a loopback
+one, such as `did:web:localhost%3A5173`, which no management route can name.
+
 ## Managing service clients
 
 The owner's tool requests `service-clients:manage` through Authorization Code + PKCE.
@@ -155,7 +201,7 @@ service currently holds.
 | `412` | The grants changed since that `ETag`; read and review them before retrying |
 | `403` | Rotating or removing an operator-provisioned registration |
 | `404` | No such registration |
-| `409` | Rotation or removal raced another change |
+| `409` | Rotation or removal raced another change, or rotation for a `did:web` service, which holds no secret |
 
 The owner can replace grants for **every service**, including operator-provisioned services. The
 owner cannot rotate or remove an operator-provisioned registration; `[]` ends its access. The
