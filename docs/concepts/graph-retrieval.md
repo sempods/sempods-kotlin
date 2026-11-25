@@ -86,7 +86,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   index that may lag behind the store, say — keeps a hit only where the store holds it in the
   selection, and with a requested `type` only where the expansion reads that type for it there. Its stored
   statements only name candidates: what the answer holds as stored comes from the expansion,
-  because the context an index gives a statement cannot be checked. A dropped hit
+  because the context an index gives a statement cannot be checked. A candidate with neither an
+  observation nor anything in the expansion is therefore no hit. A dropped hit
   takes its observations with it; a kept hit keeps them unchecked, since the store holds nothing to
   check a snippet against. The built-in SPARQL adapter is self-scoped.
   Only a candidate a selected context holds counts towards the limit, so a stale

@@ -28,7 +28,8 @@ import java.util.concurrent.Executors
  *   stays only when the store holds it in [FindSandbox.effectiveScope] — the expansion shows that,
  *   or [ResourceExpander.holdingContexts] before the limit — and, when [FindRequest.types] are
  *   given, only when the expansion reads one of them as its `rdf:type` there. It goes with its
- *   observations otherwise. Its stored statements only name candidates and do not reach the
+ *   observations otherwise, and so does one with neither an observation nor an expansion: there
+ *   would be nothing to show of it. Its stored statements only name candidates and do not reach the
  *   answer: what is stored about a kept hit comes from the expansion, and the contexts the
  *   expansion shows are where the hit is held.
  * - **Hits = IRI subjects** of the merged model that a context in [FindSandbox.effectiveScope]
@@ -121,7 +122,11 @@ class FindService @Inject constructor(
     // statement shows that; a candidate the answer names only through observations, and one the
     // expansion did not show, is looked up before the cap, so it cannot take a place a held
     // candidate would have had.
-    val candidates = vouched + if (request.types.isEmpty()) checked else typed intersect checked
+    // An unchecked candidate with neither an observation nor an expansion would leave the answer
+    // empty-handed: its adapter's stored statements stay out, so it takes no place either.
+    val shown = verification.mapNotNullTo(HashSet()) { it.subject as? IRI }
+    merged.filter(::isGenerated).mapNotNullTo(shown) { it.subject as? IRI }
+    val candidates = vouched + ((if (request.types.isEmpty()) checked else typed) intersect checked intersect shown)
     val holding = storedHolding(trusted)
     storeHolding.forEach { (hit, contexts) -> if (hit in candidates) holding.getOrPut(hit) { HashSet() } += contexts }
     val unseen = candidates.filterTo(HashSet()) { it !in holding }

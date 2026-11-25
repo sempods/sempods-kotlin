@@ -515,6 +515,22 @@ class FindServiceTest {
   }
 
   @Test
+  fun `an index's candidate with nothing to show takes no place under the limit`() {
+    val bare = vf.createIRI("https://e/a-bare")
+    val shown = vf.createIRI("https://e/b-shown")
+    val store = LinkedHashModel().apply {
+      add(bare, text, vf.createLiteral("outside the fixed set"), contextA)
+      add(shown, rdfType, article, contextA)
+    }
+    val answer = LinkedHashModel().apply {
+      add(bare, text, vf.createLiteral("outside the fixed set"), contextA)
+      add(shown, text, vf.createLiteral("matched"), contextA)
+    }
+
+    assertEquals(setOf(shown.stringValue()), subjectsOf(search(index(answer), expander = StoreExpander(store), limit = 1)))
+  }
+
+  @Test
   fun `a hit a self-scoped adapter returned is not checked, though an index returned it too`() {
     val trusted = modelOf(hit.stringValue())
     val answer = LinkedHashModel().apply { observed(this, hit) }
