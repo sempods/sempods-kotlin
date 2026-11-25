@@ -14,6 +14,8 @@ import java.net.URI
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -56,6 +58,21 @@ class PodRepositoryCacheTest : SempodsIntegrationTest() {
       assertFalse(connection.isEmpty)
       assertEquals(1, connection.getStatements(null, Values.iri("https://schema.org/name"), null).count())
     }
+  }
+
+  @Test
+  fun `invalidating by id leaves the repository of a pod created again under the name`() {
+    val first = sempodsTestFactory.newPod()
+    val firstId = checkNotNull(first.id)
+    deletePodViaAdminApi(first.name)
+    val second = sempodsTestFactory.newPod(name = first.name)
+    val loaded = assertNotNull(podRepositoryCache.get(second.name))
+
+    podRepositoryCache.invalidate(second.name, firstId)
+    assertSame(loaded, podRepositoryCache.get(second.name), "the second pod's repository stays")
+
+    podRepositoryCache.invalidate(second.name, checkNotNull(second.id))
+    assertNotSame(loaded, podRepositoryCache.get(second.name), "its own id drops it")
   }
 
   @Test

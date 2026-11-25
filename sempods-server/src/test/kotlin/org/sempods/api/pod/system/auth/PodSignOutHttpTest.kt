@@ -302,7 +302,7 @@ class PodSignOutHttpTest : SempodsIntegrationTest() {
 
     // What another replica's delete and create leaves behind: the same name, a new row, and a cache
     // entry nothing here cleared.
-    podDao.delete(pod.name)
+    podDao.delete(checkNotNull(pod.id))
     val recreated = sempodsTestFactory.newPod(name = pod.name, ownerUser = owner, createPublicContext = false)
     assertNotEquals(pod.id, recreated.id)
     val family = seedFamily(recreated, appA, person)

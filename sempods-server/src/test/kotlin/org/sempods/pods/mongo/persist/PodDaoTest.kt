@@ -204,14 +204,24 @@ class PodDaoTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `delete removes exactly the named pod`() {
-    podDao.insert(name = "alice", owner = owner)
+  fun `delete removes exactly the pod it names`() {
+    val alice = podDao.insert(name = "alice", owner = owner)
     podDao.insert(name = "bobby", owner = owner)
 
-    assertTrue(podDao.delete("alice"))
-    assertFalse(podDao.delete("alice"), "already gone is `false`, not an error")
+    assertTrue(podDao.delete(checkNotNull(alice.id)))
+    assertFalse(podDao.delete(checkNotNull(alice.id)), "already gone is `false`, not an error")
     assertNull(podDao.fetchByName("alice"))
     assertEquals(listOf("bobby"), podDao.fetchAll().map { it.name })
+  }
+
+  @Test
+  fun `delete leaves a pod created again under the same name`() {
+    val first = podDao.insert(name = "alice", owner = owner)
+    assertTrue(podDao.delete(checkNotNull(first.id)))
+    val second = podDao.insert(name = "alice", owner = otherOwner)
+
+    assertFalse(podDao.delete(checkNotNull(first.id)), "the id names the first pod, which is gone")
+    assertEquals(second.id, podDao.fetchByName("alice")?.id)
   }
 
   /**

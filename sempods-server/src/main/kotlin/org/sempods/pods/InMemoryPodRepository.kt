@@ -39,7 +39,7 @@ import kotlin.concurrent.withLock
  * a write holds the lock (SNAPSHOT isolation), and a read sees a consistent snapshot.
  */
 internal class InMemoryPodRepository(
-  private val podId: PodId,
+  val podId: PodId,
   private val podName: String,
   private val rdfRepository: Repository,
   private val podChangeDispatcher: PodChangeDispatcher,

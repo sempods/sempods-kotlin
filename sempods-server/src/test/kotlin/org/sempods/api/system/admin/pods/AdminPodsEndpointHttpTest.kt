@@ -75,6 +75,12 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
       .apply { authorization?.let { addHeader("Authorization", it) } }
       .execute()
 
+  private fun deleteFor(pod: String, owners: List<String>): TestHttpResponse =
+    http.prepareDelete(podUrl(pod))
+      .apply { owners.forEach { addQueryParam("owner", it) } }
+      .addHeader("Authorization", adminBearer)
+      .execute()
+
   private fun list(owners: List<String>, authorization: String? = adminBearer): TestHttpResponse =
     http.prepareGet("${SempodsModule.config.apiBaseUrl}_system/admin/pods")
       .apply { owners.forEach { addQueryParam("owner", it) } }
@@ -326,6 +332,80 @@ class AdminPodsEndpointHttpTest : SempodsIntegrationTest() {
     // deleting again — and deleting a pod that never existed — stays a no-op
     assertEquals(204, admin.deletePod(pod.name).status)
     assertEquals(204, admin.deletePod("pod-${randomId()}").status)
+  }
+
+  @Test
+  fun `DELETE with the owner it expects removes the pod`() = withSetup {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+    val admin = adminAs()
+
+    assertEquals(204, admin.deletePod(pod, owner).status)
+    assertFalse(podAccess.exists(pod), "pod must be gone")
+    assertEquals(404, admin.podExists(pod).status)
+  }
+
+  @Test
+  fun `DELETE takes the expected owner as its URN twin too`() = withSetup {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+
+    assertEquals(204, adminAs().deletePod(pod, WebIdUriDeriver.URN_EMAIL_PREFIX + owner.substringAfterLast('/')).status)
+    assertNull(podDao.fetchByName(pod))
+  }
+
+  @Test
+  fun `a pod created again for another owner survives a DELETE that names the first owner`() = withSetup {
+    // The race an owner console runs into: it checks the owner, and before its delete arrives the
+    // pod is deleted and its name taken by someone else.
+    val first = newOwnerWebId()
+    val second = newOwnerWebId()
+    val pod = newPodOwnedBy(first)
+    val admin = adminAs()
+    assertEquals(listOf(pod), podsOwnedBy(first), "the owner check the caller makes first")
+
+    assertEquals(204, admin.deletePod(pod).status)
+    assertEquals(CreatePodResult.created, admin.createPod(pod, URI(second)).body)
+
+    val refused = admin.deletePod(pod, first)
+
+    assertEquals(412, refused.status)
+    assertEquals(second, podDao.fetchByName(pod)?.owner, "the second owner's pod is still there")
+    assertEquals(listOf(pod), podsOwnedBy(second))
+  }
+
+  @Test
+  fun `DELETE naming another owner answers 412 with a reason and deletes nothing`() {
+    val pod = newPodOwnedBy(newOwnerWebId())
+
+    val refused = deleteFor(pod, listOf(newOwnerWebId()))
+
+    assertEquals(412, refused.statusCode, "body=${refused.responseBody}")
+    assertTrue(refused.field("error").isNotBlank(), refused.responseBody)
+    assertNotNull(podDao.fetchByName(pod))
+  }
+
+  @Test
+  fun `DELETE with an expected owner answers 404 for a name with no pod`() = withSetup {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+    val admin = adminAs()
+
+    assertEquals(404, admin.deletePod(newPodName(), owner).status)
+    assertEquals(204, admin.deletePod(pod, owner).status)
+    assertEquals(404, admin.deletePod(pod, owner).status, "deleted once, the precondition no longer holds")
+  }
+
+  @Test
+  fun `DELETE refuses a second owner, a blank one and one that is no IRI, and deletes nothing`() {
+    val owner = newOwnerWebId()
+    val pod = newPodOwnedBy(owner)
+
+    listOf(listOf(owner, owner), listOf(""), listOf("  "), listOf("not an iri")).forEach { owners ->
+      val refused = deleteFor(pod, owners)
+      assertEquals(400, refused.statusCode, "owners=$owners body=${refused.responseBody}")
+    }
+    assertNotNull(podDao.fetchByName(pod), "a malformed precondition never falls back to deleting unconditionally")
   }
 
   @Test
