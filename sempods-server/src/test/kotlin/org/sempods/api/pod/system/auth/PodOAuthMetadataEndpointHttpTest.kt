@@ -159,8 +159,13 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
     )
     assertEquals(listOf("S256"), body["code_challenge_methods_supported"])
     assertEquals(
-      listOf("none", "client_secret_basic"),
+      listOf("none", "client_secret_basic", "private_key_jwt"),
       body["token_endpoint_auth_methods_supported"],
+    )
+    assertEquals(
+      listOf("RS256", "PS256", "ES256"),
+      body["token_endpoint_auth_signing_alg_values_supported"],
+      "what a did:web service may sign its client assertion with",
     )
     assertEquals(
       true,
@@ -171,6 +176,11 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "$authBase/service-consent",
       body["sempods_service_consent_endpoint"],
       "where a registered service sends the owner to decide its access",
+    )
+    assertEquals(
+      listOf("contexts:manage"),
+      body["sempods_service_management_scopes"],
+      "what a service client's lasting management authority carries",
     )
     assertEquals(
       listOf("public-read", "service-clients:manage", "contexts:manage", "offline_access"),

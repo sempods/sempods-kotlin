@@ -28,6 +28,17 @@ boolean ours = pod != null && pod.getOwner().equals(ownerWebId.toString());
 
 Which WebIDs can own a pod is in [Creating a pod](../sempods-server/docs/host-provisioning.md#creating-a-pod).
 
+To have a `did:web` service manage the new pod for that person, name it when you create the pod:
+
+<!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#create-with-management -->
+```java
+SempodsResponse<CreatePodResult> created =
+    admin.createPod("alice", ownerWebId, "did:web:console.example", "Owner Console");
+```
+
+The service then [manages the pod](../sempods-server/docs/auth/service-clients.md#managing-a-pod-as-a-service)
+with no consent screen. An existing pod is left as it is.
+
 For an existing `alice` pod, provision a backend called `notes-app`:
 
 <!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#provision-service -->

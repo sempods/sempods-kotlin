@@ -13,7 +13,11 @@ import org.sempods.auth.core.OAuthSyntax
 import org.sempods.auth.core.Pkce
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.commons.identity.WebIdUriDeriver
+import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.oauth.didweb.DidWebAssertion
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
+import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PUBLIC_READ_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
@@ -54,6 +58,7 @@ class PodTokenExchange @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
   private val managementAuthorities: PodManagementAuthorityStore,
   private val webIdUriDeriver: WebIdUriDeriver,
+  private val didWebAuthentication: DidWebClientAuthentication,
 ) {
 
   internal fun redeemCode(
@@ -354,24 +359,73 @@ class PodTokenExchange @Inject internal constructor(
    * The credentials arrive already parsed: HTTP Basic is the adapter's format, and what this
    * decides is whether they name a registration and what the token it mints may say.
    *
-   * @param requestedScope rejected outright when present, rather than narrowed — see below.
+   * @param requestedScope rejected outright when present, rather than narrowed — see
+   *   [issueServiceToken].
    */
   internal fun exchangeServiceClient(
-    pod: PodId,
-    podName: String,
+    pod: HostedPod,
     clientId: String,
     secret: String,
     requestedScope: String?,
   ): PodTokenResult {
-    val client = serviceClients.authenticate(pod, clientId, secret)
+    val client = serviceClients.authenticate(pod.id, clientId, secret)
     if (client == null) {
       logger.info {
-        "[oauth/token] client_credentials auth failed: pod='$podName', " +
+        "[oauth/token] client_credentials auth failed: pod='${pod.name}', " +
             "clientId='${LogSafeText.of(clientId)}'"
       }
       return PodTokenResult.ClientAuthenticationRequired("unknown client_id or invalid secret")
     }
+    return issueServiceToken(pod, client, requestedScope)
+  }
 
+  /**
+   * A `did:web` service authenticating as itself with a client assertion (RFC 7523 §2.2,
+   * `private_key_jwt`): signed by a key its DID document names, for this pod's token endpoint or
+   * issuer. What the assertion has to say is [DidWebClientAuthentication]'s.
+   *
+   * The registration is looked up before anything is fetched, so the DID document read here is
+   * always one of a client this pod registered: an assertion naming a stranger costs a query and no
+   * outbound call. Every refusal is `invalid_client` — the request carried no HTTP Basic, so it
+   * answers 400 without a challenge (RFC 6749 §5.2).
+   */
+  internal fun exchangeServiceClientAssertion(
+    pod: HostedPod,
+    clientId: String,
+    assertion: String,
+    requestedScope: String?,
+  ): PodTokenResult {
+    val client = serviceClients.find(pod.id, clientId)?.takeIf { it.authenticatesWithKeys }
+    val verified = client?.let {
+      didWebAuthentication.verify(assertion, audiences = tokenAudiences(pod), expectedClientId = it.clientId)
+    }
+    if (verified == DidWebAssertion.Busy) {
+      return PodTokenResult.Busy("the pod is reading too many DID documents at once; retry later")
+    }
+    if (verified !is DidWebAssertion.Verified) {
+      val reason = (verified as? DidWebAssertion.Refused)?.reason ?: "no did:web service client by that identifier on this pod"
+      logger.info {
+        "[oauth/token] client_credentials assertion refused: pod='${pod.name}', " +
+            "clientId='${LogSafeText.of(clientId)}', reason='${LogSafeText.of(reason)}'"
+      }
+      return PodTokenResult.Refused(OAuthErrorCode.INVALID_CLIENT, reason)
+    }
+    return issueServiceToken(pod, checkNotNull(client), requestedScope)
+  }
+
+  /** What a client assertion may name as its audience: the token endpoint, or the issuer it belongs to. */
+  private fun tokenAudiences(pod: HostedPod): Set<String> {
+    val issuer = pod.ref.uri.toString()
+    return setOf("$issuer/_system/auth/token", issuer)
+  }
+
+  /** The token an authenticated service client gets, or why it gets none. */
+  private fun issueServiceToken(
+    pod: HostedPod,
+    client: ServiceClientRegistration,
+    requestedScope: String?,
+  ): PodTokenResult {
+    val podName = pod.name
     // Down-scoping is NOT supported on client_credentials. A slim service token carries no
     // per-token state to express a subset, and the resolver always grants the client's full
     // registered set from `PodServiceClientDao` at request time. Accepting `scope=` and
@@ -387,20 +441,35 @@ class PodTokenExchange @Inject internal constructor(
       )
     }
 
-    if (client.scopes.isEmpty()) {
+    // The management authority's scopes, while the owner who granted it still owns the pod. The
+    // routes check the owner again on every call; this keeps a token from claiming one that has
+    // already ended. Ended, it refuses the token outright, context grants or not: a management
+    // token resolves none, and the person who now owns the pod has not seen this service.
+    val management = client.management?.let { authority ->
+      if (!podGrantsFacade.isPodOwner(pod, authority.subjectUris)) {
+        return PodTokenResult.Refused(
+          OAuthErrorCode.INVALID_SCOPE,
+          "the authority to manage this pod ended when its owner changed; the owner grants it again in the service consent",
+        )
+      }
+      PodScopeValidator.serviceManagementScopes
+    }.orEmpty()
+
+    if (client.scopes.isEmpty() && management.isEmpty()) {
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")
     }
 
-    // Only feature scopes travel in a slim service token. Service clients register context
-    // scopes only (feature scopes are rejected at registration), so this is empty today.
-    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes)
+    // Only feature scopes travel in a slim service token: the management authority's, and none
+    // a registration holds, since feature scopes are rejected there.
+    val tokenFeatureScopes = client.scopes.intersect(PodScopeValidator.featureScopes) + management
 
     val accessToken = podTokenIssuer.issueServiceToken(
       pod = podName,
       clientId = client.clientId,
       scopes = tokenFeatureScopes,
+      registrationId = client.id.value,
     )
-    serviceClients.touchLastUsed(pod, client.clientId)
+    serviceClients.touchLastUsed(pod.id, client.clientId)
 
     logger.info {
       "[oauth/token] Service token issued (client_credentials): pod='$podName', " +
@@ -777,4 +846,7 @@ internal sealed interface PodTokenResult {
    * is the pod, which the adapter knows and this does not.
    */
   data class ClientAuthenticationRequired(val description: String) : PodTokenResult
+
+  /** Nothing was decided for want of room, and a retry shortly may be: `429` with `Retry-After`. */
+  data class Busy(val description: String) : PodTokenResult
 }

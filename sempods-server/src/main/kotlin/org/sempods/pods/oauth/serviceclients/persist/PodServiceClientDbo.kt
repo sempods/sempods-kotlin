@@ -10,8 +10,9 @@ import java.time.Instant
  * An operator provisions one through the host admin surface, or a service registers itself at
  * `POST {pod}/_system/auth/register` and waits for the owner to activate it ([pendingUntil]); see
  * `sempods-server/docs/auth/service-clients.md`. Public clients registered there live in
- * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. Each row carries a bcrypt hash of the
- * shared secret; the plaintext never persists here.
+ * [org.sempods.pods.oauth.DynamicClientRegistrationDbo]. A row carries a bcrypt hash of the
+ * shared secret, and the plaintext never persists here — except a `did:web` client's, which holds
+ * no secret and authenticates with the keys of its DID document.
  *
  * Its grants live on this row, in [scopes], and nowhere else: the resolver reads them per request,
  * and a single-document update is what makes a replace of them optimistic ([grantsVersion]).
@@ -30,8 +31,11 @@ internal data class PodServiceClientDbo(
 
   val clientId: String,
 
-  /** bcrypt hash of the shared secret. Plaintext is never persisted. */
-  val secretHash: String,
+  /**
+   * bcrypt hash of the shared secret. Plaintext is never persisted. Absent on a `did:web` client,
+   * which authenticates with `private_key_jwt` instead.
+   */
+  val secretHash: String?,
 
   /**
    * The context grants the client holds, stored under the field name `scopes`.
@@ -55,7 +59,10 @@ internal data class PodServiceClientDbo(
    * increments it**, so a replace prepared at one version writes nothing once anything else changed
    * them (`PodGrantsFacade.replaceGrants`). Absent until the first write; see
    * `sempods-server/docs/collections.md`. A registration re-created under the same `clientId`
-   * starts again at `0`.
+   * starts again at `0` — except a `did:web` one, which names itself and so is re-created by the
+   * service at will: it starts at the pod's next service-client epoch times 2^32
+   * (`PodDao.nextServiceClientEpoch`), a range no earlier registration under that identifier used,
+   * so an edit read from that one is stale here.
    */
   val grantsVersion: Long = 0,
 
@@ -78,4 +85,16 @@ internal data class PodServiceClientDbo(
    * update that writes the grants (`PodServiceClientDao.replaceScopes`).
    */
   val pendingUntil: Instant? = null,
+
+  /**
+   * The WebID that granted this client the lasting authority to manage the pod, `null` where it
+   * holds none. Set together with [managementSubjectUris] and [managementGrantedAt], and gone with
+   * the row: removing the registration is how the authority ends.
+   */
+  val managementGrantedBy: String? = null,
+
+  /** Every URI [managementGrantedBy] was recognised by when granting; the owner check reads these. */
+  val managementSubjectUris: Set<String> = emptySet(),
+
+  val managementGrantedAt: Instant? = null,
 )

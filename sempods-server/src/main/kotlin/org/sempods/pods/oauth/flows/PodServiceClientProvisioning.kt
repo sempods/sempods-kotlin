@@ -2,12 +2,16 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.core.DidWeb
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientAlreadyRegistered
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
+import org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority
+import java.time.Instant
 
 /**
  * Giving a service client its credentials, idempotently. Provisioning creates; it never writes the
@@ -24,7 +28,42 @@ import org.sempods.pods.oauth.serviceclients.ServiceClientSecretRotation
  */
 class PodServiceClientProvisioning @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
+  private val didWebAuthentication: DidWebClientAuthentication,
 ) {
+
+  /**
+   * Whether [clientId] can be provisioned as a management client: a `did:web` identifier the pod's
+   * routes can name, so the owner can remove it ([DidWebClientAuthentication.isAddressable]).
+   */
+  internal fun acceptsManagementClient(clientId: String): Boolean =
+    DidWeb.targetOf(clientId) != null && didWebAuthentication.isAddressable(clientId)
+
+  /**
+   * Registers the `did:web` service [clientId] on a pod about to be created for [owner], active and
+   * holding the authority to manage it on that owner's behalf ([ServiceManagementAuthority]). The
+   * operator names the service; no software statement is asked for, because the admin surface is
+   * trusted.
+   *
+   * Written before the pod's row, under the id that row will have: a pod then exists only with its
+   * management client, and a creation that stops in between leaves a registration for a pod that
+   * does not exist, which nothing can reach. The registration takes the pod's first service-client
+   * epoch, [MANAGEMENT_EPOCH], which the row is written with.
+   *
+   * @param ownerUris every URI the owner is known by, [owner] among them.
+   */
+  internal fun provisionManagement(pod: HostedPod, clientId: String, label: String, owner: String, ownerUris: Set<String>) {
+    serviceClients.registerDidWeb(
+      pod, clientId, label, redirectUris = emptyList(), provisional = false,
+      management = ServiceManagementAuthority(grantedBy = owner, subjectUris = ownerUris + owner, grantedAt = Instant.now()),
+      epoch = MANAGEMENT_EPOCH,
+    )
+    logger.info { "Pod '${pod.name}': management service '${LogSafeText.of(clientId)}' provisioned for owner '$owner'" }
+  }
+
+  /** Removes what [provisionManagement] wrote for a pod whose row was then not written. */
+  internal fun discardManagement(pod: HostedPod) {
+    serviceClients.deleteByPod(pod.id)
+  }
 
   /**
    * @param beforeCreating runs only when there is no registration yet, before one is created: what
@@ -55,6 +94,8 @@ class PodServiceClientProvisioning @Inject internal constructor(
       // not be the one that works.
       ServiceClientSecretRotation.Conflict,
       ServiceClientSecretRotation.NotFound -> PodServiceClientResult.Refused(PodServiceClientRefusal.MODIFIED_CONCURRENTLY)
+      // An operator's identifier carries no `:`, so it never names a `did:web` client.
+      ServiceClientSecretRotation.HoldsNoSecret -> error("an operator-provisioned client holds a secret: '${request.clientId}'")
     }
   }
 
@@ -70,8 +111,11 @@ class PodServiceClientProvisioning @Inject internal constructor(
     }
   }
 
-  private companion object {
+  internal companion object {
     private val logger = KotlinLogging.logger {}
+
+    /** The service-client epoch of the management client a pod is created with: its first. */
+    internal const val MANAGEMENT_EPOCH = 1L
   }
 }
 

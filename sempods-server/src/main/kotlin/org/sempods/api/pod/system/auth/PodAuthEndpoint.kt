@@ -26,6 +26,7 @@ import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.oauth.SessionPrincipal
 import org.sempods.pods.oauth.flows.PodAuthorizeFlow
 import org.sempods.pods.oauth.flows.PodClientRegistration
+import org.sempods.pods.oauth.flows.PodDeregistration
 import org.sempods.pods.oauth.flows.PodConsentFlow
 import org.sempods.pods.oauth.flows.PodRegistrationRequest
 import org.sempods.pods.oauth.flows.PodServiceConsentFlow
@@ -101,6 +102,26 @@ class PodAuthEndpoint @Inject constructor(
     }
     return PodRegistrationResponses.render(result) { reason ->
       bearerRoutes.ownerAuthorityRefused(podDbo.name, reason, SERVICE_CLIENTS_MANAGE_SCOPE, manages = "service clients")
+    }
+  }
+
+  /** A service removing its own registration, with its own bearer — [PodClientRegistration.deregister]. */
+  @DELETE
+  @Path("register/{clientId}")
+  @Produces(MediaType.APPLICATION_JSON)
+  fun deregister(
+    @PathParam("pod") pod: String,
+    @PathParam("clientId") clientId: String,
+    @Context requestContext: ContainerRequestContext,
+  ): Response {
+    val podDbo = bearerRoutes.fetchPodOrThrow(pod)
+    val caller = bearerRoutes.requireBearerOrThrow(podDbo, requestContext)
+    fun refused(status: Int, description: String) =
+      Response.status(status).entity(mapOf("error_description" to description)).type(MediaType.APPLICATION_JSON).build()
+    return when (podClientRegistration.deregister(bearerRoutes.hosted(podDbo), caller, clientId)) {
+      PodDeregistration.REMOVED -> Response.noContent().build()
+      PodDeregistration.NOT_FOUND -> refused(404, "no such service client on this pod")
+      PodDeregistration.NOT_YOURS -> refused(403, "a service removes only its own registration, with its own token")
     }
   }
 
@@ -218,6 +239,7 @@ class PodAuthEndpoint @Inject constructor(
     @QueryParam("client_id") clientId: String?,
     @QueryParam("redirect_uri") redirectUri: String?,
     @QueryParam("state") state: String?,
+    @QueryParam("authority") authority: String?,
     @CookieParam(PodBrowserCookies.SESSION) sessionCookie: String?,
   ): Response {
     val podDbo = bearerRoutes.fetchPodOrThrow(pod)
@@ -226,7 +248,7 @@ class PodAuthEndpoint @Inject constructor(
       podDbo.name,
       podServiceConsentFlow.open(
         pod = bearerRoutes.hosted(podDbo),
-        request = PodServiceConsentRequest(clientId = clientId, redirectUri = redirectUri, state = state),
+        request = PodServiceConsentRequest(clientId = clientId, redirectUri = redirectUri, state = state, authority = authority),
         session = session,
       ),
     )
@@ -278,7 +300,7 @@ class PodAuthEndpoint @Inject constructor(
   ): Response {
     // Ahead of the pod row on purpose: `fetchPodOrThrow` reads it uncached, so a refused request
     // costs no query at all. That is most of what the budget buys — see [PodTokenRateLimiter].
-    if (!tokenRateLimiter.tryAcquire(forwardedFor, form.getFirst("grant_type"), form.getFirst("client_id"), authorizationHeader)) {
+    if (!tokenRateLimiter.tryAcquire(forwardedFor, form.getFirst("grant_type"), form.getFirst("client_id"), authorizationHeader, form.getFirst("client_assertion"))) {
       return PodTokenResponses.rateLimited()
     }
 
@@ -305,10 +327,16 @@ class PodAuthEndpoint @Inject constructor(
       )
 
       is PodTokenRead.ClientCredentials -> podTokenExchange.exchangeServiceClient(
-        pod = podDbo.podId(),
-        podName = podDbo.name,
+        pod = bearerRoutes.hosted(podDbo),
         clientId = read.clientId,
         secret = read.secret,
+        requestedScope = read.scope,
+      )
+
+      is PodTokenRead.ClientAssertion -> podTokenExchange.exchangeServiceClientAssertion(
+        pod = bearerRoutes.hosted(podDbo),
+        clientId = read.clientId,
+        assertion = read.assertion,
         requestedScope = read.scope,
       )
     }.asResponse(podDbo.name)
@@ -332,6 +360,8 @@ class PodAuthEndpoint @Inject constructor(
 
     is PodTokenResult.ClientAuthenticationRequired ->
       PodTokenResponses.clientAuthenticationRequired(realm, description)
+
+    is PodTokenResult.Busy -> PodTokenResponses.rateLimited(description)
   }
 
   // ─── JWKS ─────────────────────────────────────────────────────────────────

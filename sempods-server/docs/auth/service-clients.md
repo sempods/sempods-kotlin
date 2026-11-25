@@ -120,6 +120,90 @@ returns `invalid_scope`.
 
 Context grants stay on the pod and are checked on each request. They never travel in the token.
 
+## `did:web` services
+
+A service that is the client of many pods can authenticate at every one of them with one key pair
+and hold no secret. Its identity is a `did:web` identifier, such as `did:web:console.example`, and its public
+keys are in the DID document at `https://console.example/.well-known/did.json`.
+
+It [registers with a software statement](oauth.md#registering-a-didweb-service) and gets no secret.
+Alice activates it in the [consent](#consent) as any other service. For a token, it signs a client
+assertion (RFC 7523 §2.2, `private_key_jwt`) and sends it in the form, with no `Authorization` header:
+
+<!-- doc-example: illustrative; route and form checked against DidWebServiceClientHttpTest -->
+```http
+POST {podUrl}/_system/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
+&client_assertion=eyJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDp3ZWI6Y29uc29sZS5leGFtcGxlI2tleS0xIn0…
+```
+
+| Assertion | Requirement |
+|---|---|
+| Header | `alg` RS256, PS256 or ES256; `kid` the DID URL of the key, such as `did:web:console.example#key-1` |
+| `iss`, `sub` | The `did:web` identifier |
+| `aud` | The token endpoint or the pod URL, as one value |
+| `exp` | At most five minutes ahead |
+| `jti` | Required; each value is accepted once |
+
+The key has to be a `publicKeyJwk` method named under the document's `authentication`, with the
+`did:web` identifier as its `controller`. An `alg`, `use` or `key_ops` it publishes holds. Any other
+assertion, and one for a service not registered on the pod, gets `invalid_client`. HTTP Basic and
+an assertion together are `invalid_request`.
+
+The pod reads the document only for a registered service or a registration, and keeps it for five
+minutes. At most eight reads run at once. Past that, registration and token requests that need a read answer
+`429 slow_down` with `Retry-After`, and nothing about the service is decided. An assertion with a key the cached document does not name reads it again, at most once a
+minute, so a new key works within a minute of publishing it. A removed key stops working when the
+cached document expires.
+
+The owner manages a `did:web` service as any other. It has no secret, so rotating one answers
+`409`. Each registration's grants version starts in a range no earlier one used, so an `ETag` read before
+the service was removed and registered again is `412`. Registration refuses an identifier no route could name: one with a port, such as
+`did:web:console.example%3A8443`, because the server refuses the `%25` its path segment would need,
+and any segment of other characters than letters, digits, `.`, `-` and `_`. Development accepts a loopback
+one, such as `did:web:localhost%3A5173`, which no management route can name.
+
+## Managing a pod as a service
+
+A service that manages pods for their owner, such as an owner console, creates and deletes
+contexts and reads no data. It holds a lasting authority to manage the pod, which the owner grants
+once. For Alice's pod and the console `did:web:console.example`:
+
+| Step | Pod-relative call | What happens |
+|---|---|---|
+| 1. Register | [As a `did:web` service](#didweb-services) | A provisional registration with no grants |
+| 2. Ask Alice | `GET /_system/auth/service-consent?client_id=did%3Aweb%3Aconsole.example&state=…&authority=manage` | The page names the authority and has no contexts to tick. Confirming grants it and activates the registration. |
+| 3. Get a token | `POST /_system/auth/token` with Client Credentials, no `scope` | The token carries `contexts:manage` |
+| 4. Manage | `GET`, `PUT` and `DELETE /_system/contexts…` | As with [`contexts:manage`](oauth.md#managing-contexts): every context shows as `manage` alone |
+
+Only a service registered at the pod, `svc:` or `did:web`, is offered it; for an operator-provisioned
+one the page answers `403`. A host can set it up instead when it
+[creates the pod](../host-provisioning.md#creating-a-pod).
+The pod advertises the scopes the authority carries as `sempods_service_management_scopes` in its
+authorization-server metadata. A pod without the member does not offer it.
+
+The authority reaches no data: a token carrying it reads no context, including one the service was
+granted otherwise. `service-clients:manage` is never part of it, because that can create data access.
+Every call checks the pod's current owner. After a change of owner, calls answer `403`, and the
+token endpoint refuses the service `invalid_scope`, even where it also holds context grants. The new
+owner sees the consent page as a fresh request, and confirming it grants the authority again. Calls
+are recorded in the [service audit log](operations.md#service-audit-retention).
+
+The authority lasts until the registration is removed:
+
+| Who | How |
+|---|---|
+| Alice, in the pod's UI | The same consent URL shows "Remove service" while the service holds the authority |
+| Alice's tool | `DELETE /_system/auth/service-clients/{clientId}`, [below](#managing-service-clients) |
+| The service itself | `DELETE /_system/auth/register/{clientId}` with its own bearer; `204`, or `403` for another service's |
+
+A token issued before the removal answers `401` on its next call. It names the registration it was
+issued for, so it holds nothing of one the service makes again under the same identifier, and
+cannot remove that one either.
+
 ## Managing service clients
 
 The owner's tool requests `service-clients:manage` through Authorization Code + PKCE.
@@ -131,7 +215,7 @@ Routes are relative to `podUrl`; encode the client ID as a path segment, such as
 | Method and path | Result |
 |---|---|
 | `POST /_system/auth/register` with the management bearer | Register an active service, initially without grants. |
-| `GET /_system/auth/service-clients` | List registrations and grants, without secrets. |
+| `GET /_system/auth/service-clients` | List registrations and grants, without secrets; `management_granted_at` marks one holding the [management authority](#managing-a-pod-as-a-service), while the owner who granted it still owns the pod. |
 | `GET /_system/auth/service-clients/{clientId}` | Read one registration and its grants version (`ETag`). |
 | `PUT /_system/auth/service-clients/{clientId}/grants` | Replace all grants with the JSON array in the body; send the read `ETag` as `If-Match`. `[]` removes access. |
 | `POST /_system/auth/service-clients/{clientId}/secret` | Rotate the secret; return the new secret once. |
@@ -155,7 +239,7 @@ service currently holds.
 | `412` | The grants changed since that `ETag`; read and review them before retrying |
 | `403` | Rotating or removing an operator-provisioned registration |
 | `404` | No such registration |
-| `409` | Rotation or removal raced another change |
+| `409` | Rotation or removal raced another change, or rotation for a `did:web` service, which holds no secret |
 
 The owner can replace grants for **every service**, including operator-provisioned services. The
 owner cannot rotate or remove an operator-provisioned registration; `[]` ends its access. The

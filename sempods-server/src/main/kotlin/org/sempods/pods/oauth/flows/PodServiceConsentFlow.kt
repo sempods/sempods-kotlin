@@ -20,6 +20,7 @@ import org.sempods.pods.oauth.SessionPrincipal
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistrationId
+import org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority
 import java.net.URI
 import java.time.Instant
 
@@ -36,6 +37,12 @@ import java.time.Instant
  * was rendered at ([ConsentServiceRecipient]), and activates a provisional
  * registration in the same write. An empty confirmation removes every grant and activates too.
  * Only the pod owner approves.
+ *
+ * **With `authority=manage` the page offers the authority to manage the pod** instead of contexts
+ * ([ServiceManagementAuthority]): no rows to tick, and confirming grants it and activates the
+ * registration. Where the service holds it already, the page offers to remove the service, which is
+ * how the authority ends. Only a service registered at the pod is offered it: an operator's client
+ * keeps the registration the operator holds.
  */
 class PodServiceConsentFlow @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
@@ -62,8 +69,18 @@ class PodServiceConsentFlow @Inject internal constructor(
       redirectTarget(registration, it) ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.REDIRECT_URI_NOT_ALLOWED)
     }
     val state = suppliedState(request.state)
+    val management = when (request.authority?.trim()?.takeIf { it.isNotEmpty() }) {
+      null -> false
+      MANAGE_AUTHORITY -> true
+      else -> return PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_AUTHORITY)
+    }
+    // An operator's client keeps the registration the operator holds, as on the management API:
+    // the variant could otherwise remove it.
+    if (management && !registration.registered) {
+      return PodServiceConsentResult.Refused(PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR)
+    }
 
-    if (session == null) return parkForSignIn(pod, registration.clientId, redirectUri, state)
+    if (session == null) return parkForSignIn(pod, registration.clientId, redirectUri, state, if (management) MANAGE_AUTHORITY else null)
     val identity = PersonIdentity(webId = session.webId, alsoKnownAs = session.alsoKnownAs)
     if (!podGrantsFacade.isPodOwner(pod, identity.allUris)) {
       logger.info {
@@ -74,7 +91,11 @@ class PodServiceConsentFlow @Inject internal constructor(
     }
 
     // Pre-ticked from what the service holds now. The request suggests no rows.
-    val contexts = consentSelection.rows(pod, podGrantsFacade.resolveUserGrants(pod, identity.allUris), registration.scopes)
+    val contexts = if (management) {
+      emptyList()
+    } else {
+      consentSelection.rows(pod, podGrantsFacade.resolveUserGrants(pod, identity.allUris), registration.scopes)
+    }
     val csrf = consentTransactionStore.issue(
       pod = pod.name,
       webId = identity.webId,
@@ -89,8 +110,8 @@ class PodServiceConsentFlow @Inject internal constructor(
         codeChallengeMethod = null,
         offeredContexts = contexts.mapTo(mutableSetOf()) { it.uri },
         publicReadOffered = false,
-        contextCreationOffered = true,
-        service = ConsentServiceRecipient(registration.id.value, registration.grantsVersion),
+        contextCreationOffered = !management,
+        service = ConsentServiceRecipient(registration.id.value, registration.grantsVersion, management = management),
       ),
     )
     logger.info {
@@ -109,6 +130,9 @@ class PodServiceConsentFlow @Inject internal constructor(
         contexts = contexts,
         csrfToken = csrf,
         webId = identity.webId,
+        management = management,
+        // An authority a former owner granted has ended: the person here now is asked afresh.
+        managementHeld = registration.management?.let { podGrantsFacade.isPodOwner(pod, it.subjectUris) } == true,
       ),
     )
   }
@@ -157,6 +181,7 @@ class PodServiceConsentFlow @Inject internal constructor(
       logger.info { "[service-clients/consent] Cancelled: pod='${pod.name}', serviceClient='$clientId'" }
       return PodServiceConsentResult.Answered(PodServiceConsentOutcome.CANCELLED, target, binding.state)
     }
+    if (service.management) return submitManagement(pod, form, binding, registration, target, identity)
 
     val recipient = GrantRecipient.Service(ServiceClientRegistrationId(service.registrationId), clientId, service.grantsVersion)
     val offer = ConsentSelection.Offer(binding.offeredContexts, publicRead = false, contextCreation = true)
@@ -201,11 +226,43 @@ class PodServiceConsentFlow @Inject internal constructor(
     }
   }
 
+  /**
+   * The management variant's answer: grant the authority, or remove the service that holds it. Both
+   * act on the registration the screen was rendered for, and on nothing re-created since.
+   */
+  private fun submitManagement(
+    pod: HostedPod,
+    form: PodServiceConsentForm,
+    binding: ConsentBinding,
+    registration: ServiceClientRegistration?,
+    target: Redirectable?,
+    identity: PersonIdentity,
+  ): PodServiceConsentResult {
+    val clientId = binding.clientId
+    if (registration == null) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SERVICE_REMOVED)
+    if (!registration.registered) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR)
+    if (form.action?.trim() == REMOVE_ACTION) {
+      if (!serviceClients.remove(pod.id, clientId, registration.id)) {
+        return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SERVICE_REMOVED)
+      }
+      logger.info { "[service-clients/consent] Removed: pod='${pod.name}', serviceClient='$clientId', webId='${identity.webId}'" }
+      return PodServiceConsentResult.Answered(PodServiceConsentOutcome.REMOVED, target, binding.state)
+    }
+    if (!serviceClients.grantManagement(pod.id, clientId, registration.id, identity.webId, identity.allUris.toSet())) {
+      return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SERVICE_REMOVED)
+    }
+    logger.info {
+      "[service-clients/consent] Management granted: pod='${pod.name}', serviceClient='$clientId', webId='${identity.webId}'"
+    }
+    return PodServiceConsentResult.Answered(PodServiceConsentOutcome.CONFIRMED, target, binding.state)
+  }
+
   private fun parkForSignIn(
     pod: HostedPod,
     clientId: String,
     redirectUri: String?,
     state: String?,
+    authority: String?,
   ): PodServiceConsentResult {
     val parked = signIn.park(
       pod,
@@ -219,6 +276,7 @@ class PodServiceConsentFlow @Inject internal constructor(
         codeChallenge = null,
         codeChallengeMethod = null,
         serviceConsent = true,
+        serviceAuthority = authority,
       ),
     ) ?: return PodServiceConsentResult.Refused(PodServiceConsentRefusal.IDENTITY_PROVIDER_UNAVAILABLE)
     logger.info { "[service-clients/consent] Redirecting to login: pod='${pod.name}', serviceClient='$clientId'" }
@@ -241,6 +299,10 @@ class PodServiceConsentFlow @Inject internal constructor(
 
     private const val CANCEL_ACTION = "cancel"
     private const val SIGN_OUT_ACTION = "signout"
+    private const val REMOVE_ACTION = "remove"
+
+    /** The one `authority` a service consent may ask for. */
+    const val MANAGE_AUTHORITY = "manage"
   }
 }
 
@@ -249,13 +311,16 @@ internal data class PodServiceConsentRequest(
   val clientId: String?,
   val redirectUri: String?,
   val state: String?,
+  /** `manage` for the authority to manage the pod; `null` for access to contexts. */
+  val authority: String? = null,
 )
 
 /**
  * The dialog's answer as the browser posted it.
  *
  * @param clientId not rendered; a value posted by hand must name the screen's service.
- * @param action `cancel`, `signout`, or `null` for the confirmation.
+ * @param action `cancel`, `signout`, `remove` on the management variant, or `null` for the
+ *   confirmation.
  */
 internal data class PodServiceConsentForm(
   val csrf: String?,
@@ -273,6 +338,8 @@ internal data class PodServiceConsentForm(
  *   make. [clientId] and [registeredAt] are the pod's facts beside it.
  * @param activationExpiresAt when a provisional registration expires, `null` on an active one.
  * @param held the grants the service holds now.
+ * @param management whether the page offers the authority to manage the pod instead of contexts.
+ * @param managementHeld whether the service holds that authority already.
  */
 internal data class PodServiceConsentScreen(
   val podName: String,
@@ -285,6 +352,8 @@ internal data class PodServiceConsentScreen(
   val contexts: List<PodConsentContext>,
   val csrfToken: String,
   val webId: String,
+  val management: Boolean = false,
+  val managementHeld: Boolean = false,
 )
 
 /** What the service consent answers. */
@@ -309,12 +378,19 @@ internal sealed interface PodServiceConsentResult {
   data class Refused(val reason: PodServiceConsentRefusal, val created: List<URI> = emptyList()) : PodServiceConsentResult
 }
 
-internal enum class PodServiceConsentOutcome { CONFIRMED, CANCELLED }
+/** [REMOVED]: the owner removed the service from the management variant. */
+internal enum class PodServiceConsentOutcome { CONFIRMED, CANCELLED, REMOVED }
 
 /** Why the service consent answered with a page. */
 internal enum class PodServiceConsentRefusal {
   /** Not a live service registration on this pod. */
   UNKNOWN_SERVICE,
+
+  /** An `authority` other than `manage`. */
+  UNKNOWN_AUTHORITY,
+
+  /** The management variant for a client the operator provisioned, whose registration is the operator's. */
+  PROVISIONED_BY_OPERATOR,
   REDIRECT_URI_NOT_ALLOWED,
   IDENTITY_PROVIDER_UNAVAILABLE,
   NOT_OWNER,

@@ -249,13 +249,15 @@ Authorization-server metadata (RFC 8414):
   "grant_types_supported":                 ["authorization_code", "refresh_token", "client_credentials"],
   "scopes_supported":                      ["public-read", "offline_access"],
   "code_challenge_methods_supported":      ["S256"],
-  "token_endpoint_auth_methods_supported": ["none", "client_secret_basic"]
+  "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "private_key_jwt"],
+  "sempods_service_management_scopes":     ["contexts:manage"]
 }
 ```
 
-A pod has one registration endpoint. `POST /register/<anything>` is a
-404 — the path-segment variant existed only to fork DCR fingerprints per
-MCP surface (see [`authentication.md`](authentication.md#dcr-fingerprint)).
+A pod has one registration endpoint, and one DCR fingerprint per client
+(see [`authentication.md`](authentication.md#dcr-fingerprint)).
+`POST /register/<anything>` registers nothing and answers 405: below the
+endpoint is a registration, which only a service's own `DELETE` addresses.
 
 **Both documents are hand-built maps, on purpose**, here and on the
 hosted service. An OAuth library's metadata type serialises defaults for

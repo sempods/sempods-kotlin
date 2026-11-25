@@ -98,8 +98,10 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         putStrings("offeredContexts", binding.offeredContexts)
         put("publicReadOffered", binding.publicReadOffered)
         put("contextCreationOffered", binding.contextCreationOffered)
+        // A management screen under a field of its own, which a node from before it does not read:
+        // one would take the screen for a context consent and replace the grants with none.
         binding.service?.let { service ->
-          put("serviceRegistrationId", service.registrationId)
+          put(if (service.management) "serviceManagementRegistrationId" else "serviceRegistrationId", service.registrationId)
           put("serviceGrantsVersion", service.grantsVersion)
         }
       }
@@ -119,10 +121,12 @@ class ConsentTransactionStore @Inject internal constructor(db: MongoDatabase) {
         // Absent on a transaction an older node wrote; see the class comment for how long that is
         // accepted.
         binding = getString("clientId")?.let { clientId ->
-          val service = getString("serviceRegistrationId")?.let { registrationId ->
+          val managementRegistrationId = getString("serviceManagementRegistrationId")
+          val service = (managementRegistrationId ?: getString("serviceRegistrationId"))?.let { registrationId ->
             ConsentServiceRecipient(
               registrationId = registrationId,
               grantsVersion = get("serviceGrantsVersion", Number::class.java)?.toLong() ?: return@OneTimeStore null,
+              management = managementRegistrationId != null,
             )
           }
           ConsentBinding(

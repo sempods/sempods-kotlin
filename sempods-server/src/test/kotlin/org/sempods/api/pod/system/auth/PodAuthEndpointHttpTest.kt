@@ -3743,9 +3743,9 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `register below the registration endpoint should 404`() {
-    // `/register/<mcpPath>` was the path-segment variant that forked fingerprints per MCP
-    // surface. A pod has one surface and one registration endpoint; nothing routes below it.
+  fun `nothing registers below the registration endpoint`() {
+    // A pod has one surface and one registration endpoint. Below it is a registration, which a
+    // service removes with `DELETE`; a `POST` there registers nothing.
     val pod = sempodsTestFactory.newPod()
 
     val response = http.preparePost("${registerUrl(pod.name)}/default")
@@ -3753,7 +3753,7 @@ class PodAuthEndpointHttpTest : SempodsIntegrationTest() {
       .setBody("""{"redirect_uris":["https://example.com/cb"],"client_name":"X"}""")
       .execute()
 
-    assertEquals(404, response.statusCode)
+    assertEquals(405, response.statusCode)
   }
 
   @Test

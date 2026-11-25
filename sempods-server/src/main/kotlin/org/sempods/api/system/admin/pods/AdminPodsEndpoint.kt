@@ -10,12 +10,14 @@ import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.SempodsFacade
 import org.sempods.SempodsUriBuilder
+import org.bson.types.ObjectId
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.api.system.admin.AdminAuthorizedEndpoint
 import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodServiceClientRefusal
@@ -114,6 +116,11 @@ class AdminPodsEndpoint @Inject constructor(
    * [org.sempods.api.pod.system.contexts.PodContextsEndpoint.put]): an existing pod yields
    * 200 `alreadyExists` and its stored owner is **not** overwritten — this route creates pods, it
    * does not transfer ownership. A fresh pod yields 201 `created`.
+   *
+   * `managementClient` registers that `did:web` service on the fresh pod, holding the authority to
+   * manage it for the owner. It is written before the pod's row, so a pod exists only with it
+   * ([PodServiceClientProvisioning.provisionManagement]). An existing pod is left as it is, this
+   * member included.
    */
   @PUT
   @Path("{pod}")
@@ -127,14 +134,46 @@ class AdminPodsEndpoint @Inject constructor(
     val request = parseBody(body, CreatePodRequest::class.java)
       ?: throw badRequest("missing JSON request body")
     val ownerWebId = ownerWebIdOf(request)
+    // Every value sent is checked, a blank one included: read as absent, it would create the pod
+    // without the service the caller asked for, and a corrected retry would find the pod there.
+    val managementClient = request.managementClient?.trim()?.also {
+      if (!podServiceClientProvisioning.acceptsManagementClient(it)) {
+        throw badRequest("managementClient must be a did:web identifier whose segments are letters, digits, '.', '-' and '_', with no port")
+      }
+    }
+    val managementClientName = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() }
 
     if (sempodsFacade.existsPod(pod)) {
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     }
+    try {
+      SempodsUriBuilder.checkPodName(pod)
+    } catch (e: IllegalArgumentException) {
+      throw badRequest(e.message ?: "invalid pod name")
+    }
+
+    // The management client first, under the id the row will have; see the KDoc.
+    val podId = ObjectId()
+    val hosted = PodDbo(id = podId, name = pod, owner = ownerWebId).toHostedPod(sempodsUriBuilder)
+    managementClient?.let { clientId ->
+      podServiceClientProvisioning.provisionManagement(
+        pod = hosted,
+        clientId = clientId,
+        label = managementClientName ?: clientId,
+        owner = ownerWebId,
+        ownerUris = webIdUriDeriver.derivableAliases(ownerWebId).toSet(),
+      )
+    }
 
     try {
-      podDao.insert(name = pod, owner = ownerWebId)
+      podDao.insert(
+        name = pod,
+        owner = ownerWebId,
+        id = podId,
+        serviceClientEpoch = managementClient?.let { PodServiceClientProvisioning.MANAGEMENT_EPOCH },
+      )
     } catch (e: MongoWriteException) {
+      if (managementClient != null) podServiceClientProvisioning.discardManagement(hosted)
       // Unique index on the pod name — a concurrent create won the race. The post-condition the
       // caller asked for holds either way, so this stays idempotent rather than surfacing a 500.
       // Only for that case: another write failure reported as `alreadyExists` would tell the
@@ -142,8 +181,8 @@ class AdminPodsEndpoint @Inject constructor(
       if (!e.isDuplicateKey()) throw e
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     } catch (e: IllegalArgumentException) {
-      // Rejected pod name (`SempodsUriBuilder.checkPodName`): bad input from the caller.
-      throw badRequest(e.message ?: "invalid pod name")
+      if (managementClient != null) podServiceClientProvisioning.discardManagement(hosted)
+      throw badRequest(e.message ?: "invalid pod")
     }
 
     logger.info { "Admin '$adminClientId' created pod '$pod' for owner '$ownerWebId'" }
@@ -304,7 +343,8 @@ class AdminPodsEndpoint @Inject constructor(
         result = outcome,
         clientId = clientId,
         registrationId = registration.id.value,
-        secretId = registration.secretId,
+        // An operator's identifier carries no `:`, so the registration is never a `did:web` one.
+        secretId = checkNotNull(registration.secretId) { "an operator-provisioned client holds a secret" },
         // The stored set: an existing registration's grants are the owner's.
         scopes = registration.scopes,
         contextRoot = rootContextUri.toString(),
@@ -403,6 +443,16 @@ data class CreatePodRequest(
    * cannot own a pod yet.
    */
   val ownerWebId: String? = null,
+
+  /**
+   * A `did:web` service to register on the new pod with the lasting authority to manage it for the
+   * owner: contexts, never data (`sempods-server/docs/auth/service-clients.md` §"Managing a pod as a
+   * service"). Optional; ignored where the pod exists already. Anything but a `did:web` is a 400.
+   */
+  val managementClient: String? = null,
+
+  /** What the owner sees that service called; the identifier where absent. */
+  val managementClientName: String? = null,
 )
 
 /** Response of `PUT /_system/admin/pods/{pod}`: `result` is `created` or `alreadyExists`. */

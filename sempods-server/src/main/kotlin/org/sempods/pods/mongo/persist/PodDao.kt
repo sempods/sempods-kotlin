@@ -3,9 +3,11 @@ package org.sempods.pods.mongo.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Projections
+import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
@@ -63,12 +65,35 @@ class PodDao internal constructor(
    * A second pod under the same name is rejected by the unique index, as before — the write throws
    * rather than silently replacing the existing registration.
    */
-  internal fun insert(name: String, owner: String): PodDbo {
+  internal fun insert(name: String, owner: String): PodDbo = insert(name, owner, ObjectId(), serviceClientEpoch = null)
+
+  /**
+   * The same, under an [id] the caller minted, so rows keyed by it can be written first; and with
+   * [serviceClientEpoch] already counted where such a row took one ([nextServiceClientEpoch]).
+   */
+  internal fun insert(name: String, owner: String, id: ObjectId, serviceClientEpoch: Long?): PodDbo {
     SempodsUriBuilder.checkPodName(name)
     webIdUriDeriver.requireEmailBasedWebId(owner)
-    val dbo = PodDbo(id = ObjectId(), name = name, owner = owner, resourceRowCount = 0L)
-    pods.insertOne(dbo.toDocument())
+    val dbo = PodDbo(id = id, name = name, owner = owner, resourceRowCount = 0L)
+    pods.insertOne(dbo.toDocument().putNotNull(PodDboFields.serviceClientEpoch, serviceClientEpoch))
     return dbo
+  }
+
+  /**
+   * The next of [podId]'s service-client epochs, counted on the pod's row from 1: one per `did:web`
+   * registration, which starts its grants version there (`PodServiceClientDbo.grantsVersion`). On
+   * the row, because it has to outlive the registration it numbered and no clock may decide it.
+   * Not read into [PodDbo]: nothing but this counter uses it.
+   */
+  internal fun nextServiceClientEpoch(podId: ObjectId): Long {
+    val row = checkNotNull(
+      pods.findOneAndUpdate(
+        Filters.eq(PodDboFields.id, podId),
+        Updates.inc(PodDboFields.serviceClientEpoch, 1L),
+        FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER).projection(Projections.include(PodDboFields.serviceClientEpoch)),
+      ),
+    ) { "no pod row for $podId" }
+    return (row.get(PodDboFields.serviceClientEpoch) as Number).toLong()
   }
 
   internal fun setOwner(podId: ObjectId, owner: String) {

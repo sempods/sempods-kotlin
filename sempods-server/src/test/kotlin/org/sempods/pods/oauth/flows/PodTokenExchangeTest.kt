@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import org.sempods.SempodsModule
@@ -156,6 +157,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     serviceClients = serviceClients,
     managementAuthorities = managementAuthorities,
     webIdUriDeriver = injector.getInstance(WebIdUriDeriver::class.java),
+    didWebAuthentication = injector.getInstance(DidWebClientAuthentication::class.java),
   )
 
   private inner class GraceScenario(seconds: Int = 60) : AutoCloseable {
@@ -207,6 +209,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       authorizationCodeStore, observedStore, consentDecisionStore, podGrantsFacade,
       injector.getInstance(DynamicClientStore::class.java), injector.getInstance(PodTokenIssuer::class.java),
       serviceClients, managementAuthorities, injector.getInstance(WebIdUriDeriver::class.java),
+      injector.getInstance(DidWebClientAuthentication::class.java),
     )
     lateinit var result: PodTokenResult
     val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {
@@ -665,7 +668,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val minted = serviceClient(pod)
 
     val result = issued(
-      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = null),
+      exchange.exchangeServiceClient(pod, "notes-app", minted.secret, requestedScope = null),
     )
 
     assertEquals(PodTokenIssuer.SERVICE_TOKEN_TTL_SECONDS, result.expiresInSeconds)
@@ -683,7 +686,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     serviceClient(pod)
 
     for ((client, secret) in listOf("notes-app" to "sc_wrong", "no-such-app" to "sc_wrong")) {
-      val result = exchange.exchangeServiceClient(pod.id, pod.name, client, secret, requestedScope = null)
+      val result = exchange.exchangeServiceClient(pod, client, secret, requestedScope = null)
       assertIs<PodTokenResult.ClientAuthenticationRequired>(result, "clientId='$client'")
     }
   }
@@ -697,7 +700,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     val minted = serviceClient(pod)
 
     val result = refused(
-      exchange.exchangeServiceClient(pod.id, pod.name, "notes-app", minted.secret, requestedScope = "public-read"),
+      exchange.exchangeServiceClient(pod, "notes-app", minted.secret, requestedScope = "public-read"),
     )
 
     assertEquals(OAuthErrorCode.INVALID_SCOPE, result.code)

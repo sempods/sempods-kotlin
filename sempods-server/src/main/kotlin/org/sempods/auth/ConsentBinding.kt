@@ -36,4 +36,9 @@ data class ConsentBinding @JvmOverloads constructor(
  * @param grantsVersion its grants' version when the screen was rendered. The replace writes only
  *   at this version.
  */
-data class ConsentServiceRecipient(val registrationId: String, val grantsVersion: Long)
+data class ConsentServiceRecipient(
+  val registrationId: String,
+  val grantsVersion: Long,
+  /** Whether the screen offered the authority to manage the pod rather than contexts. */
+  val management: Boolean = false,
+)

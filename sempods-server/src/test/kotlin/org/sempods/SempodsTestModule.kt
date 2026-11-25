@@ -1,5 +1,8 @@
 package org.sempods
 
+import org.sempods.api.pod.system.auth.DidWebAccessFlow
+import org.sempods.api.pod.system.auth.DidWebServiceFixture
+import org.sempods.pods.oauth.didweb.DidWebKeys
 import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
@@ -39,6 +42,7 @@ data class SempodsTestModule(
     bind<SempodsTestFactory>().asSingleton()
     bind<DelegatedAccessFlow>().asSingleton()
     bind<ServiceAccessFlow>().asSingleton()
+    bind<DidWebAccessFlow>().asSingleton()
 
     // How the suite seeds pod state: an HTTP client against this JVM's own server, see
     // `docs/testing.md` §"Seeding a pod". Deliberately without an in-process alternative to
@@ -76,6 +80,10 @@ data class SempodsTestModule(
     install(PodAiSemWebModule(httpPort = config.httpPort))
 
     bindMediaForTests()
+
+    // DID documents from memory, under portless identifiers a path segment can carry — see
+    // `DidWebServiceFixture`. The HTTP fetch and its guard are tested on their own.
+    bind<DidWebKeys>().toInstance(DidWebKeys(fetcher = DidWebServiceFixture.fetcher, allowLoopbackHttp = false))
   }
 
   /**

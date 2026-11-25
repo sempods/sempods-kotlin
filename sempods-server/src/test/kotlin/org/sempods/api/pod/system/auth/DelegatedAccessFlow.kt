@@ -274,6 +274,8 @@ internal class DelegatedAccessFlow {
     const val CODE_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
     const val CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 
-    private val BUTTONS = mapOf("cancel" to "cancelBtn", "disconnect" to "disconnectBtn", "signout" to "signOutBtn")
+    private val BUTTONS = mapOf(
+      "cancel" to "cancelBtn", "disconnect" to "disconnectBtn", "signout" to "signOutBtn", "remove" to "removeBtn",
+    )
   }
 }

@@ -19,6 +19,7 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.junit.jupiter.api.Test
@@ -198,6 +199,77 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .execute()
     assertEquals(200, rotated.statusCode, rotated.responseBody)
     assertEquals("no-store", rotated.getHeader("Cache-Control"))
+  }
+
+  @Test
+  fun `the owner's tool registers a did-web service active, has no secret to rotate, and removes it`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val service = DidWebServiceFixture.newService()
+    val registered = registerDidWeb(owned, manager, service)
+    assertEquals(201, registered.statusCode, registered.responseBody)
+    assertFalse("activation_expires_at" in json(registered), "the owner's authority registers it active")
+
+    val listed = listServiceClients(owned, manager).single { it["client_id"] == service.did }
+    assertEquals("private_key_jwt", listed["token_endpoint_auth_method"])
+    assertEquals("registered", listed["origin"])
+    assertFalse("management_granted_at" in listed, "the owner's tool registers it without the management authority")
+    val podId = checkNotNull(owned.pod.id).toPodId()
+    val registration = checkNotNull(serviceClientStore.find(podId, service.did))
+    assertTrue(serviceClientStore.grantManagement(podId, service.did, registration.id, owned.webId, setOf(owned.webId)))
+    assertNotNull(listServiceClients(owned, manager).single { it["client_id"] == service.did }["management_granted_at"])
+    val before = read(owned, manager, service.did)
+    assertEquals(200, replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = before.tag).statusCode)
+
+    val rotated = http.preparePost("${serviceClientsUrl(owned)}/${enc(service.did)}/secret")
+      .addHeader("Authorization", "Bearer $manager")
+      .execute()
+    assertEquals(409, rotated.statusCode, rotated.responseBody)
+
+    val removed = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(service.did)}")
+      .addHeader("Authorization", "Bearer $manager")
+      .execute()
+    assertEquals(204, removed.statusCode, removed.responseBody)
+    assertTrue(listServiceClients(owned, manager).none { it["client_id"] == service.did })
+  }
+
+  @Test
+  fun `an edit read before a did-web service registered again is stale on the new registration`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val service = DidWebServiceFixture.newService()
+    assertEquals(201, registerDidWeb(owned, manager, service).statusCode)
+    val first = read(owned, manager, service.did)
+    val earlier = first.tag
+    val removed = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(service.did)}").addHeader("Authorization", "Bearer $manager").execute()
+    assertEquals(204, removed.statusCode, removed.responseBody)
+    assertEquals(201, registerDidWeb(owned, manager, service).statusCode)
+
+    val stale = replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = earlier)
+
+    assertEquals(412, stale.statusCode, stale.responseBody)
+    val again = read(owned, manager, service.did)
+    assertEquals("", again.body["scope"])
+    // A range of its own, counted on the pod rather than read off a clock.
+    assertEquals(1L shl 32, (again.body["grants_version"] as Number).toLong() - (first.body["grants_version"] as Number).toLong())
+  }
+
+  @Test
+  fun `an authority approved under the first text narrows no did-web service's grants`() = withSetup {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val manager = approveManagement(owned)
+    val service = DidWebServiceFixture.newService()
+    assertEquals(201, registerDidWeb(owned, manager, service).statusCode)
+    assertEquals(200, replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = read(owned, manager, service.did).tag).statusCode)
+    val earlier = mintServiceClientsManagerToken(owned.pod.name, owned.webId, consent = PrivilegedAuthorityRows.FIRST_CONSENT)
+
+    val narrowed = replaceGrants(owned, earlier, service.did, "[]", ifMatch = read(owned, manager, service.did).tag)
+
+    assertInsufficientScope(owned, narrowed)
+    assertEquals("$notes#read", read(owned, manager, service.did).body["scope"])
   }
 
   @Test
@@ -588,6 +660,23 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
       .addHeader("Content-Type", "application/json")
       .addHeader("Authorization", "Bearer $bearer")
       .setBody(serviceBody)
+      .execute()
+
+  /** A registration of the did:web [service], with its software statement, sent with [bearer]. */
+  private fun registerDidWeb(owned: Owned, bearer: String, service: DidWebService): TestHttpResponse =
+    http.preparePost(registerUrl(owned))
+      .addHeader("Content-Type", "application/json")
+      .addHeader("Authorization", "Bearer $bearer")
+      .setBody(
+        JsonMappers.default().writeValueAsString(
+          mapOf(
+            "client_name" to "Owner Console",
+            "grant_types" to listOf("client_credentials"),
+            "token_endpoint_auth_method" to "private_key_jwt",
+            "software_statement" to service.statement(owned.pod),
+          ),
+        ),
+      )
       .execute()
 
   /** The `client_id` of a service [bearer] registers. */

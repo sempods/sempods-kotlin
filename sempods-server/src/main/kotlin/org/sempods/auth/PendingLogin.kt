@@ -21,6 +21,8 @@ data class PendingLogin(
   val codeChallengeMethod: String?,
   /** Whether this is a parked service consent for the service [clientId]; else an `/authorize`. */
   val serviceConsent: Boolean = false,
+  /** The `authority` a service consent asked for, such as `manage`; `null` for access to contexts. */
+  val serviceAuthority: String? = null,
 ) {
   /**
    * Where a sign-in that failed is reported: [redirectUri] for an `/authorize`, and nowhere for a
