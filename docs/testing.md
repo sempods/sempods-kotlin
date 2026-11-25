@@ -167,7 +167,8 @@ The block's requests reach the rejecting verifier; every other class still reach
 A new seam's test implementation joins the setup as one more nested `observe`. The id-server is
 the second: `idServer` in the setup, a variant of the suite's `FakeOidcProvider` (`IdServerObserver`).
 The third is `findAdapter`, a `find` engine beside the built-in SPARQL adapter that answers nothing
-until a test calls `answerWith` (`FindAdapterObserver`). It runs on a thread of its own, and
+until a test calls `answerWith`, or `overReturnWith` for an engine that does not scope itself
+(`FindAdapterObserver`). It runs on a thread of its own, and
 `FindService` re-binds the trace there. The fourth is `requestAuthenticator`
 (`PodRequestAuthenticatorObserver`), which a request passes before it reaches the verifier: a test
 that answers there decides who is calling, and `requestVerifier` is not asked. The fifth is `podConnections`

@@ -23,6 +23,9 @@ class SparqlTextFindAdapter @Inject constructor(
   private val sparqlQueryService: SparqlQueryService,
 ) : FindAdapter {
 
+  /** It matches on the pod's own store, through the same `Dataset` as the expansion. */
+  override val selfScoped: Boolean get() = true
+
   override fun find(request: FindRequest, sandbox: FindSandbox): Model {
     if (request.tokens.isEmpty()) return LinkedHashModel()
     // Fail-closed: an empty effective scope (downscope onto only unreadable/unknown contexts) must
