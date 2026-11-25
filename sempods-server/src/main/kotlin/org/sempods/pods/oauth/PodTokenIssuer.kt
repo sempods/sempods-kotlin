@@ -1,6 +1,7 @@
 package org.sempods.pods.oauth
 
 import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.SERVICE_REGISTRATION_CLAIM
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -117,12 +118,17 @@ class PodTokenIssuer(
    *   token on demand; no refresh-token mechanism backs this grant.
    * - The `client_type=service` claim labels the caller so the resource layer's
    *   audit hook can attribute the request correctly.
+   *
+   * @param registrationId the registration the token is for, as [SERVICE_REGISTRATION_CLAIM]. A
+   *   `client_id` can be registered again once removed; the token holds for the one it was issued to.
    */
+  @JvmOverloads
   fun issueServiceToken(
     pod: String,
     clientId: String,
     scopes: Set<String>,
     ttlSeconds: Long = SERVICE_TOKEN_TTL_SECONDS,
+    registrationId: String? = null,
   ): String {
     return issueToken(
       pod = pod,
@@ -131,6 +137,7 @@ class PodTokenIssuer(
       scopes = scopes,
       ttlSeconds = ttlSeconds,
       clientType = SERVICE_CLIENT_TYPE,
+      registrationId = registrationId,
     ).token
   }
 
@@ -272,6 +279,7 @@ class PodTokenIssuer(
     scopes: Set<String>,
     ttlSeconds: Long,
     clientType: String?,
+    registrationId: String? = null,
   ): IssuedToken {
     val now = Instant.now()
     val jti = UUID.randomUUID().toString()
@@ -289,6 +297,9 @@ class PodTokenIssuer(
       .jwtID(jti)
     if (clientType != null) {
       claimsBuilder.claim("client_type", clientType)
+    }
+    if (registrationId != null) {
+      claimsBuilder.claim(SERVICE_REGISTRATION_CLAIM, registrationId)
     }
     val jwt = SignedJWT(header, claimsBuilder.build())
     jwt.sign(RSASSASigner(signingKey))

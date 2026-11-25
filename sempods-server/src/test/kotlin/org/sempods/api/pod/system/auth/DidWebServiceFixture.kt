@@ -22,6 +22,7 @@ import java.time.Instant
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * `did:web` services for the pod to read keys from: DID documents this process holds, and the
@@ -37,21 +38,30 @@ import java.util.concurrent.ConcurrentHashMap
 internal object DidWebServiceFixture {
 
   private val documents = ConcurrentHashMap<String, String>()
+  private val reads = ConcurrentHashMap<String, AtomicInteger>()
 
   /** Serves what [DidWebService.publish] put up; anything else is a 404. */
-  val fetcher = DidDocumentFetcher { url -> documents[url] ?: throw IOException("GET $url answered HTTP 404") }
+  val fetcher = DidDocumentFetcher { url ->
+    reads.computeIfAbsent(url) { AtomicInteger() }.incrementAndGet()
+    documents[url] ?: throw IOException("GET $url answered HTTP 404")
+  }
 
-  /** A service whose document names an EC P-256 and an RSA key under `authentication`. */
-  fun newService(): DidWebService {
+  /**
+   * A service whose document names an EC P-256 and an RSA key under `authentication`; with
+   * [port], one whose identifier carries it (`did:web:did.test%3A8443:…`).
+   */
+  fun newService(port: Int? = null): DidWebService {
     val segment = "svc-${UUID.randomUUID()}"
-    return DidWebService("did:web:$HOST:$segment") { document -> documents["https://$HOST/$segment/did.json"] = document }
+    val host = if (port == null) HOST else "$HOST%3A$port"
+    val url = "https://$HOST${port?.let { ":$it" } ?: ""}/$segment/did.json"
+    return DidWebService("did:web:$host:$segment", reads = { reads[url]?.get() ?: 0 }) { document -> documents[url] = document }
   }
 
   private const val HOST = "did.test"
 }
 
 /** One `did:web` identity: its identifier, its keys, and what it signs with them. */
-internal class DidWebService(val did: String, private val serve: (String) -> Unit) {
+internal class DidWebService(val did: String, val reads: () -> Int = { 0 }, private val serve: (String) -> Unit) {
 
   val ecKey: ECKey = ECKeyGenerator(Curve.P_256).keyID("$did#key-ec").generate()
   val rsaKey: RSAKey = RSAKeyGenerator(2048).keyID("$did#key-rsa").generate()
@@ -78,11 +88,13 @@ internal class DidWebService(val did: String, private val serve: (String) -> Uni
   }
 
   /**
-   * A JWT signed with [key]: `iss` and `sub` this identifier, [audience], a fresh `jti`, and `exp`
-   * [lifetimeSeconds] from now. [claims] are added or, as `null`, removed.
+   * A JWT signed with [key]: `iss` and `sub` this identifier, [audience] — or every one of
+   * [audiences], as a list — a fresh `jti`, and `exp` [lifetimeSeconds] from now. [claims] are
+   * added or, as `null`, removed.
    */
   fun sign(
     audience: String,
+    audiences: List<String>? = null,
     key: JWK = ecKey,
     jti: String = UUID.randomUUID().toString(),
     lifetimeSeconds: Long = 60,
@@ -93,7 +105,7 @@ internal class DidWebService(val did: String, private val serve: (String) -> Uni
     val builder = JWTClaimsSet.Builder()
       .issuer(did)
       .subject(did)
-      .audience(audience)
+      .apply { if (audiences == null) audience(audience) else audience(audiences) }
       .jwtID(jti)
       .issueTime(Date.from(now))
       .expirationTime(Date.from(now.plusSeconds(lifetimeSeconds)))

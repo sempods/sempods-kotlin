@@ -17,30 +17,29 @@ import com.nimbusds.oauth2.sdk.auth.verifier.JWTAudienceCheck
 import com.nimbusds.oauth2.sdk.auth.verifier.PKIClientX509CertificateBindingVerifier
 import com.nimbusds.oauth2.sdk.id.Audience
 import com.nimbusds.oauth2.sdk.id.ClientID
-import com.nimbusds.oauth2.sdk.id.JWTID
 import org.sempods.auth.core.DidWeb
 import java.security.PublicKey
 import java.time.Duration
-import java.util.Date
 
 /**
  * Whether a JWT was signed by the `did:web` it names, for this pod: a client assertion at the
  * token endpoint (RFC 7523 §2.2, `private_key_jwt`) or a software statement at registration
- * (RFC 7591 §2.3). The checks are the same for both, with a different audience.
+ * (RFC 7591 §2.3). The checks are the same for both; the audiences are disjoint, so a JWT made for
+ * one is refused by the other (RFC 8725 §3.12).
  *
  * The SDK's `ClientAuthenticationVerifier` does the protocol: `iss`, `sub` and `aud` present,
  * `iss` equal to `sub`, `aud` one of the audiences given, `exp` in the future and at most
  * [MAX_LIFETIME] ahead, `nbf` passed, and the signature, all with its own clock skew. What it
- * leaves open is this pod's, and checked here first:
+ * leaves open is this pod's:
  *
  *  - **The issuer is a `did:web`.** The keys are the DID document's — [DidWebKeys].
  *  - **RS256, PS256 or ES256**, named in the header with a `kid`. The SDK accepts every RSA and EC
  *    algorithm and, without a `kid`, would try every key.
- *  - **A `jti`, spent once.** The SDK checks a `jti` only where there is one, and asks whether it
- *    was spent before it writes it down — two requests at once would both pass. Here the asking is
- *    the spending, one atomic insert ([ClientAssertionJtiStore]), and it happens before the
- *    signature is checked: a forged assertion spends a `jti`, which costs the client nothing,
- *    since a `jti` it chose at random is not one anyone else can guess.
+ *  - **One audience.** The SDK accepts an `aud` list naming any audience given; a list naming two
+ *    endpoints would be good at both.
+ *  - **A `jti`, spent once.** Spent after everything else holds, by one atomic insert
+ *    ([ClientAssertionJtiStore]): two requests at once have one winner, and an assertion refused
+ *    for another reason — sent to the wrong pod, say — stays good where it was meant to go.
  *
  * Every refusal says why, in a sentence the caller can act on; none of them distinguishes a client
  * that exists from one that does not, because the caller named the identifier itself.
@@ -80,8 +79,10 @@ class DidWebClientAuthentication @Inject internal constructor(
     if (expectedClientId != null && clientId != expectedClientId) {
       return DidWebAssertion.Refused("the assertion is not issued by '$expectedClientId'")
     }
-    if (authentication.jwtAuthenticationClaimsSet.jwtid == null) {
-      return DidWebAssertion.Refused("the assertion carries no jti")
+    val claims = authentication.jwtAuthenticationClaimsSet
+    val jti = claims.jwtid ?: return DidWebAssertion.Refused("the assertion carries no jti")
+    if (claims.audience.size != 1) {
+      return DidWebAssertion.Refused("the assertion names one audience, as a single aud value")
     }
 
     val verifier = ClientAuthenticationVerifier(
@@ -89,11 +90,14 @@ class DidWebClientAuthentication @Inject internal constructor(
       null as PKIClientX509CertificateBindingVerifier<Unit>?,
       audiences.mapTo(mutableSetOf(), ::Audience),
       JWTAudienceCheck.LEGACY,
-      jtiChecker,
+      null as ExpendedJTIChecker<Unit>?,
       MAX_LIFETIME.seconds,
     )
     return try {
       verifier.verify(authentication, null, Context())
+      if (!jtis.claim(clientId, jti.value, JTI_RETENTION)) {
+        return DidWebAssertion.Refused("the assertion's jti was used before")
+      }
       DidWebAssertion.Verified(clientId, signed.jwtClaimsSet.claims)
     } catch (e: InvalidClientException) {
       DidWebAssertion.Refused(e.message ?: "the assertion does not verify")
@@ -101,6 +105,9 @@ class DidWebClientAuthentication @Inject internal constructor(
       DidWebAssertion.Refused("the assertion's signature cannot be checked against the key its kid names")
     }
   }
+
+  /** See [DidWebKeys.isAddressable]. */
+  internal fun isAddressable(clientId: String): Boolean = keys.isAddressable(clientId)
 
   private val selector = object : ClientCredentialsSelector<Unit> {
     override fun selectClientSecrets(clientId: ClientID, method: ClientAuthenticationMethod, context: Context<Unit>): List<Secret> =
@@ -112,17 +119,10 @@ class DidWebClientAuthentication @Inject internal constructor(
       header: JWSHeader,
       forceRefresh: Boolean,
       context: Context<Unit>,
-    ): List<PublicKey> = keys.publicKeys(clientId.value, header.keyID).ifEmpty {
-      throw InvalidClientException("the DID document of '${clientId.value}' names no authentication key '${header.keyID}'")
-    }
-  }
-
-  private val jtiChecker = object : ExpendedJTIChecker<Unit> {
-    override fun isExpended(jti: JWTID, clientId: ClientID, method: ClientAuthenticationMethod, context: Context<Unit>): Boolean =
-      !jtis.claim(clientId.value, jti.value, JTI_RETENTION)
-
-    override fun markExpended(jti: JWTID, exp: Date, clientId: ClientID, method: ClientAuthenticationMethod, context: Context<Unit>) {
-      // Spent in [isExpended], atomically.
+    ): List<PublicKey> = keys.publicKeys(clientId.value, header.keyID, header.algorithm).ifEmpty {
+      throw InvalidClientException(
+        "the DID document of '${clientId.value}' names no authentication key '${header.keyID}' for ${header.algorithm}",
+      )
     }
   }
 

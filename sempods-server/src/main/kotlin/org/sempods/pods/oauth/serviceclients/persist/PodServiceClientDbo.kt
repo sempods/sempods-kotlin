@@ -59,7 +59,9 @@ internal data class PodServiceClientDbo(
    * increments it**, so a replace prepared at one version writes nothing once anything else changed
    * them (`PodGrantsFacade.replaceGrants`). Absent until the first write; see
    * `sempods-server/docs/collections.md`. A registration re-created under the same `clientId`
-   * starts again at `0`.
+   * starts again at `0` — except a `did:web` one, which names itself and so is re-created by the
+   * service at will: it starts at its [createdAt] in epoch milliseconds, past every version an
+   * earlier registration under that identifier reached, so an edit read from that one is stale here.
    */
   val grantsVersion: Long = 0,
 

@@ -19,12 +19,19 @@ internal class DidWebAccessFlow {
   private lateinit var http: TestHttpClient
 
   /** `POST /register` for [statement], or with none where it is `null`, with [bearer] if given. */
-  fun register(pod: PodDbo, statement: String?, name: String = "Owner Console", bearer: String? = null): TestHttpResponse {
+  fun register(
+    pod: PodDbo,
+    statement: String?,
+    name: String = "Owner Console",
+    bearer: String? = null,
+    redirectUris: List<String>? = null,
+  ): TestHttpResponse {
     val body = linkedMapOf<String, Any>(
       "client_name" to name,
       "grant_types" to listOf("client_credentials"),
       "token_endpoint_auth_method" to "private_key_jwt",
     )
+    redirectUris?.let { body["redirect_uris"] = it }
     statement?.let { body["software_statement"] = it }
     return http.preparePost(registerEndpoint(pod))
       .addHeader("Content-Type", "application/json")

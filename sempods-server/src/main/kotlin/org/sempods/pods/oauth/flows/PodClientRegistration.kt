@@ -223,10 +223,18 @@ class PodClientRegistration @Inject internal constructor(
    * to each member is `sempods-server/docs/auth/oauth.md` §"Registering a did:web service".
    *
    * The statement (RFC 7591 §2.3) is checked as a client assertion is at the token endpoint —
-   * signed by a key the DID document names, `iss` and `sub` the identifier, `aud` this registration
-   * endpoint or the issuer, short-lived, its `jti` spent — so nobody holds a registration under a
-   * `did:web` whose keys they lack. The metadata it states takes precedence over the body's, as the
-   * RFC asks; of what this pod reads, that is `client_name` and `redirect_uris`.
+   * signed by a key the DID document names, `iss` and `sub` the identifier, short-lived, its `jti`
+   * spent — so nobody holds a registration under a `did:web` whose keys they lack. Its `aud` is
+   * this registration endpoint alone, which the token endpoint never accepts, so a statement handed
+   * to a registration tool is no credential (RFC 8725 §3.12). The metadata it states takes
+   * precedence over the body's, as the RFC asks; of what this pod reads, that is `client_name` and
+   * `redirect_uris`, and a member it states in another type is refused rather than read from the
+   * body.
+   *
+   * A self-registration spends the pod's budget before the DID document is read, since that read
+   * is what costs. An identifier carrying a `%`, which a port is written with, is refused: it
+   * cannot be named in a path, so the owner could not withdraw it (outside development, where a
+   * loopback one is accepted with that limit).
    *
    * A repeat answers the registration that stands, unchanged: there is no secret to hand out, and
    * the owner may have decided its access under what it said the first time.
@@ -249,27 +257,46 @@ class PodClientRegistration @Inject internal constructor(
         PodRegistrationError.INVALID_SOFTWARE_STATEMENT,
         "a did:web service proves its identifier with a software_statement signed by a key of its DID document",
       )
+    if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
+
     val issuer = pod.ref.uri.toString()
-    val verified = when (val check = didWebAuthentication.verify(statement, audiences = setOf("$issuer/_system/auth/register", issuer))) {
+    val verified = when (val check = didWebAuthentication.verify(statement, audiences = setOf("$issuer/_system/auth/register"))) {
       is DidWebAssertion.Verified -> check
       is DidWebAssertion.Refused -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, check.reason)
     }
     val clientId = verified.clientId
+    if (!didWebAuthentication.isAddressable(clientId)) {
+      return refused(
+        PodRegistrationError.INVALID_SOFTWARE_STATEMENT,
+        "a did:web with a port or another percent-encoded character cannot be named in this pod's routes; use one without",
+      )
+    }
 
-    // A statement that says what the body says differently is not one this pod can follow.
+    // A statement that says what the body says differently, or in a type it cannot mean, is not
+    // one this pod can follow.
     statedDisagreement(verified.claims)?.let { member ->
       return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's '$member' disagrees with this profile")
     }
 
     serviceClients.find(pod.id, clientId)?.let { return didWebRegistered(it) }
 
-    val label = (verified.claims["client_name"] as? String)?.trim()?.takeIf { it.isNotBlank() }
-      ?: request.client.clientName
+    val label = verified.claims.stated("client_name") { (it as? String)?.trim()?.takeIf(String::isNotBlank) }
+      .let { stated ->
+        when (stated) {
+          Stated.Absent -> request.client.clientName
+          Stated.Malformed -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's 'client_name' is not a name")
+          is Stated.Given -> stated.value
+        }
+      }
       ?: return refused(
         PodRegistrationError.INVALID_CLIENT_METADATA,
         "client_name is required: it is what names this service in the consent that activates it",
       )
-    val redirectUris = statedStrings(verified.claims["redirect_uris"]) ?: request.client.redirectUris.toList()
+    val redirectUris = when (val stated = verified.claims.stated("redirect_uris", ::statedStrings)) {
+      Stated.Absent -> request.client.redirectUris.toList()
+      Stated.Malformed -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, "the software statement's 'redirect_uris' is not a list of strings")
+      is Stated.Given -> stated.value
+    }
     redirectUris.firstOrNull { !RedirectUri.isValid(it) }?.let { uri ->
       return refused(
         PodRegistrationError.INVALID_REDIRECT_URI,
@@ -277,8 +304,6 @@ class PodClientRegistration @Inject internal constructor(
             "and no code/response/state in the query: $uri",
       )
     }
-
-    if (owner == null && !serviceBudget.tryAcquire(pod.id)) return PodRegistrationResult.RateLimited
 
     val registration = try {
       serviceClients.registerDidWeb(pod, clientId, label, redirectUris, provisional = owner == null)
@@ -305,11 +330,26 @@ class PodClientRegistration @Inject internal constructor(
     activationExpiresAt = registration.pendingUntil,
   )
 
-  /** The profile member a software statement states otherwise than this profile, or `null`. */
+  /**
+   * The profile member a software statement states otherwise than this profile, or `null`: a
+   * method or grant other than this profile's, or a member [REFUSED_MEMBERS] names.
+   */
   private fun statedDisagreement(claims: Map<String, Any?>): String? = when {
     "token_endpoint_auth_method" in claims && claims["token_endpoint_auth_method"] != KEY_AUTH_METHOD -> "token_endpoint_auth_method"
     "grant_types" in claims && statedStrings(claims["grant_types"]) != listOf(CLIENT_CREDENTIALS_GRANT) -> "grant_types"
-    else -> null
+    else -> REFUSED_MEMBERS.firstOrNull { it in claims && isGiven(claims[it]) }
+  }
+
+  /** What a statement says about one member: nothing, something [read] cannot take, or a value. */
+  private sealed interface Stated<out T> {
+    data object Absent : Stated<Nothing>
+    data object Malformed : Stated<Nothing>
+    data class Given<T>(val value: T) : Stated<T>
+  }
+
+  private fun <T : Any> Map<String, Any?>.stated(member: String, read: (Any) -> T?): Stated<T> {
+    val value = this[member] ?: return Stated.Absent
+    return read(value)?.let { Stated.Given(it) } ?: Stated.Malformed
   }
 
   /** A list of strings, trimmed; `null` where [value] is absent or anything else. */

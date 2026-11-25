@@ -50,7 +50,8 @@ class PodContextPermissionResolver @Inject constructor(
    *
    * The token's grant type names the recipient ([GrantRecipient]), never its `client_id` alone:
    * - **A Client Credentials token** is a service client acting as itself, and reads the grants on
-   *   its registration (`PodServiceClientDao`), whichever registration holds the `client_id` now.
+   *   the registration it was issued for (`PodServiceClientDao`), and on no other made since under
+   *   its `client_id`.
    *   A single-document write replaces them, so a request sees one version of them or the next.
    * - **Any other token** is an app acting for its `sub`, and reads `PodGrantsDao` under
    *   `(pod, client_id, sub)`. A request overlapping a replace there can see part of either
@@ -71,7 +72,12 @@ class PodContextPermissionResolver @Inject constructor(
     podBaseUrl: String,
   ): ResolvedContextAccess {
     val rawGrants = if (token.isServiceClient) {
-      podServiceClientDao.findByClientId(podId, token.clientId)?.scopes ?: emptySet()
+      // The registration the token was issued for: one made again under the same `client_id` since
+      // holds nothing of this token's. A token without the claim is from a server before it, and at
+      // most a service token's lifetime old.
+      podServiceClientDao.findByClientId(podId, token.clientId)
+        ?.takeIf { row -> token.registrationId == null || row.id?.toHexString() == token.registrationId }
+        ?.scopes ?: emptySet()
     } else {
       podGrantsDao.fetchGrantStrings(podId, token.clientId, listOf(checkNotNull(token.sub)))
     }

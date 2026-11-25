@@ -458,6 +458,7 @@ class PodTokenExchange @Inject internal constructor(
       pod = podName,
       clientId = client.clientId,
       scopes = tokenFeatureScopes,
+      registrationId = client.id.value,
     )
     serviceClients.touchLastUsed(pod.id, client.clientId)
 

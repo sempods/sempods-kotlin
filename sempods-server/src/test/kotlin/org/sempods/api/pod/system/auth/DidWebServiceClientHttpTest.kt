@@ -13,7 +13,9 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.spi.SERVICE_CLIENT_TYPE
+import org.sempods.pods.oauth.spi.SERVICE_REGISTRATION_CLAIM
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -37,6 +39,9 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var didWeb: DidWebAccessFlow
+
+  @Inject
+  private lateinit var serviceClientStore: PodServiceClientStore
 
   // ── Registration ────────────────────────────────────────────────────────────
 
@@ -84,23 +89,88 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
 
   @Test
   fun `a registration without a statement, or with one that does not verify, is refused`() {
-    val owned = ownedPod()
     val service = DidWebServiceFixture.newService()
     val stranger = ECKeyGenerator(Curve.P_256).keyID("${service.did}#key-ec").generate()
 
-    val refusals = mapOf(
-      "no statement" to register(owned.pod, statement = null),
-      "a key the document does not name" to register(owned.pod, service.sign(registerEndpoint(owned.pod), key = stranger)),
-      "the token endpoint as audience" to register(owned.pod, service.assertion(owned.pod)),
-      "a statement stating another profile" to
-        register(owned.pod, service.statement(owned.pod, claims = mapOf("token_endpoint_auth_method" to "client_secret_basic"))),
+    // Each on a pod of its own: a self-registration spends the pod's budget before it is checked.
+    val refusals = mapOf<String, (PodDbo) -> TestHttpResponse>(
+      "no statement" to { pod -> register(pod, statement = null) },
+      "a key the document does not name" to { pod -> register(pod, service.sign(registerEndpoint(pod), key = stranger)) },
+      "the token endpoint as audience" to { pod -> register(pod, service.assertion(pod)) },
+      "the issuer as audience" to { pod -> register(pod, service.sign(DidWebService.issuer(pod))) },
+      "two audiences" to { pod ->
+        register(pod, service.sign("", audiences = listOf(registerEndpoint(pod), DidWebService.tokenEndpoint(pod))))
+      },
+      "a statement stating another profile" to { pod ->
+        register(pod, service.statement(pod, claims = mapOf("token_endpoint_auth_method" to "client_secret_basic")))
+      },
+      "a statement asking for a scope" to { pod -> register(pod, service.statement(pod, claims = mapOf("scope" to "public-read"))) },
+      "a signed redirect_uris that is not a list" to { pod ->
+        register(pod, service.statement(pod, claims = mapOf("redirect_uris" to "https://evil.example/cb")))
+      },
+      "a signed client_name that is not a name" to { pod -> register(pod, service.statement(pod, claims = mapOf("client_name" to 7))) },
     )
 
-    refusals.forEach { (case, response) ->
+    refusals.forEach { (case, send) ->
+      val owned = ownedPod()
+      val response = send(owned.pod)
       assertEquals(400, response.statusCode, "$case: ${response.responseBody}")
       assertEquals("invalid_software_statement", json(response)["error"], case)
+      assertEquals(400, services.open(owned.pod, service.did, owned.cookie).statusCode, "$case: nothing was registered")
     }
+  }
+
+  @Test
+  fun `a signed redirect_uris of the wrong type never lets the body's stand in`() {
+    val owned = ownedPod()
+    val service = DidWebServiceFixture.newService()
+
+    val response = register(
+      owned.pod,
+      service.statement(owned.pod, claims = mapOf("redirect_uris" to listOf(7))),
+      redirectUris = listOf("https://evil.example/cb"),
+    )
+
+    assertEquals(400, response.statusCode, response.responseBody)
     assertEquals(400, services.open(owned.pod, service.did, owned.cookie).statusCode, "nothing was registered")
+  }
+
+  @Test
+  fun `an identifier with a port is refused, since no route could name it`() {
+    val owned = ownedPod()
+    val service = DidWebServiceFixture.newService(port = 8443)
+
+    val response = register(owned.pod, service.statement(owned.pod))
+
+    assertEquals(400, response.statusCode, response.responseBody)
+    assertEquals("invalid_software_statement", json(response)["error"])
+    assertTrue("port" in (json(response)["error_description"] as String), response.responseBody)
+  }
+
+  @Test
+  fun `a spent budget refuses a self-registration before the DID document is read`() {
+    val owned = ownedPod()
+    repeat(SempodsModule.config.registerRateLimitServiceBurst) { services.register(owned.pod, name = "Filler $it") }
+    val service = DidWebServiceFixture.newService()
+
+    val response = register(owned.pod, service.statement(owned.pod))
+
+    assertEquals(429, response.statusCode, response.responseBody)
+    assertEquals(0, service.reads(), "the pod asked the service's host nothing")
+  }
+
+  @Test
+  fun `a service registers again as soon as its provisional registration has expired`() {
+    val owned = ownedPod()
+    val service = DidWebServiceFixture.newService()
+    assertEquals(201, register(owned.pod, service.statement(owned.pod)).statusCode)
+    services.expire(service.did)
+
+    val again = register(owned.pod, service.statement(owned.pod))
+
+    assertEquals(201, again.statusCode, again.responseBody)
+    assertNotNull(json(again)["activation_expires_at"])
+    assertEquals(200, services.open(owned.pod, service.did, owned.cookie).statusCode, "the new registration stands")
   }
 
   @Test
@@ -132,6 +202,7 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
     assertEquals(service.did, claims.subject)
     assertEquals(service.did, claims.getStringClaim("client_id"))
     assertEquals(SERVICE_CLIENT_TYPE, claims.getStringClaim("client_type"))
+    assertEquals(serviceClientStore.find(owned.pod.hosted.id, service.did)?.id?.value, claims.getStringClaim(SERVICE_REGISTRATION_CLAIM))
     assertEquals(listOf(c), services.contexts(owned.pod, accessToken))
   }
 
@@ -142,6 +213,55 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
 
     assertEquals(200, token(owned.pod, service.assertion(owned.pod, key = service.rsaKey)).statusCode)
     assertEquals(200, token(owned.pod, service.sign(DidWebService.issuer(owned.pod))).statusCode)
+  }
+
+  @Test
+  fun `a software statement is no client assertion, and one audience is all an assertion names`() {
+    val owned = ownedPod()
+    val service = activated(owned, setOf("${owned.context("c")}#read"))
+
+    val refusals = mapOf(
+      "a statement for the registration endpoint" to token(owned.pod, service.statement(owned.pod)),
+      "two audiences" to token(
+        owned.pod,
+        service.sign("", audiences = listOf(DidWebService.tokenEndpoint(owned.pod), registerEndpoint(owned.pod))),
+      ),
+    )
+
+    refusals.forEach { (case, response) ->
+      assertEquals(400, response.statusCode, "$case: ${response.responseBody}")
+      assertEquals("invalid_client", json(response)["error"], case)
+    }
+  }
+
+  @Test
+  fun `an assertion refused for its audience leaves its jti good where it was meant to go`() {
+    val owned = ownedPod()
+    val service = activated(owned, setOf("${owned.context("c")}#read"))
+    val jti = "jti-${java.util.UUID.randomUUID()}"
+
+    val misdirected = token(owned.pod, service.sign("${SempodsModule.config.apiBaseUrl}another-pod/_system/auth/token", jti = jti))
+    val meant = token(owned.pod, service.assertion(owned.pod, jti = jti))
+
+    assertEquals("invalid_client", json(misdirected)["error"], misdirected.responseBody)
+    assertEquals(200, meant.statusCode, meant.responseBody)
+  }
+
+  @Test
+  fun `a token holds for the registration it was issued to, and not for one made again under its identifier`() {
+    val owned = ownedPod()
+    val c = owned.context("c")
+    val service = activated(owned, setOf("$c#read"))
+    val before = json(token(owned.pod, service.assertion(owned.pod)))["access_token"] as String
+    val standing = checkNotNull(serviceClientStore.find(owned.pod.hosted.id, service.did))
+    assertTrue(serviceClientStore.remove(owned.pod.hosted.id, service.did, standing.id))
+
+    assertEquals(201, register(owned.pod, service.statement(owned.pod)).statusCode)
+    services.confirm(owned.pod, service.did, owned.cookie, setOf("$c#read"))
+    val after = json(token(owned.pod, service.assertion(owned.pod)))["access_token"] as String
+
+    assertEquals(emptyList(), services.contexts(owned.pod, before), "the earlier registration's token reaches nothing")
+    assertEquals(listOf(c), services.contexts(owned.pod, after))
   }
 
   @Test
@@ -239,7 +359,8 @@ class DidWebServiceClientHttpTest : SempodsIntegrationTest() {
     return service
   }
 
-  private fun register(pod: PodDbo, statement: String?, name: String = "Owner Console") = didWeb.register(pod, statement, name)
+  private fun register(pod: PodDbo, statement: String?, name: String = "Owner Console", redirectUris: List<String>? = null) =
+    didWeb.register(pod, statement, name, redirectUris = redirectUris)
 
   private fun token(pod: PodDbo, assertion: String): TestHttpResponse = didWeb.token(pod, assertion)
 

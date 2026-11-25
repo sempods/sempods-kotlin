@@ -154,7 +154,7 @@ one on purpose, the second column says why.
 | Code redirect | By hand: the SDK trims `state` and refuses a blank one | [PodAuthorizeResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodAuthorizeResponses.kt) |
 | Authorization error redirect | By hand: the SDK cannot remove an `error_uri` the client's redirect already carries, and refuses the blank `state` this echoes | [PodOAuthErrorResponses](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthErrorResponses.kt) |
 | Token request: `authorization_code`, `refresh_token`, `client_credentials` with `client_secret_basic` or `private_key_jwt` | SDK `GrantType`, `AuthorizationCodeGrant`, `RefreshTokenGrant`, `ClientSecretBasic`; repeated parameters, the choice of grant and the assertion parameters by hand, where `TokenRequest.parse` holds a different profile | [PodTokenMessages](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodTokenMessages.kt) |
-| Client assertion and software statement of a `did:web` service | SDK `ClientAuthenticationVerifier`; the `did:web` issuer, algorithms, `kid` and single-use `jti` on top | [DidWebClientAuthentication](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebClientAuthentication.kt) |
+| Client assertion and software statement of a `did:web` service | SDK `ClientAuthenticationVerifier`; the `did:web` issuer, algorithms, `kid`, one audience and a `jti` spent after the checks on top | [DidWebClientAuthentication](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebClientAuthentication.kt) |
 | A `did:web` service's DID document | Fetched behind the outbound guard, read by hand: `authentication` methods with a `publicKeyJwk` | [DidWebKeys](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebKeys.kt) |
 | The pod's signing keys (JWKS) | `JWKSet` | [SigningKeys](../../../sempods-auth-core/src/main/kotlin/org/sempods/auth/core/SigningKeys.kt) |
 | The pod's discovery documents | By hand: the map is the contract ([modularity](../../../docs/concepts/modularity.md)) | [PodOAuthMetadataEndpoint](../../src/main/kotlin/org/sempods/api/pod/system/auth/PodOAuthMetadataEndpoint.kt) |
@@ -234,10 +234,12 @@ A service with a `did:web` identity registers under that identifier and gets no 
 ```
 
 The statement is a JWT signed with a key from the service's DID document. Its `iss` and `sub` are
-the `did:web` identifier, its `aud` is the registration endpoint or the issuer, and it carries a
-`jti`. The pod checks it like a [client assertion](service-clients.md#didweb-services), so it is
-accepted once. A `client_name` or `redirect_uris` the statement states takes precedence over the
-body's.
+the `did:web` identifier, its `aud` is the registration endpoint `{podUrl}/_system/auth/register`
+as one value, and it carries a `jti`. The pod checks it like a
+[client assertion](service-clients.md#didweb-services), so it is accepted once. The two audiences
+are disjoint, so a statement is never a client assertion. A `client_name` or `redirect_uris` the
+statement states takes precedence over the body's. The identifier cannot carry a `%`, so no port:
+the owner could not name it in a management route. Development accepts a loopback one.
 
 The response carries the identifier as `client_id`, `token_endpoint_auth_method: "private_key_jwt"`
 and no `client_secret`. Activation, the `service-clients:manage` bearer and the members in the table
@@ -247,8 +249,9 @@ unchanged.
 | Case | Answer |
 |---|---|
 | No `software_statement` | `invalid_software_statement` |
-| A statement that does not verify, has another audience, or was used before | `invalid_software_statement` |
-| A statement stating another `token_endpoint_auth_method` or `grant_types` | `invalid_software_statement` |
+| A statement that does not verify, has another or more than one audience, or was used before | `invalid_software_statement` |
+| A statement stating another `token_endpoint_auth_method` or `grant_types`, a member the table above refuses, or a `client_name` or `redirect_uris` of another type | `invalid_software_statement` |
+| An identifier with a `%`, such as `did:web:console.example%3A8443` | `invalid_software_statement` |
 
 ## Managing service clients
 

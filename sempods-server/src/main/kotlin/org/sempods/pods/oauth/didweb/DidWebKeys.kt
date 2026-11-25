@@ -1,7 +1,9 @@
 package org.sempods.pods.oauth.didweb
 
+import com.nimbusds.jose.Algorithm
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
+import com.nimbusds.jose.jwk.KeyOperation
 import com.nimbusds.jose.jwk.KeyUse
 import com.nimbusds.jose.jwk.RSAKey
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -15,6 +17,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 /**
  * Reads a DID document over HTTP: the body of a `200`, or an exception for anything else. A port,
@@ -36,10 +39,12 @@ internal fun interface DidDocumentFetcher {
  *
  * **Which keys.** A verification method the document names under `authentication` — the
  * relationship for proving control of the DID — that carries a public `publicKeyJwk` and is
- * controlled by the DID itself. Each is found under its full DID URL (`did:web:example.org#key-1`).
- * A key the document names under any other relationship, or only under `verificationMethod`,
- * authenticates nothing. RSA keys under 2048 bits and EC keys off P-256 are left out, since the
- * algorithms accepted for them are RS256, PS256 and ES256.
+ * names the DID itself as its `controller`. Each is found under its full DID URL
+ * (`did:web:example.org#key-1`). A key the document names under any other relationship, or only
+ * under `verificationMethod`, authenticates nothing. RSA keys under 2048 bits and EC keys off P-256
+ * are left out, since the algorithms accepted for them are RS256, PS256 and ES256. A key keeps the
+ * limits it publishes (RFC 7517 §§4.2–4.4): a `use` other than `sig` or `key_ops` without `verify`
+ * leaves it out, and an `alg` verifies that algorithm only.
  *
  * **The cache.** A document read is kept for [ttl], and one that could not be read for
  * [failureTtl], so a broken host is asked again soon but not on every request. An assertion naming
@@ -47,6 +52,11 @@ internal fun interface DidDocumentFetcher {
  * the last read: that is how a rotated key arrives without waiting out [ttl], and why an unknown
  * `kid` cannot make the pod fetch on every request. Callers that find the entry wanting at once
  * share one read. At most [maxEntries] documents are kept; the one used longest ago goes first.
+ *
+ * **The reads.** At most [maxConcurrentReads] run at once. A read past that is not made: the
+ * lookup answers no key, and nothing is cached, so the DID is read on the next request that finds
+ * room. Every read is a request the pod makes to a host a caller named; this bounds how many
+ * threads and connections those can hold at once.
  */
 internal class DidWebKeys(
   private val fetcher: DidDocumentFetcher,
@@ -56,7 +66,10 @@ internal class DidWebKeys(
   private val failureTtl: Duration = Duration.ofSeconds(30),
   private val refreshAfter: Duration = Duration.ofMinutes(1),
   private val maxEntries: Int = 1_000,
+  maxConcurrentReads: Int = 8,
 ) {
+
+  private val reads = Semaphore(maxConcurrentReads)
 
   private class Entry(val keys: Map<String, JWK>?, val readAt: Instant)
 
@@ -65,10 +78,11 @@ internal class DidWebKeys(
   }
 
   /**
-   * The public key [did]'s document names [keyId] for, as a one-element list; empty where it names
-   * none, or the document cannot be read. [keyId] is a full DID URL or, relative to [did], `#key-1`.
+   * The public key [did]'s document names [keyId] for, to verify [algorithm] with, as a one-element
+   * list; empty where it names none, the key's `alg` is another, or the document cannot be read.
+   * [keyId] is a full DID URL or, relative to [did], `#key-1`.
    */
-  internal fun publicKeys(did: String, keyId: String): List<PublicKey> {
+  internal fun publicKeys(did: String, keyId: String, algorithm: Algorithm): List<PublicKey> {
     val kid = if (keyId.startsWith("#")) did + keyId else keyId
     if (!kid.startsWith("$did#")) return emptyList()
     val now = clock.instant()
@@ -78,7 +92,8 @@ internal class DidWebKeys(
     } else if (entry.keys?.containsKey(kid) != true && now.isAfter(entry.readAt.plus(refreshAfter))) {
       entry = refresh(did, entry, now)
     }
-    return listOfNotNull(entry.keys?.get(kid)?.let(::toPublicKey))
+    val jwk = entry.keys?.get(kid)?.takeIf { it.algorithm == null || it.algorithm.name == algorithm.name }
+    return listOfNotNull(jwk?.let(::toPublicKey))
   }
 
   private fun cached(did: String): Entry? = synchronized(entries) { entries[did] }
@@ -107,17 +122,34 @@ internal class DidWebKeys(
 
   private val inFlight = ConcurrentHashMap<String, CompletableFuture<Entry>>()
 
-  /** Reads [did]'s document now and caches what it says, a failure included. */
+  /**
+   * Reads [did]'s document now and caches what it says, a failure included. Where [reads] has no
+   * room, answers no keys and caches nothing.
+   */
   private fun read(did: String, now: Instant): Entry {
+    if (!reads.tryAcquire()) {
+      logger.info { "[oauth/did-web] DID document not read, too many reads at once: did='${LogSafeText.of(did)}'" }
+      return Entry(null, now)
+    }
     val keys = try {
       val url = documentUrl(did) ?: throw IllegalArgumentException("not a did:web identifier this pod reads")
       keysOf(did, JsonMappers.default().readValue(fetcher.fetch(url), JsonUtil.dynamicTypeRef))
     } catch (e: Exception) {
       logger.info { "[oauth/did-web] DID document unreadable: did='${LogSafeText.of(did)}', reason='${LogSafeText.of(e.message ?: e.javaClass.simpleName)}'" }
       null
+    } finally {
+      reads.release()
     }
     return Entry(keys, now).also { synchronized(entries) { entries[did] = it } }
   }
+
+  /**
+   * Whether [did] can be named in a path segment of this pod's routes. A `%` — a port is written
+   * `%3A` — would have to travel as `%25`, which the server refuses in a path. Development accepts
+   * a loopback one, which cannot be withdrawn by path either: a local console runs on a port.
+   */
+  internal fun isAddressable(did: String): Boolean =
+    '%' !in did || (allowLoopbackHttp && DidWeb.targetOf(did)?.host?.let(::isLoopback) == true)
 
   /** Where the did:web method puts [did]'s document; `null` for an identifier this pod does not read. */
   internal fun documentUrl(did: String): String? {
@@ -145,8 +177,7 @@ internal class DidWebKeys(
         else -> null
       } ?: return@mapNotNull null
       val id = (method["id"] as? String)?.let { absolute(did, it) } ?: return@mapNotNull null
-      val controller = method["controller"] as? String
-      if (controller != null && controller != did) return@mapNotNull null
+      if (method["controller"] != did) return@mapNotNull null
       val jwk = (method["publicKeyJwk"] as? Map<*, *>)?.let(::jwkOf) ?: return@mapNotNull null
       id to jwk
     }.toMap()
@@ -160,6 +191,7 @@ internal class DidWebKeys(
     val jwk = runCatching { JWK.parse(json as Map<String, Any>) }.getOrNull() ?: return null
     if (jwk.isPrivate) return null
     if (jwk.keyUse != null && jwk.keyUse != KeyUse.SIGNATURE) return null
+    if (jwk.keyOperations != null && KeyOperation.VERIFY !in jwk.keyOperations) return null
     return when (jwk) {
       is RSAKey -> jwk.takeIf { it.size() >= MIN_RSA_BITS }
       is ECKey -> jwk.takeIf { it.curve == com.nimbusds.jose.jwk.Curve.P_256 }
