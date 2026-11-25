@@ -205,6 +205,7 @@ binds each type itself, because there is no module that bundles them:
 | `ResourceExpander` | the deployment's own, or `SparqlResourceExpander` |
 | `SparqlQueryService`, `PodConnections` | with `SparqlResourceExpander` or `SparqlTextFindAdapter`: a read connection to the deployment's RDF4J store, holding that pod's statements alone |
 
-The endpoint asks no pod registry or context registry: whether the pod exists, and which contexts
+`:consumer-probe:find` binds exactly this list, with MongoDB off the classpath. The endpoint asks
+no pod registry or context registry: whether the pod exists, and which contexts
 the caller reads, is the authenticator's answer. The pod's URI is `SempodsCredentials.pod.uri`,
 and a relative `context` resolves against it.

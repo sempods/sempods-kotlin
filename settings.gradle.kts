@@ -136,6 +136,7 @@ include(
   "consumer-probe:client-media",
   "consumer-probe:client-rdf4j",
   "consumer-probe:control-plane",
+  "consumer-probe:find",
   "consumer-probe:mcp",
   "consumer-probe:opentelemetry",
   "deployments:sempods:image",

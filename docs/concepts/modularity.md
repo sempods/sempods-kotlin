@@ -366,6 +366,13 @@ the SDK: a client span per attempt, a W3C `traceparent` naming it on the wire, a
 over a client without the sempods interceptors failing closed. It is a module of its own because
 the SDK and the instrumentation are what the client probe's classpath must not contain.
 
+**One probe embeds `find`.** `:consumer-probe:find` depends on `sempods-server` with `org.mongodb`
+excluded and binds, under `requireExplicitBindings`, the list in
+[graph-retrieval](graph-retrieval.md#embedding-find) and nothing else: an authenticator of its own,
+`PodConnections` over an in-memory RDF4J repository, `SparqlResourceExpander` and an index that does
+not scope itself. It routes GET and POST through Jersey in memory and checks the sandbox. A MongoDB
+type that creeps back into anything on that list fails it with a missing class.
+
 **What no probe reaches is the POM.** A project dependency gives Gradle's own metadata, and the
 published POM is written from the same variants and then post-processed — the `pom.withXml` block
 below. A Maven consumer resolves from that file alone, so it is the one half of a publication that

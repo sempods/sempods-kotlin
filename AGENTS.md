@@ -156,8 +156,9 @@ IST documentation:
   embedding contract of the two services the plugin structurally cannot see — that contract only,
   not their wider accidental surface. `:consumer-probe:client`, `:consumer-probe:client-media`,
   `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane` and
-  `:consumer-probe:opentelemetry` check the client artifacts from outside. See
-  `docs/concepts/modularity.md` §"Open-source readiness".
+  `:consumer-probe:opentelemetry` check the client artifacts from outside, and
+  `:consumer-probe:find` binds `find` as a deployment with stores of its own does, MongoDB
+  excluded. See `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference
 
