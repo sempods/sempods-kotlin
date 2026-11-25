@@ -185,9 +185,10 @@ authorization-server metadata. A pod without the member does not offer it.
 
 The authority reaches no data: a token carrying it reads no context, including one the service was
 granted otherwise. `service-clients:manage` is never part of it, because that can create data access.
-Every call checks the pod's current owner. After a change of owner, calls answer `403`, and a new
-token carries nothing (`invalid_scope`). Calls are recorded in the
-[service audit log](operations.md#service-audit-retention).
+Every call checks the pod's current owner. After a change of owner, calls answer `403`, and the
+token endpoint refuses the service `invalid_scope`, even where it also holds context grants. The new
+owner sees the consent page as a fresh request, and confirming it grants the authority again. Calls
+are recorded in the [service audit log](operations.md#service-audit-retention).
 
 The authority lasts until the registration is removed:
 
@@ -197,7 +198,9 @@ The authority lasts until the registration is removed:
 | Alice's tool | `DELETE /_system/auth/service-clients/{clientId}`, [below](#managing-service-clients) |
 | The service itself | `DELETE /_system/auth/register/{clientId}` with its own bearer; `204`, or `403` for another service's |
 
-A token issued before the removal answers `401` on its next call.
+A token issued before the removal answers `401` on its next call. It names the registration it was
+issued for, so it holds nothing of one the service makes again under the same identifier, and
+cannot remove that one either.
 
 ## Managing service clients
 

@@ -131,7 +131,8 @@ class PodServiceConsentFlow @Inject internal constructor(
         csrfToken = csrf,
         webId = identity.webId,
         management = management,
-        managementHeld = registration.management != null,
+        // An authority a former owner granted has ended: the person here now is asked afresh.
+        managementHeld = registration.management?.let { podGrantsFacade.isPodOwner(pod, it.subjectUris) } == true,
       ),
     )
   }

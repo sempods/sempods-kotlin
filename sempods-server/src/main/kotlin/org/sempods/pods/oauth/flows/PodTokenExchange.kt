@@ -440,11 +440,17 @@ class PodTokenExchange @Inject internal constructor(
 
     // The management authority's scopes, while the owner who granted it still owns the pod. The
     // routes check the owner again on every call; this keeps a token from claiming one that has
-    // already ended.
-    val management = client.management
-      ?.takeIf { podGrantsFacade.isPodOwner(pod, it.subjectUris) }
-      ?.let { PodScopeValidator.serviceManagementScopes }
-      .orEmpty()
+    // already ended. Ended, it refuses the token outright, context grants or not: a management
+    // token resolves none, and the person who now owns the pod has not seen this service.
+    val management = client.management?.let { authority ->
+      if (!podGrantsFacade.isPodOwner(pod, authority.subjectUris)) {
+        return PodTokenResult.Refused(
+          OAuthErrorCode.INVALID_SCOPE,
+          "the authority to manage this pod ended when its owner changed; the owner grants it again in the service consent",
+        )
+      }
+      PodScopeValidator.serviceManagementScopes
+    }.orEmpty()
 
     if (client.scopes.isEmpty() && management.isEmpty()) {
       return PodTokenResult.Refused(OAuthErrorCode.INVALID_SCOPE, "no scopes registered for this client")

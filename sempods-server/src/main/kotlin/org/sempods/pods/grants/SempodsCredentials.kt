@@ -17,7 +17,7 @@ import java.time.Instant
  * implementation's `podId` resolves it from [PodRef.name] through `PodFacade.getPodId`, which is
  * cached.
  */
-data class SempodsCredentials(
+data class SempodsCredentials @JvmOverloads constructor(
   val pod: PodRef,
   /**
    * The contexts this request may read. `null` means unrestricted and is reserved for callers
@@ -44,4 +44,8 @@ data class SempodsCredentials(
   val tokenJti: String? = null,
   val tokenSub: String? = null,
   val tokenIssuedAt: Instant? = null,
+  /** Whether the bearer is a service client's own token (`client_type=service`), with no person behind it. */
+  val serviceClient: Boolean = false,
+  /** The registration a service client's token was issued for; see `PodAccessToken.registrationId`. */
+  val serviceRegistrationId: String? = null,
 )

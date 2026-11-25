@@ -75,6 +75,8 @@ class PodClientRegistration @Inject internal constructor(
   internal fun deregister(pod: HostedPod, caller: SempodsCredentials, clientId: String): PodDeregistration {
     if (!caller.isServiceToken || caller.oauthClientId != clientId) return PodDeregistration.NOT_YOURS
     val registration = serviceClients.find(pod.id, clientId) ?: return PodDeregistration.NOT_FOUND
+    // The registration the token was issued for, and not one made since under its identifier.
+    if (registration.id.value != caller.serviceRegistrationId) return PodDeregistration.NOT_FOUND
     if (!registration.registered) return PodDeregistration.NOT_YOURS
     if (!serviceClients.remove(pod.id, clientId, registration.id)) return PodDeregistration.NOT_FOUND
     logger.info { "[oauth/register] Service client removed itself: pod='${pod.name}', clientId='${LogSafeText.of(clientId)}'" }

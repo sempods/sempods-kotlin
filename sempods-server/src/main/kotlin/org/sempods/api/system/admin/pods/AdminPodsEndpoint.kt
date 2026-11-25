@@ -1,6 +1,5 @@
 package org.sempods.api.system.admin.pods
 
-import org.sempods.auth.core.DidWeb
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.inject.Inject
@@ -117,7 +116,9 @@ class AdminPodsEndpoint @Inject constructor(
    * does not transfer ownership. A fresh pod yields 201 `created`.
    *
    * `managementClient` registers that `did:web` service on the fresh pod, holding the authority to
-   * manage it for the owner. An existing pod is left as it is, this member included.
+   * manage it for the owner. An existing pod is left as it is, this member included — except where
+   * the creation that wrote it asked for this client and failed before registering it: then the
+   * retry registers it (`PodDbo.pendingManagementClient`).
    */
   @PUT
   @Path("{pod}")
@@ -132,17 +133,19 @@ class AdminPodsEndpoint @Inject constructor(
       ?: throw badRequest("missing JSON request body")
     val ownerWebId = ownerWebIdOf(request)
     val managementClient = request.managementClient?.trim()?.takeIf { it.isNotEmpty() }?.also {
-      if (!it.startsWith(DidWeb.PREFIX) || DidWeb.targetOf(it) == null) {
-        throw badRequest("managementClient must be a did:web identifier")
+      if (!podServiceClientProvisioning.acceptsManagementClient(it)) {
+        throw badRequest("managementClient must be a did:web identifier without a port or another percent-encoded character")
       }
     }
+    val managementClientName = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() }
 
     if (sempodsFacade.existsPod(pod)) {
+      managementClient?.let { finishManagement(pod, it, managementClientName) }
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     }
 
     try {
-      podDao.insert(name = pod, owner = ownerWebId)
+      podDao.insert(name = pod, owner = ownerWebId, pendingManagementClient = managementClient)
     } catch (e: MongoWriteException) {
       // Unique index on the pod name — a concurrent create won the race. The post-condition the
       // caller asked for holds either way, so this stays idempotent rather than surfacing a 500.
@@ -156,16 +159,26 @@ class AdminPodsEndpoint @Inject constructor(
     }
 
     logger.info { "Admin '$adminClientId' created pod '$pod' for owner '$ownerWebId'" }
-    managementClient?.let { clientId ->
-      podServiceClientProvisioning.provisionManagement(
-        pod = checkNotNull(podDao.fetchByName(pod)) { "pod '$pod' was just created" }.toHostedPod(sempodsUriBuilder),
-        clientId = clientId,
-        label = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() } ?: clientId,
-        owner = ownerWebId,
-        ownerUris = webIdUriDeriver.derivableAliases(ownerWebId).toSet(),
-      )
-    }
+    managementClient?.let { finishManagement(pod, it, managementClientName) }
     return Response.status(201).entity(PodLifecycleResponse(pod = pod, result = CREATED)).build()
+  }
+
+  /**
+   * Registers [clientId] as [pod]'s management client where the pod's creation asked for it and it
+   * is not registered yet, then clears that mark. The owner is the stored one: it is whom the
+   * creation named. Nothing happens for a pod whose mark names another client or none.
+   */
+  private fun finishManagement(pod: String, clientId: String, label: String?) {
+    val row = podDao.fetchByName(pod) ?: return
+    if (row.pendingManagementClient != clientId) return
+    podServiceClientProvisioning.provisionManagement(
+      pod = row.toHostedPod(sempodsUriBuilder),
+      clientId = clientId,
+      label = label ?: clientId,
+      owner = row.owner,
+      ownerUris = webIdUriDeriver.derivableAliases(row.owner).toSet(),
+    )
+    podDao.clearPendingManagementClient(checkNotNull(row.id))
   }
 
   /**

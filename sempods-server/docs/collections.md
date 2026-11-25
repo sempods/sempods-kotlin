@@ -83,7 +83,12 @@ node still on the old code recreates its indexes when it starts.
 
 `oauth.serviceClientGrantTransactions` is retired with the grant consent; the service consent keeps
 its screens in `oauth.consentTransactions`. Its rows expire within fifteen minutes, and the same
-`drop()` applies once every node runs the new code.
+`drop()` applies once every node runs the new code. A management screen there names its
+registration in `serviceManagementRegistrationId` rather than `serviceRegistrationId`, so a node
+from before it refuses the form instead of reading it as a context consent that grants nothing.
+
+`pods.pendingManagementClient` is written with a pod created with a `managementClient` and unset
+once that registration stands. A row that still carries it is a creation a retry will finish.
 
 ## Two collections with no field order, and filters that miss rows
 

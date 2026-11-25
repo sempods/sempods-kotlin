@@ -2,8 +2,10 @@ package org.sempods.pods.oauth.flows
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.sempods.auth.core.DidWeb
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.pods.HostedPod
+import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.ServiceClientAlreadyRegistered
 import org.sempods.pods.oauth.serviceclients.ServiceClientRegistration
@@ -26,7 +28,15 @@ import java.time.Instant
  */
 class PodServiceClientProvisioning @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
+  private val didWebAuthentication: DidWebClientAuthentication,
 ) {
+
+  /**
+   * Whether [clientId] can be provisioned as a management client: a `did:web` identifier the pod's
+   * routes can name, so the owner can remove it ([DidWebClientAuthentication.isAddressable]).
+   */
+  internal fun acceptsManagementClient(clientId: String): Boolean =
+    DidWeb.targetOf(clientId) != null && didWebAuthentication.isAddressable(clientId)
 
   /**
    * Registers the `did:web` service [clientId] on a pod just created for [owner], active and holding

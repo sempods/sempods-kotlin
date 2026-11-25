@@ -15,6 +15,13 @@ import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.mongo.persist.toPodId
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
+import org.sempods.pods.oauth.flows.PodOwnerAuthority
+import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
+import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.SempodsCollections
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import java.net.URI
 import kotlin.test.assertEquals
@@ -54,6 +61,12 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var serviceClientStore: PodServiceClientStore
+
+  @Inject
+  private lateinit var ownerAuthority: PodOwnerAuthority
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   // ── Granting ────────────────────────────────────────────────────────────────
 
@@ -145,18 +158,39 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a management client that is not a did-web is refused, and nothing is created`() {
+  fun `a management client that is not a did-web, or carries a port, is refused, and nothing is created`() {
     val owner = sempodsTestFactory.newOwner()
+
+    for (client in listOf("svc:abc", DidWebServiceFixture.newService(port = 8443).did)) {
+      val podName = "mgmt-${java.util.UUID.randomUUID().toString().take(8)}"
+      val refused = createPod(podName, webIdUriDeriver.deriveFromEmail(owner.email), client)
+
+      assertEquals(400, refused.statusCode, "$client: ${refused.responseBody}")
+      assertNull(podDao.fetchByName(podName), client)
+    }
+  }
+
+  @Test
+  fun `a retry finishes a creation that failed before the management client was registered, and only that`() {
+    val owner = sempodsTestFactory.newOwner()
+    val ownerWebId = webIdUriDeriver.deriveFromEmail(owner.email)
     val podName = "mgmt-${java.util.UUID.randomUUID().toString().take(8)}"
+    val service = DidWebServiceFixture.newService()
+    // What the first attempt left when it failed after writing the pod.
+    podDao.insert(name = podName, owner = ownerWebId, pendingManagementClient = service.did)
 
-    val refused = http.preparePut("${SempodsModule.config.apiBaseUrl}_system/admin/pods/$podName")
-      .addHeader("Authorization", "Bearer ${AdminAuthorizerTestDouble.TEST_ADMIN_SECRET}")
-      .addHeader("Content-Type", "application/json")
-      .setBody("""{"ownerWebId":"${webIdUriDeriver.deriveFromEmail(owner.email)}","managementClient":"svc:abc"}""")
-      .execute()
+    val retried = createPod(podName, ownerWebId, service.did)
 
-    assertEquals(400, refused.statusCode, refused.responseBody)
-    assertNull(podDao.fetchByName(podName))
+    assertEquals(200, retried.statusCode, retried.responseBody)
+    val pod = checkNotNull(podDao.fetchByName(podName))
+    assertNull(pod.pendingManagementClient, "finished")
+    assertEquals(201, putContext(Owned(pod, ownerWebId), "first", didWeb.accessToken(pod, service)).statusCode)
+
+    // Removed by the owner since, it is not made again.
+    val registration = checkNotNull(serviceClientStore.find(checkNotNull(pod.id).toPodId(), service.did))
+    assertTrue(serviceClientStore.remove(checkNotNull(pod.id).toPodId(), service.did, registration.id))
+    assertEquals(200, createPod(podName, ownerWebId, service.did).statusCode)
+    assertNull(serviceClientStore.find(checkNotNull(pod.id).toPodId(), service.did))
   }
 
   @Test
@@ -245,6 +279,80 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a token of a registration removed and made again holds nothing of the new one`() {
+    val owned = ownedPod()
+    val service = managing(owned)
+    val earlier = didWeb.accessToken(owned.pod, service)
+    val podId = checkNotNull(owned.pod.id).toPodId()
+    assertTrue(serviceClientStore.remove(podId, service.did, checkNotNull(serviceClientStore.find(podId, service.did)).id))
+    managing(owned, service)
+
+    assertEquals(401, putContext(owned, "with-the-earlier", earlier).statusCode, "the earlier token manages nothing")
+    assertEquals(404, deregister(owned, service.did, earlier).statusCode, "nor removes the new registration")
+    assertEquals(201, putContext(owned, "with-a-new-one", didWeb.accessToken(owned.pod, service)).statusCode)
+  }
+
+  @Test
+  fun `a service token's type is what the token says, not whether its subject is the client`() {
+    val owned = ownedPod()
+    val service = managing(owned)
+    val registration = checkNotNull(serviceClientStore.find(checkNotNull(owned.pod.id).toPodId(), service.did))
+    val withoutSubject = SempodsCredentials(
+      pod = owned.pod.hosted().ref,
+      restrictedContexts = emptySet(),
+      oauthClientId = service.did,
+      oauthScopes = setOf(CONTEXTS_MANAGE_SCOPE),
+      serviceClient = true,
+      serviceRegistrationId = registration.id.value,
+    )
+
+    assertTrue(ownerAuthority.check(owned.pod.hosted(), withoutSubject, CONTEXTS_MANAGE_SCOPE) is PodOwnerAuthorityCheck.Standing)
+  }
+
+  @Test
+  fun `a management screen is stored under a field a node from before it does not read`() {
+    val owned = ownedPod()
+    val service = didWeb.registered(owned.pod, DidWebServiceFixture.newService())
+    val registration = checkNotNull(serviceClientStore.find(checkNotNull(owned.pod.id).toPodId(), service.did))
+
+    assertEquals(200, openManagement(owned, service.did).statusCode)
+
+    val stored = db.getCollection(SempodsCollections.OAUTH_CONSENT_TRANSACTIONS).find(Filters.eq("clientId", service.did)).toList()
+    assertEquals(listOf(registration.id.value), stored.map { it.getString("serviceManagementRegistrationId") })
+    assertTrue(stored.none { it.containsKey("serviceRegistrationId") }, "a context consent's field would make an older node replace the grants")
+  }
+
+  @Test
+  fun `a change of owner refuses the token even where the service also holds context grants`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val service = managing(owned)
+    services.confirm(owned.pod, service.did, owned.cookie, setOf("$notes#read"))
+
+    podDao.setOwner(checkNotNull(owned.pod.id), webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email))
+
+    val minted = didWeb.token(owned.pod, service.assertion(owned.pod))
+    assertEquals("invalid_scope", didWeb.json(minted)["error"], minted.responseBody)
+  }
+
+  @Test
+  fun `the new owner is asked afresh, and approving restores the authority`() {
+    val owned = ownedPod()
+    val service = managing(owned)
+    val newOwner = webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email)
+    podDao.setOwner(checkNotNull(owned.pod.id), newOwner)
+    val now = Owned(owned.pod, newOwner)
+
+    val page = openManagement(now, service.did)
+
+    assertTrue("Let a service manage your pod?" in page.responseBody, "an authority a former owner granted is not shown as held")
+    assertFalse("removeBtn" in page.responseBody)
+    val confirmed = delegated.submit(services.page(page), now.cookie, scopes = emptySet())
+    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
+    assertEquals(201, putContext(now, "restored", didWeb.accessToken(owned.pod, service)).statusCode)
+  }
+
+  @Test
   fun `a change of owner ends the authority`() {
     val owned = ownedPod()
     owned.context("kept")
@@ -271,8 +379,8 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
   /** A did:web service registered on [owned]'s pod, holding the authority its owner approved. */
-  private fun managing(owned: Owned): DidWebService {
-    val service = didWeb.registered(owned.pod, DidWebServiceFixture.newService())
+  private fun managing(owned: Owned, service: DidWebService = DidWebServiceFixture.newService()): DidWebService {
+    didWeb.registered(owned.pod, service)
     val confirmed = delegated.submit(services.page(openManagement(owned, service.did)), owned.cookie, scopes = emptySet())
     assertEquals(200, confirmed.statusCode, confirmed.responseBody)
     return service
@@ -315,6 +423,13 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   private fun PodDbo.hosted() = toHostedPod(sempodsUriBuilder)
+
+  private fun createPod(podName: String, ownerWebId: String, managementClient: String): TestHttpResponse =
+    http.preparePut("${SempodsModule.config.apiBaseUrl}_system/admin/pods/$podName")
+      .addHeader("Authorization", "Bearer ${AdminAuthorizerTestDouble.TEST_ADMIN_SECRET}")
+      .addHeader("Content-Type", "application/json")
+      .setBody("""{"ownerWebId":"$ownerWebId","managementClient":"$managementClient"}""")
+      .execute()
 
   private fun podBase(owned: Owned) = "${SempodsModule.config.apiBaseUrl}${owned.pod.name}"
 

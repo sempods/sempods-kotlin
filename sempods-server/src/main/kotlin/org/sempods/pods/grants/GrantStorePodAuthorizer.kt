@@ -76,6 +76,8 @@ class GrantStorePodAuthorizer @Inject constructor(
       tokenJti = token.jti,
       tokenSub = token.sub,
       tokenIssuedAt = token.issuedAt,
+      serviceClient = token.isServiceClient,
+      serviceRegistrationId = token.registrationId,
     )
   }
 

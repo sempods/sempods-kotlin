@@ -64,11 +64,16 @@ class PodOwnerAuthority @Inject internal constructor(
    * The authority a service client's registration holds for [scope], as the record every caller of
    * [check] reads: `null` where the registration is gone or holds none, or [scope] is not one it
    * covers. Under the current consent text, since it was granted under the text the page shows now.
+   *
+   * Only the registration the token was issued for: a `did:web` identifier can be registered again
+   * once removed, and an earlier token holds nothing of the new registration.
    */
   private fun serviceAuthority(pod: HostedPod, caller: SempodsCredentials, scope: String): PrivilegedAuthority? {
     if (scope !in PodScopeValidator.serviceManagementScopes) return null
     val clientId = caller.oauthClientId ?: return null
-    val management = serviceClients.find(pod.id, clientId)?.management ?: return null
+    val management = serviceClients.find(pod.id, clientId)
+      ?.takeIf { it.id.value == caller.serviceRegistrationId }
+      ?.management ?: return null
     return PrivilegedAuthority(
       pod = pod.id,
       clientId = clientId,
@@ -84,12 +89,9 @@ class PodOwnerAuthority @Inject internal constructor(
   }
 }
 
-/**
- * Whether these credentials are a service client's own token: the pod mints those with the client
- * as their subject, and a person's token names the person.
- */
+/** Whether these credentials are a service client's own token, as the token's `client_type` says. */
 internal val SempodsCredentials.isServiceToken: Boolean
-  get() = tokenSub != null && tokenSub == oauthClientId
+  get() = serviceClient
 
 /** What [PodOwnerAuthority.check] answers. */
 internal sealed interface PodOwnerAuthorityCheck {
