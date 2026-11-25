@@ -19,3 +19,4 @@ For implementation and operation:
 - [Identity service](../../../sempods-auth/README.md): the separate service handling person login.
 - [Shared auth library](../../../sempods-auth-core/README.md): reusable OAuth/OIDC components.
 - [OAuth errors](../../../docs/auth/oauth-errors.md): browser error recovery.
+- [Deployment seams](../../../docs/concepts/modularity.md#seams-that-exist): replacing request authentication or authorization.

@@ -215,7 +215,7 @@ class PodContextsEndpoint @Inject constructor(
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",
-        authenticated = credentials.oauthClientId != null,
+        authenticated = credentials.authenticated,
         contexts = rows.mapNotNull { dbo -> effective.byContext[dbo.contextUri]?.let { dbo.toResponse(it) } },
         writableContexts = effective.writableContexts,
       )

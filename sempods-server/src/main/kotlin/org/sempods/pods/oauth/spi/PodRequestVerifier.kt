@@ -16,9 +16,9 @@ import java.net.URI
  * [#112](https://github.com/sempods/sempods-kotlin/issues/112).
  *
  * An implementation answers only *is this credential good, and for this pod*. What the verified
- * caller may reach is [org.sempods.pods.grants.PodAuthorizer], and the endpoint asks about a
- * sign-out afterwards. A verifier that accepts every request, or a token of a foreign issuer, breaks
- * this contract.
+ * caller may reach is [org.sempods.pods.grants.PodAuthorizer], and
+ * [org.sempods.pods.oauth.BearerPodRequestAuthenticator] asks about a sign-out afterwards. A
+ * verifier that accepts every request, or a token of a foreign issuer, breaks this contract.
  *
  * The three outcomes stay distinct: no credentials ([PodTokenAuthentication.NoToken]), rejected
  * credentials ([PodTokenAuthentication.Rejected]) and verified ones
