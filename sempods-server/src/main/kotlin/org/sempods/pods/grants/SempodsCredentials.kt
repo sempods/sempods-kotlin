@@ -48,6 +48,10 @@ data class SempodsCredentials(
    * Whether the deployment identified the caller. `false` is the anonymous reader of public
    * contexts. Defaults to the presence of [oauthClientId], which is what it means for this
    * server's bearer; a [PodRequestAuthenticator] whose callers carry another credential sets it.
+   *
+   * An authenticated caller names itself through [tokenSub] (its WebID) or [oauthClientId]: a
+   * context or media write records that as its creator, and a context write refuses a caller that
+   * names neither.
    */
   val authenticated: Boolean = oauthClientId != null,
 )
