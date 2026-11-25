@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.pods.authentication.PodRequestAuthenticatorTestImpl
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.media.SempodsPodMedia
@@ -16,6 +17,11 @@ import org.sempods.retrieval.FindAdapterTestImpl
  * the published client to make them with.
  */
 class SempodsTestSetup internal constructor(
+  /**
+   * Turns a request into the caller's credentials; this server's bearer pipeline until a test calls
+   * `answerWith`. Everything below it, [requestVerifier] included, is reached only through it.
+   */
+  val requestAuthenticator: PodRequestAuthenticatorTestImpl,
   /** Decides who is calling; the real verifier until a test calls `answerWith`. */
   val requestVerifier: PodRequestVerifierTestImpl,
   /**

@@ -6,8 +6,8 @@ import java.time.Instant
 /**
  * One row per request made by a statically-registered service client (a
  * caller authenticated via the OAuth `client_credentials` grant). Populated
- * by [org.sempods.api.SempodsBaseEndpoint] when the bearer-token resolver
- * recognises a service-client token.
+ * by [org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator] when it verifies a
+ * service-client token.
  *
  * Kept deliberately lean: timestamp + caller identity + request shape,
  * plus the [expiresAt] anchor that bounds how long the row is kept.

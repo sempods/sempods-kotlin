@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 /**
  * Asserts the pod's answer to a missing or rejected bearer: `401` with a Bearer `invalid_token`
  * challenge whose `resource_metadata` is exactly `{pod}/.well-known/oauth-protected-resource`
- * (`SPS-AUTH-064`). `{pod}` is built the way `SempodsBaseEndpoint.buildBearerChallenge` builds it.
+ * (`SPS-AUTH-064`). `{pod}` is built the way `BearerPodRequestAuthenticator.challenge` builds it.
  */
 internal fun assertPodBearerChallenge(response: TestHttpResponse, podName: String) {
   assertEquals(401, response.statusCode, response.responseBody)

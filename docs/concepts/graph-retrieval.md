@@ -112,7 +112,9 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   in N-Quads. No statement is left in the default graph. This lets a consumer that searched across several
   readable contexts tell results apart by source (e.g. public vs. private) without
   a follow-up read. It changes only the *representation*, never which resources match.
-- **GET caching is permission-scoped.** Responses carry `Vary: Accept, Authorization`.
+- **GET caching is permission-scoped.** Responses carry `Vary: Accept` plus the headers the
+  request authenticator reads credentials from (`PodRequestAuthenticator.credentialHeaders`,
+  `Authorization` for this server's bearer).
   Authenticated results use `Cache-Control: private, no-store`; anonymous results use
   `public`. This prevents a shared cache from serving one caller's private graph to another.
 

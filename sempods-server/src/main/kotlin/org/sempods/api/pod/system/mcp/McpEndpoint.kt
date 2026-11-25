@@ -408,7 +408,7 @@ class McpEndpoint @Inject constructor(
       // for anonymous callers (→ 401 with WWW-Authenticate), which kicks the MCP client
       // into the OAuth flow advertised at oauth-protected-resource.
       val credentials = authenticate(pod)
-      val authenticated = credentials.oauthClientId != null
+      val authenticated = credentials.authenticated
       // Audit reports JWT truth, not the manage-cascade-expanded view, so
       // the count stays stable as the pod owner registers new descendants.
       val scopesCount = credentials.oauthRawScopes.size
@@ -831,7 +831,7 @@ class McpEndpoint @Inject constructor(
    * Returns `true` if the caller needs to start an OAuth flow to gain write
    * or private-read access. Cases:
    *
-   * - Anonymous (no bearer at all): `oauthClientId == null`.
+   * - Anonymous (no bearer at all): `!authenticated`.
    * - Public-read-only bearer: `oauthRawScopes == { "public-read" }` — the caller
    *   carries a token but it confers no write or context-scoped read
    *   capability. They need to upgrade to a context-scoped grant. Use the raw
@@ -846,7 +846,7 @@ class McpEndpoint @Inject constructor(
    * `OAuthUpgradeRequiredException` or run the no-op acknowledgement).
    */
   private fun needsOAuthUpgrade(credentials: SempodsCredentials): Boolean =
-    credentials.oauthClientId == null ||
+    !credentials.authenticated ||
         credentials.oauthRawScopes == setOf(PUBLIC_READ_SCOPE) ||
         credentials.restrictedContexts.orEmpty().isEmpty()
 

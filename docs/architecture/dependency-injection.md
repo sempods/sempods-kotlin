@@ -62,8 +62,8 @@ a typed configuration object built at the entry point (`SempodsConfig`, `Sempods
 note saying the same thing: a global lookup is a hidden dependency.
 
 The named exception is `SempodsModule.config`, a companion `by lazy`. It is read on class
-initialization, before an injector exists — `SempodsBaseEndpoint` needs the base URL to build a
-bearer challenge and `SempodsMediaModule` needs the port to register routes. Everything downstream
+initialization, before an injector exists — `SempodsBaseEndpoint` hands its routes the base URL
+they build addresses from, and `SempodsMediaModule` needs the port to register routes. Everything downstream
 of the injector takes it by injection.
 
 **A module that more than one composition installs is an `object` or a `data class`.** Guice
@@ -84,8 +84,8 @@ The consequence is in [`../testing.md`](../testing.md) §"Stubbing an external A
 warning: one injector per test JVM means a singleton keeps whatever a test put in it.
 
 **Constructor injection**, with a handful of exceptions. Field `@Inject` is the shape under a base
-class that takes constructor parameters — `SempodsBaseEndpoint` and the endpoints below it —
-because a subclass would otherwise repeat the super constructor's argument list. A few older
+class — `PodApiEndpoint`, `SempodsBaseEndpoint` and the endpoints below them — because a subclass
+would otherwise repeat the super constructor's argument list. A few older
 classes (`SempodsUpdater`) still use it without that reason. New code takes its dependencies as
 constructor parameters.
 

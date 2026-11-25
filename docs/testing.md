@@ -168,7 +168,9 @@ A new seam's test implementation joins the setup as one more nested `observe`. T
 the second: `idServer` in the setup, a variant of the suite's `FakeOidcProvider` (`IdServerObserver`).
 The third is `findAdapter`, a `find` engine beside the built-in SPARQL adapter that answers nothing
 until a test calls `answerWith` (`FindAdapterObserver`). It runs on a thread of its own, and
-`FindService` re-binds the trace there.
+`FindService` re-binds the trace there. The fourth is `requestAuthenticator`
+(`PodRequestAuthenticatorObserver`), which a request passes before it reaches the verifier: a test
+that answers there decides who is calling, and `requestVerifier` is not asked.
 
 `podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
 implementations. Seeding (`SempodsTestPodAccess.podFor`, `seedEvent`) carries none: a fixture always

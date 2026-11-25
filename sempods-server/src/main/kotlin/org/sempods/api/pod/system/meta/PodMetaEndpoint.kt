@@ -51,7 +51,8 @@ class PodMetaEndpoint @Inject constructor(
     // context-sensitive). Also records the service-client audit row when authenticated.
     authenticate(pod)
     val dateModified = podDao.fetchLastModifiedAt(pod)
-    return Response.ok(PodDateModifiedResponse(dateModified = dateModified?.toString())).build()
+    // Revalidated per caller: whether the pod is there at all is the authenticator's to say.
+    return Response.ok(PodDateModifiedResponse(dateModified = dateModified?.toString())).revalidatedPrivately().build()
   }
 }
 
