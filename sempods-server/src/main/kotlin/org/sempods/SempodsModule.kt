@@ -29,6 +29,8 @@ import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.OAuthSigningKeyDao
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.PodSignOut
+import org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
 import org.sempods.pods.oauth.PodSignOutStore
 import org.sempods.pods.oauth.PodSigningKeyStore
 import org.sempods.pods.oauth.flows.PodAuthorizationCodes
@@ -200,6 +202,8 @@ class SempodsModule : BaseModule() {
     bind<PodTokenAuthenticator>().asSingleton()
     bind<PodRequestVerifier>().to(PodTokenAuthenticator::class.java)
     bindPodAuthorizer()
+    bind<BearerPodRequestAuthenticator>().asSingleton()
+    bind<PodRequestAuthenticator>().to(BearerPodRequestAuthenticator::class.java)
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
     bind<PodRegistrationRateLimiter>().asSingleton()

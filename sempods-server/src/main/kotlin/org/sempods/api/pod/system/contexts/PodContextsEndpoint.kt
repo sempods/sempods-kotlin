@@ -215,7 +215,7 @@ class PodContextsEndpoint @Inject constructor(
     return registryRead(format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",
-        authenticated = credentials.oauthClientId != null,
+        authenticated = credentials.authenticated,
         contexts = rows.mapNotNull { dbo -> effective.byContext[dbo.contextUri]?.let { dbo.toResponse(it) } },
         writableContexts = effective.writableContexts,
       )
@@ -296,7 +296,9 @@ class PodContextsEndpoint @Inject constructor(
     }
 
     if (contextWriteAuthorizer.isCoveredByManageScope(credentials, contextUri)) {
-      return credentials.tokenSub ?: checkNotNull(credentials.oauthClientId)
+      return credentials.tokenSub ?: credentials.oauthClientId ?: throw WebApplicationException(
+        Response.status(403).entity("this caller carries no identity to record as the context's creator").type("text/plain").build()
+      )
     }
 
     throw WebApplicationException(

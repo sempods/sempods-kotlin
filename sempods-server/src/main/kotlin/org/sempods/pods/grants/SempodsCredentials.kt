@@ -5,9 +5,10 @@ import java.net.URI
 import java.time.Instant
 
 /**
- * What one request is allowed to do, as [PodAuthorizer] resolved it. The result type every
- * endpoint below `{pod}/…` carries from `SempodsBaseEndpoint.authenticate` down into the read and
- * write paths.
+ * What one request is allowed to do, as
+ * [org.sempods.pods.authentication.spi.PodRequestAuthenticator] resolved it — by default through
+ * [PodAuthorizer]. The result type every endpoint below `{pod}/…` carries from the authentication
+ * down into the read and write paths.
  *
  * Lives here, next to the seam that produces it, rather than in `org.sempods.api`: it is the
  * authorization result, and a service in this package must be able to name it without an upward
@@ -44,8 +45,26 @@ data class SempodsCredentials @JvmOverloads constructor(
   val tokenJti: String? = null,
   val tokenSub: String? = null,
   val tokenIssuedAt: Instant? = null,
+  /**
+   * Set by a [org.sempods.pods.authentication.spi.PodRequestAuthenticator] that identified a caller
+   * who carries no [oauthClientId] — a session of the deployment's own, for instance. Read
+   * [authenticated], not this.
+   */
+  val identified: Boolean = false,
   /** Whether the bearer is a service client's own token (`client_type=service`), with no person behind it. */
   val serviceClient: Boolean = false,
   /** The registration a service client's token was issued for; see `PodAccessToken.registrationId`. */
   val serviceRegistrationId: String? = null,
-)
+) {
+
+  /**
+   * Whether the deployment identified the caller; `false` is the anonymous reader of public
+   * contexts. A caller with an [oauthClientId] always is, so credentials copied from an anonymous
+   * template with a client id added count as authenticated without anyone setting [identified].
+   *
+   * An authenticated caller names itself through [tokenSub] (its WebID) or [oauthClientId]: a
+   * context or media write records that as its creator, and a context write refuses a caller that
+   * names neither.
+   */
+  val authenticated: Boolean get() = identified || oauthClientId != null
+}
