@@ -13,6 +13,8 @@ import java.security.PublicKey
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Reads a DID document over HTTP: the body of a `200`, or an exception for anything else. A port,
@@ -43,8 +45,8 @@ internal fun interface DidDocumentFetcher {
  * [failureTtl], so a broken host is asked again soon but not on every request. An assertion naming
  * a key the cached document lacks reads the document again once [refreshAfter] has passed since
  * the last read: that is how a rotated key arrives without waiting out [ttl], and why an unknown
- * `kid` cannot make the pod fetch on every request. At most [maxEntries] documents are kept; the
- * one used longest ago goes first.
+ * `kid` cannot make the pod fetch on every request. Callers that find the entry wanting at once
+ * share one read. At most [maxEntries] documents are kept; the one used longest ago goes first.
  */
 internal class DidWebKeys(
   private val fetcher: DidDocumentFetcher,
@@ -72,16 +74,40 @@ internal class DidWebKeys(
     val now = clock.instant()
     var entry = cached(did)
     if (entry == null || now.isAfter(entry.readAt.plus(if (entry.keys == null) failureTtl else ttl))) {
-      entry = read(did, now)
+      entry = refresh(did, entry, now)
     } else if (entry.keys?.containsKey(kid) != true && now.isAfter(entry.readAt.plus(refreshAfter))) {
-      entry = read(did, now)
+      entry = refresh(did, entry, now)
     }
     return listOfNotNull(entry.keys?.get(kid)?.let(::toPublicKey))
   }
 
   private fun cached(did: String): Entry? = synchronized(entries) { entries[did] }
 
-  /** Reads [did]'s document now and caches what it says, a failure included. Outside the lock: a slow host holds no other caller. */
+  /**
+   * One read of [did]'s document for every caller that found [seen] wanting at once: the first
+   * reads, the others wait for its answer. Without this, a burst of assertions naming one service
+   * would each fetch its document, since keys are looked up before a signature is checked. A caller
+   * arriving after that read finished takes the entry it left rather than reading again. No lock is
+   * held across the fetch, so a slow host holds no caller asking for another DID.
+   */
+  private fun refresh(did: String, seen: Entry?, now: Instant): Entry {
+    val mine = CompletableFuture<Entry>()
+    inFlight.putIfAbsent(did, mine)?.let { return it.join() }
+    try {
+      val entry = cached(did)?.takeIf { it !== seen } ?: read(did, now)
+      mine.complete(entry)
+      return entry
+    } catch (e: Throwable) {
+      mine.completeExceptionally(e)
+      throw e
+    } finally {
+      inFlight.remove(did, mine)
+    }
+  }
+
+  private val inFlight = ConcurrentHashMap<String, CompletableFuture<Entry>>()
+
+  /** Reads [did]'s document now and caches what it says, a failure included. */
   private fun read(did: String, now: Instant): Entry {
     val keys = try {
       val url = documentUrl(did) ?: throw IllegalArgumentException("not a did:web identifier this pod reads")
