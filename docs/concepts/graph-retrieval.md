@@ -86,7 +86,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   index that may lag behind the store, say — keeps a hit only where the expansion reads an
   `rdf:type` for it in the selection, one of the requested `type`s when any are given. Its stored
   statements stand only in a context the expansion shows holding their subject. A dropped hit
-  takes its observations with it. The built-in SPARQL adapter is self-scoped.
+  takes its observations with it; a kept hit keeps them unchecked, since the store holds nothing to
+  check a snippet against. The built-in SPARQL adapter is self-scoped.
   Only a candidate a selected context holds counts towards the limit, so a stale
   index entry takes no place. A kept hit keeps the observation nodes it links to, and
   their nested blank nodes. An observation an engine attributes to a context outside
