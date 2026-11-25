@@ -151,6 +151,7 @@ class SempodsControlPlaneClientHttpTest {
     listOf("..", ".", "", "a/b").forEach { bad ->
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.createPod(bad, "alice@example.com") }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.deletePod(bad) }
+      assertThrows<IllegalArgumentException>("pod '$bad'") { client.deletePod(bad, "https://id.example/e/1") }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.podExists(bad) }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.pod(bad) }
       assertThrows<IllegalArgumentException>("pod '$bad'") { client.provisionServiceClient(bad, "app", null, null) }
@@ -193,6 +194,60 @@ class SempodsControlPlaneClientHttpTest {
       .respond(response().withStatusCode(200).withBody("ok"))
 
     assertEquals(200, assertThrows<SempodsStatusException> { client.deletePod("alice") }.status)
+  }
+
+  @Test
+  fun `deletePod with an expected owner sends it as the owner parameter`() {
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/_system/admin/pods/alice"))
+      .respond(response().withStatusCode(204))
+    val owner = "https://id.example/e/a b?c&d"
+
+    assertEquals(204, client.deletePod("alice", owner).status)
+
+    val sent = sent("DELETE")
+    assertEquals("/_system/admin/pods/alice", sent.path.value)
+    assertEquals("Bearer $ADMIN_SECRET", sent.getFirstHeader("Authorization"))
+    assertEquals(
+      listOf(owner),
+      sent.queryStringParameterList.filter { it.name.value == "owner" }.flatMap { it.values.map { value -> value.value } },
+      "decoded back to what was passed",
+    )
+  }
+
+  @Test
+  fun `deletePod with an expected owner answers 412 and 404 as answers`() {
+    listOf(412, 404).forEach { status ->
+      mockServer.reset()
+      mockServer
+        .`when`(request().withMethod("DELETE").withPath("/_system/admin/pods/alice"))
+        .respond(response().withStatusCode(status).withBody("""{"error":"refused"}"""))
+
+      val answer = client.deletePod("alice", "https://id.example/e/1")
+
+      assertEquals(status, answer.status)
+      assertNull(answer.body, "a listed status outside 2xx answers with no body")
+    }
+  }
+
+  @Test
+  fun `deletePod with an expected owner throws on a 409, which the route never answers`() {
+    mockServer
+      .`when`(request().withMethod("DELETE").withPath("/_system/admin/pods/alice"))
+      .respond(response().withStatusCode(409))
+
+    assertEquals(409, assertThrows<SempodsStatusException> { client.deletePod("alice", "https://id.example/e/1") }.status)
+  }
+
+  @Test
+  fun `deletePod refuses a blank expected owner and sends nothing`() {
+    mockServer.`when`(request()).respond(response().withStatusCode(204))
+
+    listOf("", " ").forEach { blank ->
+      assertThrows<IllegalArgumentException>("owner '$blank'") { client.deletePod("alice", blank) }
+    }
+
+    assertEquals(0, mockServer.retrieveRecordedRequests(request()).size, "nothing left this client")
   }
 
   // ─── podExists ────────────────────────────────────────────────────────────────

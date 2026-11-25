@@ -15,7 +15,6 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.api.system.admin.AdminAuthorizedEndpoint
 import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
-import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -48,7 +47,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
  * ```
  * GET    /_system/admin/pods?owner={webId}[&owner={webId}…]
  * PUT    /_system/admin/pods/{pod}                             {ownerEmail | ownerWebId}
- * DELETE /_system/admin/pods/{pod}
+ * DELETE /_system/admin/pods/{pod}[?owner={webId}]
  * GET    /_system/admin/pods/{pod}
  * POST   /_system/admin/pods/{pod}/service-clients/{clientId}   {expectedRegistrationId?, expectedSecretId?}
  * ```
@@ -70,7 +69,6 @@ class AdminPodsEndpoint @Inject constructor(
   private val sempodsFacade: SempodsFacade,
   private val podDao: PodDao,
   private val podFacade: PodFacade,
-  private val podRepositoryCache: PodRepositoryCache,
   private val webIdUriDeriver: WebIdUriDeriver,
   private val podServiceClientProvisioning: PodServiceClientProvisioning,
   private val sempodsUriBuilder: SempodsUriBuilder,
@@ -193,30 +191,67 @@ class AdminPodsEndpoint @Inject constructor(
    * Deletes the pod and everything cascading from it (RDF resources, contexts, grants, tokens,
    * service-client registrations, audit log — see [org.sempods.SempodsFacade.deletePod]).
    *
-   * Idempotent: deleting an unknown pod is a no-op and still answers 204. Callers keeping their own
-   * per-pod state (a stored credential row, say) clean that up on their side — the server does not
-   * know about it.
+   * Without `owner`, idempotent: deleting an unknown pod is a no-op and still answers 204. Callers
+   * keeping their own per-pod state (a stored credential row, say) clean that up on their side —
+   * the server does not know about it.
+   *
+   * With `owner`, a precondition: the pod is deleted only while its stored owner is that WebID or
+   * its URN twin ([WebIdUriDeriver.derivableAliases]), as the listing matches it. 204 deleted, 412
+   * the pod has another owner, 404 there is no pod of that name; 400 for more than one `owner`, or
+   * one that is not an absolute IRI. The owner is compared on the row read here, and
+   * [SempodsFacade.deletePod] deletes that row's pod by its id and no other. That is atomic because
+   * a stored owner never changes: [createPod] does not transfer ownership.
+   *
+   * Two such deletes can read the same row, and only the one that removes it answers 204. The other
+   * reads the name again: 404 when no pod holds it, 412 when a pod created since does — the pod it
+   * checked is gone either way.
    */
   @DELETE
   @Path("{pod}")
   fun deletePod(
     @HeaderParam("Authorization") authorization: String?,
     @PathParam("pod") pod: String,
+    @QueryParam("owner") owners: List<String>?,
   ): Response {
 
     val adminClientId = requireAdminOrThrow(authorization)
+    val expectedOwner = expectedOwnerOf(owners)
+      ?: return deleteUnconditionally(adminClientId = adminClientId, pod = pod)
 
-    // Drop the in-memory RDF repository first so that an in-flight SPARQL query cannot observe
-    // stale state while the DB rows below disappear. Ordered here rather than inside
-    // [SempodsFacade.deletePod] on purpose: PodRepositoryCache already injects SempodsFacade, so
-    // a reverse injection would introduce a Guice cycle.
-    podRepositoryCache.invalidate(pod)
+    val stored = podDao.fetchByName(pod)
+      ?: throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
+    if (stored.owner !in webIdUriDeriver.derivableAliases(expectedOwner)) {
+      throw WebApplicationException(errorResponse(412, "pod '$pod' is not owned by the expected owner"))
+    }
+
+    val podId = checkNotNull(stored.id) { "a stored pod has an id" }
+    if (!sempodsFacade.deletePod(podId)) {
+      podDao.fetchByName(pod)?.let {
+        throw WebApplicationException(errorResponse(412, "pod '$pod' was created again since it was checked"))
+      }
+      throw WebApplicationException(errorResponse(404, "unknown pod '$pod'"))
+    }
+
+    logger.info { "Admin '$adminClientId' deleted pod '$pod' of owner '${stored.owner}'" }
+    return Response.noContent().build()
+  }
+
+  private fun deleteUnconditionally(adminClientId: String, pod: String): Response {
     sempodsFacade.deletePod(pod)
 
     // Unlike the create above, this route never resolves the name: deleting an unknown pod is a
     // no-op that still answers 204, so nothing has vouched for `pod` by the time it is logged.
     logger.info { "Admin '$adminClientId' deleted pod '${LogSafeText.of(pod)}'" }
     return Response.noContent().build()
+  }
+
+  /** The one `owner` a delete names, or `null` for none. More than one, or a malformed one, is a 400. */
+  private fun expectedOwnerOf(owners: List<String>?): String? {
+    val values = owners.orEmpty().map { it.trim() }
+    if (values.isEmpty()) return null
+    if (values.size > 1) throw badRequest("at most one owner is accepted")
+    IriSyntax.rejectionReason(values.single())?.let { throw badRequest("invalid owner: $it") }
+    return values.single()
   }
 
   /** 200 with `{pod, exists:true, owner}` if the pod exists, 404 otherwise. */
