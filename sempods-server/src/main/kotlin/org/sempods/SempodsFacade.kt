@@ -69,47 +69,54 @@ class SempodsFacade @Inject constructor(
     // unknown pod is a no-op by contract, and a name that is not a pod name never becomes one.
     logger.info { "Delete pod ${LogSafeText.of(pod)}" }
     podIdCache.clear()
-    val podId = getPodId(pod = pod)
-    if (podId != null) {
-      // Security-sensitive rows first: tokens, DCR rows and statically-registered
-      // service-client credentials so a stale session or client cannot keep any
-      // handle on data that's about to disappear. The in-memory RDF cache is
-      // invalidated by the calling ServiceImpl (cycle avoidance with
-      // PodRepositoryCache).
-      val pod = podId.toPodId()
-      refreshTokenStore.deleteByPod(pod)
-      consentDecisionStore.deleteByPod(pod)
-      dynamicClientRegistrationDao.deleteByPod(podId)
-      podServiceClientStore.deleteByPod(pod)
-      podServiceAuditLogDao.deleteByPod(podId)
-      backupDao.deleteByPod(podId)
-      podContextsDao.deleteByPod(podId)
-      // The pod's own media, on the other path: stamped unreferenced rather than deleted, so the
-      // sweep's grace period cushions an accidental pod deletion the way it cushions an accidental
-      // unassign. The rows outlive the pod on purpose — they still carry `podId` and `mediaId`, so
-      // the row *is* the tombstone and the sweep needs nothing else to reach the bytes. That is also
-      // why the sweep route is host-level: after `podDao.delete` below there is no pod left to scope
-      // it to. The DAO directly, because this touches no byte and must keep working on a deployment
-      // that configured no store at all (`docs/media.md` §"The seam").
-      //
-      // **After the contexts, not before.** An upload authorized moments ago re-checks its context's
-      // registration immediately before writing its assignment; once that check fails, no new row can
-      // appear. Marking first left the gap between the two statements open — a row written in it
-      // would carry no stamp, name contexts that no longer exist, and be invisible to the sweep for
-      // ever. The residual gap is now one statement wide, and `PodMediaFacade.sweepUnreferenced`
-      // catches whatever still slips through it by marking the media of pods that no longer exist.
-      val mediaMarked = podMediaDao.markPodUnreferenced(podId = podId, now = Instant.now())
-      if (mediaMarked > 0) {
-        logger.info { "Marked $mediaMarked media row(s) of pod $pod unreferenced — the sweep reclaims them" }
-      }
-      podGrantsDao.deleteByPod(podId)
-      podWebIdGrantsDao.deleteByPod(podId)
+    getPodId(pod = pod)?.let(::deletePod)
+  }
+
+  /**
+   * Deletes the pod stored under [podId] — the instance its caller read, and no other. Every row
+   * goes by that id, so a pod deleted and created again under the same name in the meantime has a
+   * new id and stays as it is.
+   */
+  internal fun deletePod(podId: ObjectId) {
+    podIdCache.clear()
+    // Security-sensitive rows first: tokens, DCR rows and statically-registered
+    // service-client credentials so a stale session or client cannot keep any
+    // handle on data that's about to disappear. The in-memory RDF cache is
+    // invalidated by the calling admin route (cycle avoidance with
+    // PodRepositoryCache).
+    val pod = podId.toPodId()
+    refreshTokenStore.deleteByPod(pod)
+    consentDecisionStore.deleteByPod(pod)
+    dynamicClientRegistrationDao.deleteByPod(podId)
+    podServiceClientStore.deleteByPod(pod)
+    podServiceAuditLogDao.deleteByPod(podId)
+    backupDao.deleteByPod(podId)
+    podContextsDao.deleteByPod(podId)
+    // The pod's own media, on the other path: stamped unreferenced rather than deleted, so the
+    // sweep's grace period cushions an accidental pod deletion the way it cushions an accidental
+    // unassign. The rows outlive the pod on purpose — they still carry `podId` and `mediaId`, so
+    // the row *is* the tombstone and the sweep needs nothing else to reach the bytes. That is also
+    // why the sweep route is host-level: after `podDao.delete` below there is no pod left to scope
+    // it to. The DAO directly, because this touches no byte and must keep working on a deployment
+    // that configured no store at all (`docs/media.md` §"The seam").
+    //
+    // **After the contexts, not before.** An upload authorized moments ago re-checks its context's
+    // registration immediately before writing its assignment; once that check fails, no new row can
+    // appear. Marking first left the gap between the two statements open — a row written in it
+    // would carry no stamp, name contexts that no longer exist, and be invisible to the sweep for
+    // ever. The residual gap is now one statement wide, and `PodMediaFacade.sweepUnreferenced`
+    // catches whatever still slips through it by marking the media of pods that no longer exist.
+    val mediaMarked = podMediaDao.markPodUnreferenced(podId = podId, now = Instant.now())
+    if (mediaMarked > 0) {
+      logger.info { "Marked $mediaMarked media row(s) of pod $pod unreferenced — the sweep reclaims them" }
     }
-    podDao.delete(pod)
+    podGrantsDao.deleteByPod(podId)
+    podWebIdGrantsDao.deleteByPod(podId)
+    podDao.delete(podId)
     // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
     // resolved and its grants stood, a token or session its person had signed out of would be
     // accepted again for that moment.
-    podId?.toPodId()?.let(signOutStore::deleteByPod)
+    signOutStore.deleteByPod(pod)
     podIdCache.clear()
   }
 

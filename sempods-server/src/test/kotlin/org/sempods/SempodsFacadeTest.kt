@@ -31,6 +31,9 @@ import kotlin.test.*
 class SempodsFacadeTest : SempodsIntegrationTest() {
 
   @Inject
+  private lateinit var sempodsFacade: SempodsFacade
+
+  @Inject
   private lateinit var podDao: PodDao
 
   @Inject
@@ -90,6 +93,24 @@ class SempodsFacadeTest : SempodsIntegrationTest() {
       podLastModified,
       podDao.fetchLastModifiedAt(pod.name),
     )
+  }
+
+  @Test
+  fun `deletePod by id leaves a pod created again under the same name`() {
+    // What the owner-checked delete relies on: the route reads the row, and between that read and
+    // the cascade another request deletes the pod and creates one under the name.
+    val first = sempodsTestFactory.newPod(createPublicContext = false)
+    val firstId = checkNotNull(first.id)
+    deletePodViaAdminApi(first.name)
+    val second = sempodsTestFactory.newPod(name = first.name, createPublicContext = false)
+    val secondId = checkNotNull(second.id)
+    seedAllPodScopedRecords(second.name, secondId)
+
+    sempodsFacade.deletePod(firstId)
+
+    assertEquals(secondId, podDao.fetchByName(second.name)?.id, "the second pod's row stays")
+    assertEquals(1, backupDao.fetchAllByPod(secondId).size, "and so do its rows")
+    assertTrue(podGrantsDao.anyForPod(secondId))
   }
 
   @Test

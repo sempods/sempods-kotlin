@@ -63,6 +63,18 @@ List<OwnedPod> pods =
 
 Each `OwnedPod` names the identity it is [stored under](../sempods-server/docs/host-provisioning.md#listing-an-owners-pods).
 
+To delete a pod for its owner, pass the owner you checked. The server deletes only while that
+owner still owns the pod:
+
+<!-- doc-example: consumer-probe/control-plane/src/test/java/org/sempods/probe/controlplane/ControlPlaneFromJavaTest.java#delete-for-owner -->
+```java
+SempodsResponse<byte[]> deleted = admin.deletePod("alice", checkedOwner);
+boolean gone = deleted.getStatus() == 204;
+```
+
+`412` means another owner holds the name now, `404` that no pod has it. [Deleting a pod](../sempods-server/docs/host-provisioning.md#deleting-a-pod)
+lists the answers.
+
 [SempodsControlPlaneClient](src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt)
 defines all operations and outcomes. [Provisioning](../sempods-server/docs/host-provisioning.md#provisioning-over-the-admin-surface)
 explains the private app context and idempotency contract.

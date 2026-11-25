@@ -136,8 +136,8 @@ class SempodsControlPlaneClient(
   /**
    * `DELETE {server}/_system/admin/pods/{pod}` — idempotent, 204 for a pod that was never there.
    *
-   * **204 is the only answer listed**, because it is the only one the route has: deleting an unknown
-   * pod is a no-op that answers 204 like any other removal. A 200 therefore means something else
+   * **204 is the only answer listed**, because it is the only one the route has without an owner:
+   * deleting an unknown pod is a no-op that answers 204 like any other removal. A 200 therefore means something else
    * answered — a proxy, or a server whose contract has drifted — and reading it as a removal that
    * happened is how a caller comes to believe a pod is gone that is still there.
    *
@@ -147,6 +147,26 @@ class SempodsControlPlaneClient(
   @Throws(IOException::class)
   fun deletePod(podName: String): SempodsResponse<ByteArray> =
     exchange.bytes(pods("DELETE", podName).build(), 204)
+
+  /**
+   * `DELETE {server}/_system/admin/pods/{pod}?owner=…` — deletes [podName] only while
+   * [expectedOwner] owns it, for a caller that checked the owner first ([pod], [podsOwnedBy]) and
+   * must not delete a pod that another owner created under the name since.
+   *
+   * [expectedOwner] is the stored `https` WebID or its `urn:sempods:` twin. **Three answers are
+   * listed**: `204` deleted, `412` the pod has another owner, `404` there is no pod of that name.
+   * The last two arrive with a null body, and in both nothing was deleted.
+   *
+   * @throws IllegalArgumentException for a blank [expectedOwner]; nothing is sent.
+   */
+  @Throws(IOException::class)
+  fun deletePod(podName: String, expectedOwner: String): SempodsResponse<ByteArray> {
+    require(expectedOwner.isNotBlank()) { "expectedOwner must name a WebID." }
+    val built = pods("DELETE", podName).build()
+    val url = built.url.newBuilder().addQueryParameter(OWNER, expectedOwner).build()
+
+    return exchange.bytes(built.newBuilder().url(url).build(), 204, 404, 412)
+  }
 
   /**
    * `GET {server}/_system/admin/pods/{pod}` — the authorized existence check, `200` for a pod the

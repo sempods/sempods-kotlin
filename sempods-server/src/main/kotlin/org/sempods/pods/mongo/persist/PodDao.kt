@@ -237,15 +237,9 @@ class PodDao internal constructor(
       Updates.set(PodDboFields.resourceRowCount, count),
     ).matchedCount > 0L
 
-  /**
-   * Removes the registration. Returns `true` if a row was actually deleted.
-   *
-   * `deleteOne` rather than the `deleteMany` the other cascades take: the filter is the unique
-   * index, so it can match at most one row, and Morphia's `deleteAll()` had nothing more to remove
-   * here either.
-   */
-  internal fun delete(name: String): Boolean =
-    pods.deleteOne(Filters.eq(PodDboFields.name, name)).deletedCount > 0L
+  /** Removes the registration stored under [id]. Returns `true` if a row was actually deleted. */
+  internal fun delete(id: ObjectId): Boolean =
+    pods.deleteOne(Filters.eq(PodDboFields.id, id)).deletedCount > 0L
 
   private companion object {
 

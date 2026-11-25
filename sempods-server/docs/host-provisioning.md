@@ -105,3 +105,26 @@ showing pods at the next sign-in.
 The [control-plane client](../../sempods-control-plane-client/README.md) calls it as
 `podsOwnedBy`. How many identities one call takes, and the response fields, are on the
 [endpoint](../src/main/kotlin/org/sempods/api/system/admin/pods/AdminPodsEndpoint.kt).
+
+## Deleting a pod
+
+`DELETE {hostUrl}/_system/admin/pods/{podName}` deletes the pod and everything stored for it. It
+answers `204`, also for a pod that was never there.
+
+A caller deleting for an owner checks the owner first, for example through the listing above.
+Between that check and the delete, the pod can be deleted and its name taken by another owner. To
+delete only the pod it checked, the caller names the owner it expects:
+
+```
+DELETE https://pods.example/_system/admin/pods/alice?owner=https://id.sempods.org/e/<hash>
+```
+
+| Case | Answer |
+|---|---|
+| The pod is stored under that owner, or its `urn:sempods:e:` twin | `204`, deleted |
+| The pod has another owner | `412`, nothing deleted |
+| There is no pod of that name | `404` |
+
+The server compares the owner and deletes the same stored pod, so a pod created again under the
+name in between survives. The [control-plane client](../../sempods-control-plane-client/README.md)
+calls it as `deletePod(podName, expectedOwner)`.

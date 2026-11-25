@@ -1,6 +1,7 @@
 package org.sempods.probe.controlplane;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -177,6 +178,21 @@ class ControlPlaneFromJavaTest {
 
     assertEquals(204, admin.deletePod("alice").getStatus());
     assertEquals("DELETE /_system/admin/pods/alice", paths.get(0));
+  }
+
+  @Test
+  void deletesAPodOnlyWhileItHasTheOwnerItExpects() throws IOException {
+    status = 412;
+    String checkedOwner = "https://id.example/e/1";
+
+    // doc-example:start delete-for-owner
+    SempodsResponse<byte[]> deleted = admin.deletePod("alice", checkedOwner);
+    boolean gone = deleted.getStatus() == 204;
+    // doc-example:end delete-for-owner
+
+    assertFalse(gone);
+    assertEquals(412, deleted.getStatus());
+    assertEquals("DELETE /_system/admin/pods/alice?owner=https%3A%2F%2Fid.example%2Fe%2F1", paths.get(0));
   }
 
   @Test
