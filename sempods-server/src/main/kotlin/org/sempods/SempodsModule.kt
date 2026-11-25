@@ -180,7 +180,8 @@ class SempodsModule : BaseModule() {
     bind<RdfResourceBackupDao>().asSingleton()
     bind<SempodsFacade>().asSingleton()
     bind<SparqlQueryService>().asSingleton()
-    bind<PodConnections>().to(MongoPodConnections::class.java).asSingleton()
+    bind<MongoPodConnections>().asSingleton()
+    bind<PodConnections>().to(MongoPodConnections::class.java)
     bind<PodRepositoryCache>().asSingleton()
     bind<PodFacade>().asSingleton()
 
