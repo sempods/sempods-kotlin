@@ -56,6 +56,7 @@ class FindUncheckedAdapterHttpTest : SempodsIntegrationTest() {
       }
       add(privateEvent, name, literal("private name"), privateContext)
       add(privateEvent, name, literal("private name, filed as public"), publicContext)
+      add(publicEvent, name, literal("a private fact of the public event, filed as public"), publicContext)
     }
 
     private fun seeded(context: IRI): IRI {
@@ -87,6 +88,7 @@ class FindUncheckedAdapterHttpTest : SempodsIntegrationTest() {
     assertEquals(1, answer.filter(null, findResult, null).size, "only the readable hit's observation: $answer")
     assertTrue(answer.none { it.subject == indexed.privateEvent || it.`object` == indexed.privateEvent }, "nothing about the private event: $answer")
     assertEquals(setOf(indexed.publicContext), answer.contexts().toSet())
+    assertEquals(setOf(literal("seeded")), answer.filter(indexed.publicEvent, name, null).objects(), "the store's name, not the index's: $answer")
   }
 
   @Test

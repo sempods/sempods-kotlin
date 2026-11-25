@@ -85,7 +85,8 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   [`selfScoped`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindAdapter.kt) — an
   index that may lag behind the store, say — keeps a hit only where the expansion reads an
   `rdf:type` for it in the selection, one of the requested `type`s when any are given. Its stored
-  statements stand only in a context the expansion shows holding their subject. A dropped hit
+  statements only name candidates: what the answer holds as stored comes from the expansion,
+  because the context an index gives a statement cannot be checked. A dropped hit
   takes its observations with it; a kept hit keeps them unchecked, since the store holds nothing to
   check a snippet against. The built-in SPARQL adapter is self-scoped.
   Only a candidate a selected context holds counts towards the limit, so a stale

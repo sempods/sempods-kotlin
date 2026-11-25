@@ -27,8 +27,9 @@ import java.util.concurrent.Executors
  *   resources it names, reused for those that are kept. A candidate no self-scoped adapter returned
  *   stays only when the [ResourceExpander] reads an `rdf:type` for it in
  *   [FindSandbox.effectiveScope], one of [FindRequest.types] when any are given, and goes with its
- *   observations otherwise. A stored statement from such an adapter stands only in a context the
- *   expansion shows holding its subject, and those contexts are where the candidate is held.
+ *   observations otherwise. Its stored statements only name candidates and do not reach the
+ *   answer: what is stored about a kept hit comes from the expansion, and the contexts the
+ *   expansion shows are where the hit is held.
  * - **Hits = IRI subjects** of the merged model that a context in [FindSandbox.effectiveScope]
  *   holds (`SPS-FIND-029`), at most [FindRequest.limit] of them (`SPS-FIND-025`). Under the limit a
  *   hit ranks by the lowest `schema:position` among its observations, then by IRI; a hit with no
@@ -101,8 +102,9 @@ class FindService @Inject constructor(
 
     // What an adapter that does not self-scope said is checked against the store: one expansion
     // over the resources it names, reused for those that are kept. Its candidate is a hit only where
-    // the store shows it typed in the selection, and its stored statements stand only in a context
-    // the store shows holding their subject.
+    // the store shows it typed in the selection. Its stored statements name the candidates and stay
+    // out of the answer: a context it gives a statement cannot be checked, so the store's own
+    // expansion speaks for the resource.
     val vouched = trusted.subjects().filterIsInstance<IRI>().toSet()
     val checked = unchecked.subjects().filterIsInstance<IRI>().toSet()
     val verification = if (checked.isEmpty()) emptyList() else stored(expander.expand(checked, sandbox), scope)
@@ -112,10 +114,7 @@ class FindService @Inject constructor(
       .filter { it.predicate == RDF.TYPE && (request.types.isEmpty() || it.`object` in request.types) }
       .mapNotNullTo(HashSet()) { it.subject as? IRI }
     val merged = LinkedHashModel(trusted)
-    unchecked.filterTo(merged) { st ->
-      val subject = st.subject as? IRI
-      isGenerated(st) || (subject != null && st.context in storeHolding[subject].orEmpty())
-    }
+    unchecked.filterTo(merged, ::isGenerated)
 
     // Only a candidate a context in the selection holds is a hit (SPS-FIND-029). A stored
     // statement shows that; a candidate the answer names only through observations is looked up

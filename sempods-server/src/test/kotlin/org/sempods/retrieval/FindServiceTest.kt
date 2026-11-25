@@ -444,16 +444,20 @@ class FindServiceTest {
   }
 
   @Test
-  fun `an index's stored statement stands only in a context the store holds its subject in`() {
-    val store = LinkedHashModel().apply { add(hit, rdfType, article, contextA) }
-    val answer = LinkedHashModel().apply {
-      add(hit, name, vf.createLiteral("as stored"), contextA)
-      add(hit, name, vf.createLiteral("from elsewhere"), contextB)
+  fun `an index's stored statements name the hit and leave what is stored to the expansion`() {
+    val secret = vf.createLiteral("kept in B")
+    val store = LinkedHashModel().apply {
+      add(hit, rdfType, article, contextA)
+      add(hit, name, vf.createLiteral("as stored in A"), contextA)
+      add(hit, name, secret, contextB)
     }
+    // The hit is typed in A, and the index files B's fact under A.
+    val answer = LinkedHashModel().apply { add(hit, name, secret, contextA) }
 
-    val result = search(index(answer), expander = StoreExpander(store))
+    val result = search(index(answer), expander = StoreExpander(store), on = scopedTo(contextA))
 
-    assertEquals(setOf(vf.createLiteral("as stored")), result.filter(hit, name, null).objects())
+    assertEquals(setOf(hit.stringValue()), subjectsOf(result))
+    assertEquals(setOf(vf.createLiteral("as stored in A")), result.filter(hit, name, null).objects())
   }
 
   @Test
