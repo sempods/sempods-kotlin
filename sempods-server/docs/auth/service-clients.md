@@ -144,22 +144,25 @@ grant_type=client_credentials
 |---|---|
 | Header | `alg` RS256, PS256 or ES256; `kid` the DID URL of the key, such as `did:web:console.example#key-1` |
 | `iss`, `sub` | The `did:web` identifier |
-| `aud` | The token endpoint or the pod URL |
+| `aud` | The token endpoint or the pod URL, as one value |
 | `exp` | At most five minutes ahead |
 | `jti` | Required; each value is accepted once |
 
-The key has to be a `publicKeyJwk` method named under the document's `authentication`. Any other
+The key has to be a `publicKeyJwk` method named under the document's `authentication`, with the
+`did:web` identifier as its `controller`. An `alg`, `use` or `key_ops` it publishes holds. Any other
 assertion, and one for a service not registered on the pod, gets `invalid_client`. HTTP Basic and
 an assertion together are `invalid_request`.
 
 The pod reads the document only for a registered service or a registration, and keeps it for five
-minutes. An assertion with a key the cached document does not name reads it again, at most once a
+minutes. At most eight reads run at once; past that a request gets no key. An assertion with a key the cached document does not name reads it again, at most once a
 minute, so a new key works within a minute of publishing it. A removed key stops working when the
 cached document expires.
 
 The owner manages a `did:web` service as any other. It has no secret, so rotating one answers
-`409`. A `did:web` identifier with a port, such as `did:web:localhost%3A8443`, cannot be named in
-a management route: the server refuses the `%25` its path segment needs.
+`409`. Its grants version starts at its registration time in milliseconds, so an `ETag` read before
+the service was removed and registered again is `412`. Registration refuses an identifier with a port, such as `did:web:console.example%3A8443`,
+because the server refuses the `%25` its path segment would need. Development accepts a loopback
+one, such as `did:web:localhost%3A5173`, which no management route can name.
 
 ## Managing service clients
 

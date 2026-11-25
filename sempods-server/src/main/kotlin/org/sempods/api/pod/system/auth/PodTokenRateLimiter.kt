@@ -108,8 +108,10 @@ class PodTokenRateLimiter(
    * @param authorizationHeader the `Authorization` header, which is where `client_credentials`
    *   carries the client's name instead.
    * @param clientAssertion the submitted `client_assertion`, which names the client of a
-   *   `client_credentials` request authenticating with `private_key_jwt`.
+   *   `client_credentials` request authenticating with `private_key_jwt`. A default with
+   *   [JvmOverloads], so the four-parameter method a compiled caller links against stays.
    */
+  @JvmOverloads
   fun tryAcquire(
     forwardedFor: String?,
     grantType: String?,

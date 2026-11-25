@@ -218,21 +218,27 @@ class PodServiceClientStore @Inject constructor(
    * owner, unless [provisional] is `false` — what the owner's own authority registers.
    *
    * The caller has proved that [clientId] signed the registration, which is what makes it safe to
-   * let a client name itself here when a `svc:` one may not.
+   * let a client name itself here when a `svc:` one may not. A provisional registration of
+   * [clientId] whose window has passed gives way: it is gone to every read already.
    *
    * @throws ServiceClientAlreadyRegistered where [clientId] is registered on [pod] already.
    */
   internal fun registerDidWeb(pod: HostedPod, clientId: String, label: String, redirectUris: List<String>, provisional: Boolean): ServiceClientRegistration {
     require(clientId.startsWith(DidWeb.PREFIX)) { "not a did:web identifier: '$clientId'" }
+    val createdAt = Instant.now()
     val dbo = PodServiceClientDbo(
       podId = pod.id.objectId(),
       clientId = clientId,
       secretHash = null,
       scopes = emptySet(),
       label = label,
+      createdAt = createdAt,
+      // See `PodServiceClientDbo.grantsVersion`: the service can register this identifier again.
+      grantsVersion = createdAt.toEpochMilli(),
       redirectUris = redirectUris,
-      pendingUntil = if (provisional) Instant.now().plus(ACTIVATION_WINDOW) else null,
+      pendingUntil = if (provisional) createdAt.plus(ACTIVATION_WINDOW) else null,
     )
+    dao.deleteExpired(dbo.podId, clientId)
     val stored = try {
       dao.create(dbo)
     } catch (e: MongoWriteException) {

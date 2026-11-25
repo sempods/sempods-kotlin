@@ -67,14 +67,15 @@ outside the single grace allowance is enough to revoke a family.
 |---|---|---|---|
 | Public | Address | No bearer, before pod lookup | 10, 30 |
 | Protected | Address | Bearer present, before pod lookup | 10, 20 |
-| Service | Pod | Valid self-registration body, before creating a secret | 2, 5 |
+| Service | Pod | Valid self-registration body, before creating a secret; for a `did:web` service, any body with a statement, before its DID document is read | 2, 5 |
 
 Address handling matches `/token`; without the header, only the service budget applies. Each
 address budget spans pods. Repeat public DCR spends a request even when it returns an existing
 client ID. A hosted service registering many users' connections shares an address budget; size
 `SEMPODS_REGISTER_RATE_LIMIT_PUBLIC_*` accordingly.
 
-The service budget bounds secret creation on one pod. Invalid bodies do not spend it. Registration
+The service budget bounds secret creation and DID document reads on one pod. Invalid `svc:` bodies
+do not spend it; a `did:web` statement spends it whether or not it verifies. Registration
 with the owner's management bearer skips this budget and uses the protected address budget.
 
 Configure `SEMPODS_REGISTER_RATE_LIMIT_{PUBLIC,PROTECTED,SERVICE}_PER_MINUTE` and `_BURST`. A zero
@@ -120,10 +121,11 @@ are not configurable. [CommonsHttpTransportTest](../../src/test/kotlin/org/sempo
 and [OidcHttpTimeoutsTest](../../../sempods-auth/src/test/kotlin/org/sempods/auth/oidc/OidcHttpTimeoutsTest.kt)
 verify them.
 
-A [`did:web` service](service-clients.md#didweb-services)'s DID document is the pod's only fetch
-to an address a caller names. It goes through the outbound guard: public addresses only outside
-development, no redirects, 3 s connect, 5 s whole call, 64 KiB. Its five-minute cache holds at most
-1,000 documents per process. [OkHttpDidDocumentFetcher](../../src/main/kotlin/org/sempods/pods/oauth/didweb/OkHttpDidDocumentFetcher.kt)
+Pod OAuth fetches one address a caller names: a
+[`did:web` service](service-clients.md#didweb-services)'s DID document. It goes through the outbound
+guard: public addresses only outside development, no redirects, 3 s connect, 5 s whole call,
+64 KiB, at most eight reads at once per process. Its five-minute cache holds at most 1,000
+documents per process. [OkHttpDidDocumentFetcher](../../src/main/kotlin/org/sempods/pods/oauth/didweb/OkHttpDidDocumentFetcher.kt)
 and [DidWebKeys](../../src/main/kotlin/org/sempods/pods/oauth/didweb/DidWebKeys.kt) own the figures.
 
 ## Service audit retention

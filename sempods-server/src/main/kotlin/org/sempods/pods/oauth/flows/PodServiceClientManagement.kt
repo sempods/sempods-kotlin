@@ -103,8 +103,10 @@ class PodServiceClientManagement @Inject internal constructor(
     authorized(pod, caller) { authority ->
       val registration = serviceClients.find(pod.id, clientId)
         ?: return@authorized PodServiceClientManagementResult.Refused(PodServiceClientManagementRefusal.NOT_FOUND)
-      // What the first text allowed: taking access away from an active service this pod named.
-      val narrowing = registration.registered && registration.pendingUntil == null && registration.scopes.containsAll(scopes)
+      // What the first text allowed: taking access away from an active service this pod named. A
+      // `did:web` one is not among them: that text predates it.
+      val narrowing = registration.clientId.startsWith(PodServiceClientStore.SERVICE_CLIENT_PREFIX) &&
+          registration.pendingUntil == null && registration.scopes.containsAll(scopes)
       if (authority.consent < PrivilegedAuthorityRows.SERVICE_CLIENTS_CONSENT && !narrowing) {
         return@authorized PodServiceClientManagementResult.Unauthorized(PodOwnerAuthorityRefusal.CONSENT_OUTDATED)
       }

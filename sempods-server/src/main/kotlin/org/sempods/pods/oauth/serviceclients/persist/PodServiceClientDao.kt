@@ -203,6 +203,16 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   }
 
   /**
+   * Deletes the `(podId, clientId)` row if its deadline has passed — the row every read here already
+   * treats as gone, and which the unique index still counts until the TTL monitor removes it. A
+   * registration that names itself again calls this first, so it can register at once.
+   */
+  internal fun deleteExpired(podId: ObjectId, clientId: String, now: Instant = Instant.now()): Boolean =
+    serviceClients.deleteOne(
+      Filters.and(keyFilter(podId, clientId), Filters.lte(PodServiceClientDboFields.pendingUntil, Date.from(now))),
+    ).deletedCount > 0L
+
+  /**
    * Pod-cascade delete: when a pod is removed every service-client row
    * scoped to it loses its meaning. Returns the number of rows removed.
    *
