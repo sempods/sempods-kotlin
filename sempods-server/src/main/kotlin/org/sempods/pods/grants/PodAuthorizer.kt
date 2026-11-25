@@ -9,7 +9,9 @@ import org.sempods.spec.PodRef
  * carries.
  *
  * Sits behind the verification: [org.sempods.pods.oauth.spi.PodRequestVerifier] establishes *who
- * is calling* and hands this seam the [PodAccessToken]. What a verified caller may then see is
+ * is calling* and hands this seam the [PodAccessToken]. Both are steps of the default
+ * [org.sempods.pods.authentication.spi.PodRequestAuthenticator]; a deployment that binds its own
+ * authenticator need not consult this seam at all. What a verified caller may then see is
  * decided here: the grant model this implementation runs, a fixed read-only view over virtual
  * contexts, or an external policy engine.
  *

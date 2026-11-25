@@ -3,6 +3,8 @@ package org.sempods.api.pod.system.media
 import com.google.inject.Inject
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
+import org.sempods.pods.authentication.spi.PodApiRequest
 import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.jaxrs.errors.ApiExceptionMapper
 import org.sempods.commons.logging.CapturedLog
@@ -559,6 +561,28 @@ class PodMediaEndpointHttpTest : SempodsIntegrationTest() {
       // `Accept-Encoding`. Reading only the first would assert whichever landed on top.
       val vary = response.headers.getAll("Vary").flatMap { it.split(",") }.map { it.trim() }
       assertTrue("Authorization" in vary, "the answer depends on who is asking, got: $vary")
+    }
+  }
+
+  @Test
+  fun `media answers vary on every header the authenticator reads credentials from`() = withSetup {
+    val pod = sempodsTestFactory.newPod()
+    val (context, token) = contextWithToken(pod, "tests/public-${randomId()}", public = true)
+    val mediaId = mediaIdOf(upload(pod, context, token))
+    requestAuthenticator.answerWith(object : PodRequestAuthenticator {
+      override fun authenticate(pod: String, request: PodApiRequest) = requestAuthenticator.real.authenticate(pod, request)
+      override val credentialHeaders = setOf("Authorization", "Cookie")
+    })
+
+    val metadata = httpClient.prepareGet(mediaUrl(pod.name, mediaId)).execute()
+    val content = httpClient.prepareGet(contentUrl(pod.name, mediaId)).execute()
+    val revalidated = httpClient.prepareGet(contentUrl(pod.name, mediaId))
+      .addHeader("If-None-Match", assertNotNull(content.getHeader("ETag"))).execute()
+
+    assertEquals(304, revalidated.statusCode)
+    listOf(metadata, content, revalidated).forEach { response ->
+      val vary = response.headers.getAll("Vary").flatMap { it.split(",") }.map { it.trim() }
+      assertTrue(vary.containsAll(listOf("Authorization", "Cookie")), "got: $vary")
     }
   }
 

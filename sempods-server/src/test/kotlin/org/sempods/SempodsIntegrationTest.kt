@@ -9,6 +9,7 @@ import org.sempods.admin.AdminAuthorizerTestDouble
 import org.sempods.auth.ConsentTransactionStore
 import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.pods.oauth.PodTokenIssuer
+import org.sempods.pods.authentication.PodRequestAuthenticatorObserver
 import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.retrieval.FindAdapterObserver
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
@@ -104,6 +105,9 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   private lateinit var requestVerifierObserver: PodRequestVerifierObserver
 
   @Inject
+  private lateinit var requestAuthenticatorObserver: PodRequestAuthenticatorObserver
+
+  @Inject
   private lateinit var idServerObserver: IdServerObserver
 
   @Inject
@@ -117,15 +121,18 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
    * method: JUnit does not run a `@Test` that returns a value, and says nothing about it.
    */
   protected fun withSetup(block: SempodsTestSetup.() -> Unit) {
-    requestVerifierObserver.observeWithTestImpl { requestVerifier ->
-      idServerObserver.observeWithTestImpl { idServer ->
-        findAdapterObserver.observeWithTestImpl { findAdapter ->
-          SempodsTestSetup(
-            requestVerifier = requestVerifier,
-            idServer = idServer,
-            findAdapter = findAdapter,
-            podAccess = podAccess,
-          ).block()
+    requestAuthenticatorObserver.observeWithTestImpl { requestAuthenticator ->
+      requestVerifierObserver.observeWithTestImpl { requestVerifier ->
+        idServerObserver.observeWithTestImpl { idServer ->
+          findAdapterObserver.observeWithTestImpl { findAdapter ->
+            SempodsTestSetup(
+              requestAuthenticator = requestAuthenticator,
+              requestVerifier = requestVerifier,
+              idServer = idServer,
+              findAdapter = findAdapter,
+              podAccess = podAccess,
+            ).block()
+          }
         }
       }
     }

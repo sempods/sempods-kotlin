@@ -4,6 +4,7 @@ import com.google.inject.Provides
 import com.google.inject.name.Named
 import com.google.inject.Singleton
 import org.sempods.commons.guice.BaseModule
+import org.sempods.pods.authentication.PodRequestAuthenticatorObserver
 import org.sempods.pods.oauth.PodRequestVerifierObserver
 import org.sempods.ai.AiService
 import org.sempods.ai.AiServiceException
@@ -57,6 +58,7 @@ data class SempodsTestModule(
     bind<AdminAuthorizerTestDouble>().toInstance(adminAuthorizer)
 
     PodRequestVerifierObserver.bindTestProxy(binder())
+    PodRequestAuthenticatorObserver.bindTestProxy(binder())
 
     // Sign-ins complete against an in-process id-server, over the transport port, so the OIDC
     // round trip is genuinely exercised and no test opens a socket to do it.
