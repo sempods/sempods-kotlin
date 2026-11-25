@@ -151,6 +151,10 @@ internal object PodAuthorizeResponses {
       PodServiceConsentRefusal.UNKNOWN_AUTHORITY -> finishedPage(
         templates, 400, "Unknown request", "This link asks for an authority this pod does not offer.",
       )
+      PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR -> finishedPage(
+        templates, 403, "Set up by your host",
+        "Your host set up this service and holds its registration, so it cannot manage your pod from here.",
+      )
       PodServiceConsentRefusal.REDIRECT_URI_NOT_ALLOWED -> finishedPage(
         templates, 400, "Unknown return address", "The service did not register the address this link returns to.",
       )

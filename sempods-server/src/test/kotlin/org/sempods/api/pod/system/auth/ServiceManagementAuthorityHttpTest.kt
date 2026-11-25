@@ -12,6 +12,9 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
+import org.sempods.pods.mongo.persist.toHostedPod
+import org.sempods.pods.mongo.persist.toPodId
+import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import java.net.URI
 import kotlin.test.assertEquals
@@ -48,6 +51,9 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var auditLog: PodServiceAuditLogDao
+
+  @Inject
+  private lateinit var serviceClientStore: PodServiceClientStore
 
   // ── Granting ────────────────────────────────────────────────────────────────
 
@@ -165,6 +171,18 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
       .execute()
 
     assertEquals(400, page.statusCode, page.responseBody)
+  }
+
+  @Test
+  fun `an operator-provisioned client is not offered the authority, so the page cannot remove it`() {
+    val owned = ownedPod()
+    serviceClientStore.register(owned.pod.hosted(), "backend", scopes = emptySet(), label = "backend")
+
+    val page = openManagement(owned, "backend")
+
+    assertEquals(403, page.statusCode, page.responseBody)
+    assertFalse("removeBtn" in page.responseBody || "confirmBtn" in page.responseBody, "no form for it")
+    assertNotNull(serviceClientStore.find(checkNotNull(owned.pod.id).toPodId(), "backend"), "the operator's registration stays")
   }
 
   @Test
@@ -295,6 +313,8 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
     val contexts = JsonMappers.default().readValue(response.responseBody, Map::class.java)["contexts"] as List<Map<String, Any?>>
     return contexts.associate { it["context_iri"] as String to (it["permissions"] as List<String>) }
   }
+
+  private fun PodDbo.hosted() = toHostedPod(sempodsUriBuilder)
 
   private fun podBase(owned: Owned) = "${SempodsModule.config.apiBaseUrl}${owned.pod.name}"
 

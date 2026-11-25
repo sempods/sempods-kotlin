@@ -174,7 +174,9 @@ once. For Alice's pod and the console `did:web:console.example`:
 | 3. Get a token | `POST /_system/auth/token` with Client Credentials, no `scope` | The token carries `contexts:manage` |
 | 4. Manage | `GET`, `PUT` and `DELETE /_system/contexts…` | As with [`contexts:manage`](oauth.md#managing-contexts): every context shows as `manage` alone |
 
-A host can set it up instead when it [creates the pod](../host-provisioning.md#creating-a-pod).
+Only a service registered at the pod, `svc:` or `did:web`, is offered it; for an operator-provisioned
+one the page answers `403`. A host can set it up instead when it
+[creates the pod](../host-provisioning.md#creating-a-pod).
 The pod advertises the scopes the authority carries as `sempods_service_management_scopes` in its
 authorization-server metadata. A pod without the member does not offer it.
 

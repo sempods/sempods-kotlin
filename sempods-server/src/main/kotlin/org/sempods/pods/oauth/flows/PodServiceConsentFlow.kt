@@ -41,7 +41,8 @@ import java.time.Instant
  * **With `authority=manage` the page offers the authority to manage the pod** instead of contexts
  * ([ServiceManagementAuthority]): no rows to tick, and confirming grants it and activates the
  * registration. Where the service holds it already, the page offers to remove the service, which is
- * how the authority ends.
+ * how the authority ends. Only a service registered at the pod is offered it: an operator's client
+ * keeps the registration the operator holds.
  */
 class PodServiceConsentFlow @Inject internal constructor(
   private val serviceClients: PodServiceClientStore,
@@ -72,6 +73,11 @@ class PodServiceConsentFlow @Inject internal constructor(
       null -> false
       MANAGE_AUTHORITY -> true
       else -> return PodServiceConsentResult.Refused(PodServiceConsentRefusal.UNKNOWN_AUTHORITY)
+    }
+    // An operator's client keeps the registration the operator holds, as on the management API:
+    // the variant could otherwise remove it.
+    if (management && !registration.registered) {
+      return PodServiceConsentResult.Refused(PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR)
     }
 
     if (session == null) return parkForSignIn(pod, registration.clientId, redirectUri, state, if (management) MANAGE_AUTHORITY else null)
@@ -233,6 +239,7 @@ class PodServiceConsentFlow @Inject internal constructor(
   ): PodServiceConsentResult {
     val clientId = binding.clientId
     if (registration == null) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SERVICE_REMOVED)
+    if (!registration.registered) return PodServiceConsentResult.Refused(PodServiceConsentRefusal.PROVISIONED_BY_OPERATOR)
     if (form.action?.trim() == REMOVE_ACTION) {
       if (!serviceClients.remove(pod.id, clientId, registration.id)) {
         return PodServiceConsentResult.Refused(PodServiceConsentRefusal.SERVICE_REMOVED)
@@ -380,6 +387,9 @@ internal enum class PodServiceConsentRefusal {
 
   /** An `authority` other than `manage`. */
   UNKNOWN_AUTHORITY,
+
+  /** The management variant for a client the operator provisioned, whose registration is the operator's. */
+  PROVISIONED_BY_OPERATOR,
   REDIRECT_URI_NOT_ALLOWED,
   IDENTITY_PROVIDER_UNAVAILABLE,
   NOT_OWNER,
