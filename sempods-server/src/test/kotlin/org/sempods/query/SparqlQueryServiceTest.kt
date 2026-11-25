@@ -1,21 +1,23 @@
 package org.sempods.query
 
 import org.sempods.commons.json.JsonMappers
-import org.sempods.pods.PodRepositoryCache
-import io.mockk.every
+import org.sempods.query.spi.PodConnections
+import org.sempods.spec.PodRef
+import java.net.URI
 import io.mockk.mockk
-import org.sempods.commons.jaxrs.errors.ApiException
+import org.eclipse.rdf4j.repository.RepositoryConnection
 import org.sempods.rdf.stream.write
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.io.ByteArrayOutputStream
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SparqlQueryServiceTest {
 
-  private val service = SparqlQueryService(mockk<PodRepositoryCache>(relaxed = true))
+  private val service = SparqlQueryService(mockk<PodConnections>(relaxed = true))
   private val objectMapper = JsonMappers.default()
 
   @Test
@@ -54,10 +56,17 @@ class SparqlQueryServiceTest {
 
   @Test
   fun `a graph source reaches the pod only when it is written`() {
-    val cache = mockk<PodRepositoryCache>()
-    every { cache.get(any()) } returns null
-    val source = SparqlQueryService(cache).graphSource(pod = "missing", query = "CONSTRUCT WHERE { ?s ?p ?o }", dataset = null)
+    var reached = false
+    val connections = object : PodConnections {
+      override fun <T> withConnection(pod: PodRef, block: (RepositoryConnection) -> T): T {
+        reached = true
+        throw IllegalStateException("no store for ${pod.name}")
+      }
+    }
+    val pod = PodRef(uri = URI("https://pods.example/missing"), name = "missing", owner = "owner")
+    val source = SparqlQueryService(connections).graphSource(pod = pod, query = "CONSTRUCT WHERE { ?s ?p ?o }", dataset = null)
 
-    assertThrows<ApiException> { source.write(RDFFormat.NQUADS, ByteArrayOutputStream()) }
+    assertFalse(reached)
+    assertThrows<IllegalStateException> { source.write(RDFFormat.NQUADS, ByteArrayOutputStream()) }
   }
 }

@@ -26,6 +26,7 @@ import org.sempods.pods.media.PodMediaModule
 import org.sempods.pods.media.impls.fs.FilesystemPodMediaStore
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.retrieval.FindAdapterObserver
+import org.sempods.query.PodConnectionsObserver
 import okhttp3.OkHttpClient
 import java.nio.file.Files
 import java.time.Duration
@@ -63,6 +64,7 @@ data class SempodsTestModule(
 
     PodRequestVerifierObserver.bindTestProxy(binder())
     PodRequestAuthenticatorObserver.bindTestProxy(binder())
+    PodConnectionsObserver.bindTestProxy(binder())
 
     // Sign-ins complete against an in-process id-server, over the transport port, so the OIDC
     // round trip is genuinely exercised and no test opens a socket to do it.

@@ -88,7 +88,7 @@ class SparqlEndpoint @Inject constructor(
             .build()
         }
         val entity = StreamingOutput { out ->
-          sparqlQueryService.executeTuple(pod = pod, query = sparqlQuery, dataset = dataset, out = out)
+          sparqlQueryService.executeTuple(pod = credentials.pod, query = sparqlQuery, dataset = dataset, out = out)
         }
         Response.ok(entity).type("application/sparql-results+json").build()
       }
@@ -105,7 +105,7 @@ class SparqlEndpoint @Inject constructor(
             .type("application/sparql-results+json")
             .build()
         }
-        val json = sparqlQueryService.executeBooleanAsJson(pod = pod, query = sparqlQuery, dataset = dataset)
+        val json = sparqlQueryService.executeBooleanAsJson(pod = credentials.pod, query = sparqlQuery, dataset = dataset)
         val entity = StreamingOutput { out ->
           out.write(json.toByteArray(Charsets.UTF_8))
         }
@@ -123,7 +123,7 @@ class SparqlEndpoint @Inject constructor(
             .type(graphResult.contentType)
             .build()
         }
-        val entity = sparqlQueryService.graphSource(pod = pod, query = sparqlQuery, dataset = dataset)
+        val entity = sparqlQueryService.graphSource(pod = credentials.pod, query = sparqlQuery, dataset = dataset)
           .toStreamingOutput(graphResult.rdfFormat)
         Response.ok(entity).type(graphResult.contentType).build()
       }

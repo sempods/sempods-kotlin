@@ -170,7 +170,10 @@ The third is `findAdapter`, a `find` engine beside the built-in SPARQL adapter t
 until a test calls `answerWith` (`FindAdapterObserver`). It runs on a thread of its own, and
 `FindService` re-binds the trace there. The fourth is `requestAuthenticator`
 (`PodRequestAuthenticatorObserver`), which a request passes before it reaches the verifier: a test
-that answers there decides who is calling, and `requestVerifier` is not asked.
+that answers there decides who is calling, and `requestVerifier` is not asked. The fifth is `podConnections`
+(`PodConnectionsObserver`), where SPARQL reads reach a pod's store: a test that answers there with
+an RDF4J repository serves `find` from it, as `FindPodConnectionsHttpTest` does for a pod no
+registry of this server holds.
 
 `podAs` and `rdfAs` in the setup carry the block's trace, so their requests reach these test
 implementations. Seeding (`SempodsTestPodAccess.podFor`, `seedEvent`) carries none: a fixture always

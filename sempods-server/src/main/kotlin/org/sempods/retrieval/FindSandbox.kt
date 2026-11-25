@@ -10,9 +10,8 @@ import java.net.URI
  * @property podUri the pod's **URI** — its global identifier (e.g. `https://sempods.org/alice`).
  *   sempods are decentralized Linked Open Data: a pod is itself a resource, identified by (and
  *   dereferenceable at) this URI, not by a server-local name. Adapters (including future
- *   standalone-pod libraries and external index engines) key on this. In this still-multi-pod
- *   server the local RDF4J store is resolved from [credentials] (`pod.name`); a standalone
- *   deployment would resolve its single store straight from this URI.
+ *   standalone-pod libraries and external index engines) key on this. The SPARQL engines reach
+ *   the pod's store through [org.sempods.query.spi.PodConnections] with [SempodsCredentials.pod].
  * @property credentials the authorized caller for this request — carries the pod
  *   ([SempodsCredentials.pod]) and the bearer's effective scopes, and is the source of
  *   [visibleContexts].

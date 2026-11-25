@@ -1,10 +1,10 @@
 package org.sempods.query
 
 import com.google.inject.Inject
-import org.sempods.commons.jaxrs.errors.ApiErrors
-import org.sempods.pods.PodRepositoryCache
+import org.sempods.query.spi.PodConnections
 import org.sempods.rdf.stream.RdfSource
 import org.sempods.rdf.stream.write
+import org.sempods.spec.PodRef
 import org.eclipse.rdf4j.model.IRI
 import org.eclipse.rdf4j.model.Model
 import org.eclipse.rdf4j.model.Resource
@@ -44,9 +44,12 @@ import java.io.OutputStream
  * The endpoints stay thin (HTTP/JSON-RPC adaption, content negotiation, error format).
  * All read-only enforcement and execution flows through here so the two surfaces cannot
  * drift apart.
+ *
+ * The connection comes from [PodConnections]; the validation, the time limit and the `Dataset`
+ * stay here, whichever store is behind it.
  */
 class SparqlQueryService @Inject constructor(
-  private val podRepositoryCache: PodRepositoryCache,
+  private val podConnections: PodConnections,
 ) {
 
   private val vf = SimpleValueFactory.getInstance()
@@ -92,8 +95,8 @@ class SparqlQueryService @Inject constructor(
     return ValidatedQuery(parsed = parsed, type = type)
   }
 
-  fun executeTuple(pod: String, query: String, dataset: Dataset?, out: OutputStream) {
-    withPodConnection(pod) { conn ->
+  fun executeTuple(pod: PodRef, query: String, dataset: Dataset?, out: OutputStream) {
+    podConnections.withConnection(pod) { conn ->
       val prepared = conn.prepareTupleQuery(QueryLanguage.SPARQL, query)
       prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
       if (dataset != null) prepared.dataset = dataset
@@ -103,8 +106,8 @@ class SparqlQueryService @Inject constructor(
     }
   }
 
-  fun executeBoolean(pod: String, query: String, dataset: Dataset?): Boolean {
-    return withPodConnection(pod) { conn ->
+  fun executeBoolean(pod: PodRef, query: String, dataset: Dataset?): Boolean {
+    return podConnections.withConnection(pod) { conn ->
       val prepared = conn.prepareBooleanQuery(QueryLanguage.SPARQL, query)
       prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
       if (dataset != null) prepared.dataset = dataset
@@ -116,9 +119,9 @@ class SparqlQueryService @Inject constructor(
    * A CONSTRUCT/DESCRIBE as an [RdfSource]: nothing runs until the source is written, and the pod
    * connection is open only while it is. The endpoint hands it to the response body unevaluated.
    */
-  fun graphSource(pod: String, query: String, dataset: Dataset?): RdfSource =
+  fun graphSource(pod: PodRef, query: String, dataset: Dataset?): RdfSource =
     RdfSource { handler ->
-      withPodConnection(pod) { conn -> evaluateGraph(conn, query, dataset, handler) }
+      podConnections.withConnection(pod) { conn -> evaluateGraph(conn, query, dataset, handler) }
     }
 
   // Statements only, not `prepared.evaluate(handler)`: that would start and end the document, and
@@ -143,12 +146,12 @@ class SparqlQueryService @Inject constructor(
    * at the endpoint boundary for caller-supplied SPARQL ([validateReadOnly]).
    */
   fun executeGraphToModel(
-    pod: String,
+    pod: PodRef,
     query: String,
     dataset: Dataset?,
     bindings: Map<String, Value> = emptyMap(),
   ): Model {
-    return withPodConnection(pod) { conn ->
+    return podConnections.withConnection(pod) { conn ->
       val prepared = conn.prepareGraphQuery(QueryLanguage.SPARQL, query)
       prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
       if (dataset != null) prepared.dataset = dataset
@@ -169,12 +172,12 @@ class SparqlQueryService @Inject constructor(
    * are skipped defensively. Same `dataset` sandbox + bound-variable handling as the graph path.
    */
   fun executeSelectToQuadModel(
-    pod: String,
+    pod: PodRef,
     query: String,
     dataset: Dataset?,
     bindings: Map<String, Value> = emptyMap(),
   ): Model {
-    return withPodConnection(pod) { conn ->
+    return podConnections.withConnection(pod) { conn ->
       val prepared = conn.prepareTupleQuery(QueryLanguage.SPARQL, query)
       prepared.maxExecutionTime = MAX_EXECUTION_TIME_SECONDS
       if (dataset != null) prepared.dataset = dataset
@@ -212,7 +215,7 @@ class SparqlQueryService @Inject constructor(
    * Execute an ASK query and serialize as SPARQL-Results-JSON
    * (https://www.w3.org/TR/sparql11-results-json/#boolean-results).
    */
-  fun executeBooleanAsJson(pod: String, query: String, dataset: Dataset?): String {
+  fun executeBooleanAsJson(pod: PodRef, query: String, dataset: Dataset?): String {
     val value = executeBoolean(pod = pod, query = query, dataset = dataset)
     return """{"head":{},"boolean":$value}"""
   }
@@ -231,12 +234,6 @@ class SparqlQueryService @Inject constructor(
     RdfSource { handler -> withEmptyConnection { conn -> evaluateGraph(conn, query, dataset = null, handler) } }
       .write(rdfFormat, out)
     return out.toString(Charsets.UTF_8)
-  }
-
-  private fun <T> withPodConnection(pod: String, block: (RepositoryConnection) -> T): T {
-    val repo = podRepositoryCache.get(pod)
-      ?: throw ApiErrors.throwNotFoundError("pod", pod)
-    return repo.withConnection(block)
   }
 
   private fun <T> withEmptyConnection(block: (RepositoryConnection) -> T): T {
