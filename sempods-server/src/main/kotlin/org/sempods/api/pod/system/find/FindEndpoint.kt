@@ -4,7 +4,6 @@ import org.sempods.api.PodBaseEndpoint
 import jakarta.ws.rs.container.ContainerRequestContext
 import com.google.inject.Inject
 import org.sempods.commons.json.JsonMappers
-import org.sempods.api.pod.resources.PodResourceReadService
 import org.sempods.api.system.sparql.GraphResultFormat
 import org.sempods.api.system.sparql.GraphResultNegotiation
 import org.sempods.rdf.RdfWriterUtil
@@ -36,19 +35,24 @@ import jakarta.ws.rs.core.Response
  * negotiate the serialization. `text` is required (whitespace-only → 400). The optional, repeatable
  * `type` constrains the returned hit's `rdf:type` (OR-combined). The optional, repeatable `context`
  * is a read downscope within the caller's readable contexts — same `requested ∩ readable` /
- * silent-exclusion semantics as the LOD read routes (sempods-spec `spec/core/lod-crud.md` §4 §"Reads"). The optional
+ * silent-exclusion semantics as the LOD read routes (sempods-spec `spec/core/lod-crud.md` §4 §"Reads"),
+ * worked out by [FindDownscope] from the credentials alone. The optional
  * `include_contexts` switches the result to the named-graph (provenance) form: every statement
  * grouped by its context (JSON-LD), or carried as the 4th N-Quads term (`SPS-FIND-027`).
  *
  * The `POST` form ([findPost]) takes the same parameters in a JSON body for requests that no longer
  * fit a URL (many `contexts`), read by [FindPostRequest.parse]; GET and POST share [executeFind]. The general predicate `filter`
  * stays a deferred additive extension (see `docs/concepts/graph-retrieval.md`).
+ *
+ * The class needs [FindService] and the [org.sempods.pods.authentication.spi.PodRequestAuthenticator]
+ * that [PodBaseEndpoint] injects, and no pod registry or context registry. That lets a deployment
+ * with stores of its own bind it: `docs/concepts/graph-retrieval.md` §"Embedding find" lists the
+ * bindings.
  */
 @Path("{pod}/_system/find")
 @Produces("application/ld+json", "application/n-quads")
 class FindEndpoint @Inject constructor(
   private val findService: FindService,
-  private val podResourceReadService: PodResourceReadService,
 ) : PodBaseEndpoint() {
 
   private val objectMapper = JsonMappers.default()
@@ -135,18 +139,7 @@ class FindEndpoint @Inject constructor(
     // canonical (no-trailing-slash) form comes from SempodsUriBuilder, the same builder that mints
     // every resource URI.
     val podUri = credentials.pod.uri
-    // Optional context downscope. `rawContexts == null` = absent → pod-wide within the readable
-    // ceiling. A present list is fail-closed: blank-only (`contexts:[]` / `[""]`) resolves to an
-    // empty scope (→ empty result), NOT pod-wide; otherwise `requested ∩ readable` with
-    // unknown/unreadable contexts silently dropped. Mirrors the LOD read routes.
-    val contextFilter = rawContexts?.let { raw ->
-      val cleaned = raw.filter { it.isNotBlank() }
-      if (cleaned.isEmpty()) {
-        emptySet()
-      } else {
-        podResourceReadService.resolveVisibleContexts(pod, credentials, cleaned)
-      }
-    }
+    val contextFilter = FindDownscope.resolve(credentials, rawContexts)
     val sandbox = FindSandbox(
       podUri = podUri,
       credentials = credentials,
