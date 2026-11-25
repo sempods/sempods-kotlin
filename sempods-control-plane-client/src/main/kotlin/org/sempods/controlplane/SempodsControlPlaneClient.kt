@@ -154,8 +154,10 @@ class SempodsControlPlaneClient(
    * must not delete a pod that another owner created under the name since.
    *
    * [expectedOwner] is the stored `https` WebID or its `urn:sempods:` twin. **Three answers are
-   * listed**: `204` deleted, `412` the pod has another owner, `404` there is no pod of that name.
-   * The last two arrive with a null body, and in both nothing was deleted.
+   * listed**: `204` deleted, `412` the precondition failed, `404` there is no pod of that name. A
+   * `412` means the pod has another owner, or was created again under the name since the server
+   * read it — possibly for the same owner. [pod] tells who owns it now. The last two arrive with a
+   * null body, and in both nothing was deleted.
    *
    * @throws IllegalArgumentException for a blank [expectedOwner]; nothing is sent.
    */

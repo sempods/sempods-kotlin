@@ -6,12 +6,10 @@ import io.mockk.verify
 import jakarta.ws.rs.WebApplicationException
 import org.bson.types.ObjectId
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.sempods.SempodsFacade
 import org.sempods.admin.AdminAuthorization
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.commons.identity.WebIdUriDeriver
-import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import kotlin.test.assertEquals
@@ -29,13 +27,11 @@ class AdminPodsEndpointTest {
 
   private val sempodsFacade = mockk<SempodsFacade>()
   private val podDao = mockk<PodDao>()
-  private val podRepositoryCache = mockk<PodRepositoryCache>(relaxed = true)
 
   private val endpoint = AdminPodsEndpoint(
     sempodsFacade = sempodsFacade,
     podDao = podDao,
     podFacade = mockk(),
-    podRepositoryCache = podRepositoryCache,
     webIdUriDeriver = webIdUriDeriver,
     podServiceClientProvisioning = mockk(),
     sempodsUriBuilder = mockk(),
@@ -56,7 +52,6 @@ class AdminPodsEndpointTest {
     every { sempodsFacade.deletePod(podId) } returns true
 
     assertEquals(204, delete())
-    verify { podRepositoryCache.invalidate("alice", podId) }
   }
 
   @Test
@@ -76,11 +71,10 @@ class AdminPodsEndpointTest {
   }
 
   @Test
-  fun `a refused delete leaves the repository alone`() {
+  fun `a refused delete deletes nothing`() {
     every { podDao.fetchByName("alice") } returns checked.copy(owner = webIdUriDeriver.deriveFromEmail("bob@example.org"))
 
-    assertThrows<WebApplicationException> { endpoint.deletePod("Bearer admin", "alice", listOf(owner)) }
-    verify(exactly = 0) { podRepositoryCache.invalidate(any()) }
-    verify(exactly = 0) { podRepositoryCache.invalidate(any(), any()) }
+    assertEquals(412, delete())
+    verify(exactly = 0) { sempodsFacade.deletePod(any<ObjectId>()) }
   }
 }

@@ -123,7 +123,7 @@ DELETE https://pods.example/_system/admin/pods/alice?owner=https://id.sempods.or
 | Case | Answer |
 |---|---|
 | The pod is stored under that owner, or its `urn:sempods:e:` twin | `204`, deleted |
-| The pod has another owner | `412`, nothing deleted |
+| The pod has another owner, or was created again under the name while the delete ran | `412`, nothing deleted |
 | There is no pod of that name | `404` |
 
 The server compares the owner and deletes the same stored pod, so a pod created again under the

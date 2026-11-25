@@ -72,7 +72,9 @@ SempodsResponse<byte[]> deleted = admin.deletePod("alice", checkedOwner);
 boolean gone = deleted.getStatus() == 204;
 ```
 
-`412` means another owner holds the name now, `404` that no pod has it. [Deleting a pod](../sempods-server/docs/host-provisioning.md#deleting-a-pod)
+`412` means the precondition failed and nothing was deleted: the pod has another owner, or was
+created again under the name. Read it again with `admin.pod` to learn who owns it now. `404` means
+no pod has the name. [Deleting a pod](../sempods-server/docs/host-provisioning.md#deleting-a-pod)
 lists the answers.
 
 [SempodsControlPlaneClient](src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt)

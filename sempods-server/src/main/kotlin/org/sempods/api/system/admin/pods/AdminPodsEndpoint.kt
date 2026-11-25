@@ -15,7 +15,6 @@ import org.sempods.admin.AdminAuthorizer
 import org.sempods.api.system.admin.AdminAuthorizedEndpoint
 import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
-import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -70,7 +69,6 @@ class AdminPodsEndpoint @Inject constructor(
   private val sempodsFacade: SempodsFacade,
   private val podDao: PodDao,
   private val podFacade: PodFacade,
-  private val podRepositoryCache: PodRepositoryCache,
   private val webIdUriDeriver: WebIdUriDeriver,
   private val podServiceClientProvisioning: PodServiceClientProvisioning,
   private val sempodsUriBuilder: SempodsUriBuilder,
@@ -226,10 +224,7 @@ class AdminPodsEndpoint @Inject constructor(
       throw WebApplicationException(errorResponse(412, "pod '$pod' is not owned by the expected owner"))
     }
 
-    // Only once the owner matched, and only the repository loaded for this row: a refused delete,
-    // or a pod created again under the name, keeps the repository it has.
     val podId = checkNotNull(stored.id) { "a stored pod has an id" }
-    podRepositoryCache.invalidate(pod, podId)
     if (!sempodsFacade.deletePod(podId)) {
       podDao.fetchByName(pod)?.let {
         throw WebApplicationException(errorResponse(412, "pod '$pod' was created again since it was checked"))
@@ -242,11 +237,6 @@ class AdminPodsEndpoint @Inject constructor(
   }
 
   private fun deleteUnconditionally(adminClientId: String, pod: String): Response {
-    // Drop the in-memory RDF repository first so that an in-flight SPARQL query cannot observe
-    // stale state while the DB rows below disappear. Ordered here rather than inside
-    // [SempodsFacade.deletePod] on purpose: PodRepositoryCache already injects SempodsFacade, so
-    // a reverse injection would introduce a Guice cycle.
-    podRepositoryCache.invalidate(pod)
     sempodsFacade.deletePod(pod)
 
     // Unlike the create above, this route never resolves the name: deleting an unknown pod is a

@@ -18,6 +18,7 @@ import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import org.bson.types.ObjectId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.logging.LogSafeText
@@ -42,6 +43,12 @@ class SempodsFacade @Inject constructor(
 
   private val podIdCache = ConcurrentHashMap<String, ObjectId>()
 
+  /**
+   * Moves when a pod row is deleted, so that a lookup which read the row before the delete cannot
+   * leave its id in [podIdCache] after the delete cleared it.
+   */
+  private val podIdGeneration = AtomicLong()
+
   internal fun getPodId(pod: String): ObjectId? {
 
     // TODO: this cache will not be invalidate, if a pod gets deleted on another vm. Since S1 the
@@ -52,9 +59,12 @@ class SempodsFacade @Inject constructor(
     //  resolved context set is empty.
     podIdCache[pod]?.let { return it }
 
+    val generation = podIdGeneration.get()
     val podId = podDao.fetchByName(name = pod)?.id
     if (podId != null) {
       podIdCache[pod] = podId
+      // A delete in between may have cleared the cache before this put landed.
+      if (podIdGeneration.get() != generation) podIdCache.remove(pod, podId)
     }
 
     return podId
@@ -68,6 +78,8 @@ class SempodsFacade @Inject constructor(
     // Ahead of the lookup, so `pod` is still whatever the admin route was called with. Deleting an
     // unknown pod is a no-op by contract, and a name that is not a pod name never becomes one.
     logger.info { "Delete pod ${LogSafeText.of(pod)}" }
+    // By name as well, so a repository still cached for a pod another replica deleted goes too.
+    podRepositoryCacheProvider.get().invalidate(pod)
     podIdCache.clear()
     getPodId(pod = pod)?.let { deletePod(it) }
   }
@@ -79,14 +91,20 @@ class SempodsFacade @Inject constructor(
    *
    * Returns whether this call removed the pod's row. `false` means the row was gone already: another
    * delete of the same pod got there first. The cascade still runs, and removes nothing it left.
+   *
+   * The pod's in-memory repository is dropped first, so an in-flight SPARQL query cannot observe
+   * stale state while the rows disappear, and again once the row is gone: until then a concurrent
+   * read still resolves the pod and can load its repository anew, which a pod created later under
+   * the name would otherwise find cached.
    */
   internal fun deletePod(podId: ObjectId): Boolean {
+    val name = podDao.fetchById(podId)?.name
+    val repositories = podRepositoryCacheProvider.get()
+    name?.let { repositories.invalidate(it, podId) }
     podIdCache.clear()
     // Security-sensitive rows first: tokens, DCR rows and statically-registered
     // service-client credentials so a stale session or client cannot keep any
-    // handle on data that's about to disappear. The in-memory RDF cache is
-    // invalidated by the calling admin route (cycle avoidance with
-    // PodRepositoryCache).
+    // handle on data that's about to disappear.
     val pod = podId.toPodId()
     refreshTokenStore.deleteByPod(pod)
     consentDecisionStore.deleteByPod(pod)
@@ -116,11 +134,13 @@ class SempodsFacade @Inject constructor(
     podGrantsDao.deleteByPod(podId)
     podWebIdGrantsDao.deleteByPod(podId)
     val removed = podDao.delete(podId)
+    podIdGeneration.incrementAndGet()
+    podIdCache.clear()
     // The sign-outs go last, after the pod row. They are a deny list: removed while the pod still
     // resolved and its grants stood, a token or session its person had signed out of would be
     // accepted again for that moment.
     signOutStore.deleteByPod(pod)
-    podIdCache.clear()
+    name?.let { repositories.invalidate(it, podId) }
     return removed
   }
 

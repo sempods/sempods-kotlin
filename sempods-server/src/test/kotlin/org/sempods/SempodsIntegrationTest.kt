@@ -17,7 +17,6 @@ import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.oauth.PrivilegedAuthorityRows
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodManagementAuthorityStore
-import org.sempods.api.system.admin.pods.AdminPodsEndpoint
 import org.sempods.pods.PodFacade
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.HostedPod
@@ -327,12 +326,6 @@ open class SempodsIntegrationTest : SempodsTest(injector = sempodsInjector) {
   /**
    * Deletes a pod the way anything deletes a pod: `DELETE /_system/admin/pods/{pod}` with the host
    * admin credential.
-   *
-   * Not merely a convenience over `SempodsFacade.deletePod`. Deletion is two steps — drop the
-   * in-memory repository, *then* the rows — and only [AdminPodsEndpoint] performs both, in that
-   * order. A test calling the facade alone would leave the cache holding a repository for a pod
-   * that no longer exists, and a test performing both itself would be asserting on its own call
-   * order rather than on the server's.
    */
   protected fun deletePodViaAdminApi(pod: String) {
     val admin = podAccess.hostSessionFor(SempodsRequestAuth.bearer(AdminAuthorizerTestDouble.TEST_ADMIN_SECRET))

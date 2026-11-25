@@ -83,9 +83,7 @@ needs statements already stored there writes them through `PodFacade`.
 `PodFacadeResourceTest` and `SempodsFacadeTest` assert what the store does with a resource model or
 a cascade, and the transport is narrower on both ends — it accepts only contexts registered inside
 the pod namespace, which several of those fixtures deliberately are not, so routed over the wire
-each would quietly become an assertion about what the HTTP surface exposes. Pod *deletion* is the reverse case: it is two steps, and only
-`AdminPodsEndpoint` performs both in order, so `SempodsIntegrationTest.deletePodViaAdminApi` goes
-through the admin route rather than calling the facade.
+each would quietly become an assertion about what the HTTP surface exposes.
 
 ## Client or raw HTTP
 
