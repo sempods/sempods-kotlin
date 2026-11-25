@@ -32,9 +32,7 @@ class SparqlTextFindAdapter @Inject constructor(
     val dataset = SparqlSandbox.buildDataset(sandbox.effectiveScope())
     val query = FindQueryBuilder.textMatch(request)
     return sparqlQueryService.executeSelectToQuadModel(
-      // Mono-repo bridge: SparqlQueryService keys RDF4J stores by local pod name. A standalone
-      // pod deployment would resolve its single store directly from sandbox.podUri.
-      pod = sandbox.credentials.pod.name,
+      pod = sandbox.credentials.pod,
       query = query.sparql,
       dataset = dataset,
       bindings = query.bindings,

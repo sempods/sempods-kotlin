@@ -10,6 +10,7 @@ import org.sempods.auth.core.FakeOidcProvider
 import org.sempods.client.rdf4j.SempodsRdf4jPod
 import org.sempods.pods.oauth.PodRequestVerifierTestImpl
 import org.sempods.retrieval.FindAdapterTestImpl
+import org.sempods.query.PodConnectionsTestImpl
 
 /**
  * The scenario a `withSetup { }` block in [SempodsIntegrationTest] runs in: the test implementations
@@ -31,6 +32,8 @@ class SempodsTestSetup internal constructor(
   val idServer: FakeOidcProvider,
   /** A `find` engine beside the SPARQL adapter; it answers nothing until a test calls `answerWith`. */
   val findAdapter: FindAdapterTestImpl,
+  /** Where SPARQL reads reach a pod's store; this server's in-memory stores until a test calls `answerWith`. */
+  val podConnections: PodConnectionsTestImpl,
   private val podAccess: SempodsTestPodAccess,
 ) {
 

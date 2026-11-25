@@ -113,6 +113,8 @@ import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
 import org.sempods.query.SparqlQueryService
+import org.sempods.query.impls.mongo.MongoPodConnections
+import org.sempods.query.spi.PodConnections
 import org.sempods.retrieval.FindAdapter
 import org.sempods.retrieval.FindService
 import org.sempods.retrieval.ResourceExpander
@@ -178,6 +180,8 @@ class SempodsModule : BaseModule() {
     bind<RdfResourceBackupDao>().asSingleton()
     bind<SempodsFacade>().asSingleton()
     bind<SparqlQueryService>().asSingleton()
+    bind<MongoPodConnections>().asSingleton()
+    bind<PodConnections>().to(MongoPodConnections::class.java)
     bind<PodRepositoryCache>().asSingleton()
     bind<PodFacade>().asSingleton()
 
