@@ -60,8 +60,9 @@ internal data class PodServiceClientDbo(
    * them (`PodGrantsFacade.replaceGrants`). Absent until the first write; see
    * `sempods-server/docs/collections.md`. A registration re-created under the same `clientId`
    * starts again at `0` — except a `did:web` one, which names itself and so is re-created by the
-   * service at will: it starts at its [createdAt] in epoch milliseconds, past every version an
-   * earlier registration under that identifier reached, so an edit read from that one is stale here.
+   * service at will: it starts at the pod's next service-client epoch times 2^32
+   * (`PodDao.nextServiceClientEpoch`), a range no earlier registration under that identifier used,
+   * so an edit read from that one is stale here.
    */
   val grantsVersion: Long = 0,
 

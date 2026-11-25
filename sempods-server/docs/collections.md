@@ -105,8 +105,9 @@ Each is an instance of a rule stated in the document contract, and all are this 
   older than the field, and on every row whose grants were never written since. `{grantsVersion: 0}`
   matches none of them, so a replace prepared at `0` filters on the absent field as well
   (`PodServiceClientDao.replaceScopes`). No transform: the field appears with the first write. See
-  `PodServiceClientDaoTest`. A `did:web` row is the exception: it is inserted at its `createdAt` in
-  epoch milliseconds (`PodServiceClientStore.registerDidWeb`).
+  `PodServiceClientDaoTest`. A `did:web` row is the exception: it is inserted at the pod's next
+  `serviceClientEpoch` times 2^32, a counter on the `pods` row that outlives the registration
+  (`PodDao.nextServiceClientEpoch`).
 - **`oauth.serviceClients` removes a self-registered service by TTL on `pendingUntil`**, and every
   read and write filters a passed deadline out, because the TTL monitor lags. Rows without the field
   — activated, provisioned, or older than it — never expire. Activation unsets it in the update that

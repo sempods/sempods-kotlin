@@ -241,7 +241,8 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val manager = approveManagement(owned)
     val service = DidWebServiceFixture.newService()
     assertEquals(201, registerDidWeb(owned, manager, service).statusCode)
-    val earlier = read(owned, manager, service.did).tag
+    val first = read(owned, manager, service.did)
+    val earlier = first.tag
     val removed = http.prepareDelete("${serviceClientsUrl(owned)}/${enc(service.did)}").addHeader("Authorization", "Bearer $manager").execute()
     assertEquals(204, removed.statusCode, removed.responseBody)
     assertEquals(201, registerDidWeb(owned, manager, service).statusCode)
@@ -249,7 +250,10 @@ class PodServiceClientsEndpointHttpTest : SempodsIntegrationTest() {
     val stale = replaceGrants(owned, manager, service.did, """["$notes#read"]""", ifMatch = earlier)
 
     assertEquals(412, stale.statusCode, stale.responseBody)
-    assertEquals("", read(owned, manager, service.did).body["scope"])
+    val again = read(owned, manager, service.did)
+    assertEquals("", again.body["scope"])
+    // A range of its own, counted on the pod rather than read off a clock.
+    assertEquals(1L shl 32, (again.body["grants_version"] as Number).toLong() - (first.body["grants_version"] as Number).toLong())
   }
 
   @Test

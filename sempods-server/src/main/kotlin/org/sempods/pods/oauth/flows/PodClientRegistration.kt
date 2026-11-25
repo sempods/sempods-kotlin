@@ -234,9 +234,8 @@ class PodClientRegistration @Inject internal constructor(
    * body.
    *
    * A self-registration spends the pod's budget before the DID document is read, since that read
-   * is what costs. An identifier carrying a `%`, which a port is written with, is refused: it
-   * cannot be named in a path, so the owner could not withdraw it (outside development, where a
-   * loopback one is accepted with that limit).
+   * is what costs. An identifier no route could name — a port, a `/` — is refused before it is
+   * read ([DidWebClientAuthentication.isAddressable]), since the owner could not withdraw it.
    *
    * A repeat answers the registration that stands, unchanged: there is no secret to hand out, and
    * the owner may have decided its access under what it said the first time.
@@ -265,14 +264,9 @@ class PodClientRegistration @Inject internal constructor(
     val verified = when (val check = didWebAuthentication.verify(statement, audiences = setOf("$issuer/_system/auth/register"))) {
       is DidWebAssertion.Verified -> check
       is DidWebAssertion.Refused -> return refused(PodRegistrationError.INVALID_SOFTWARE_STATEMENT, check.reason)
+      DidWebAssertion.Busy -> return PodRegistrationResult.Busy
     }
     val clientId = verified.clientId
-    if (!didWebAuthentication.isAddressable(clientId)) {
-      return refused(
-        PodRegistrationError.INVALID_SOFTWARE_STATEMENT,
-        "a did:web with a port or another percent-encoded character cannot be named in this pod's routes; use one without",
-      )
-    }
 
     // A statement that says what the body says differently, or in a type it cannot mean, is not
     // one this pod can follow.
@@ -349,8 +343,10 @@ class PodClientRegistration @Inject internal constructor(
     data class Given<T>(val value: T) : Stated<T>
   }
 
+  /** A member the statement carries as `null` is malformed: signed, it says something this pod cannot follow. */
   private fun <T : Any> Map<String, Any?>.stated(member: String, read: (Any) -> T?): Stated<T> {
-    val value = this[member] ?: return Stated.Absent
+    if (member !in this) return Stated.Absent
+    val value = this[member] ?: return Stated.Malformed
     return read(value)?.let { Stated.Given(it) } ?: Stated.Malformed
   }
 
@@ -549,6 +545,9 @@ internal sealed interface PodRegistrationResult {
 
   /** The pod's [PodServiceRegistrationBudget] is spent: the caller retries later. */
   data object RateLimited : PodRegistrationResult
+
+  /** The DID document could not be read for want of room; see `DidWebKeys`. Retryable. */
+  data object Busy : PodRegistrationResult
 }
 
 /** What [PodClientRegistration.deregister] did. */

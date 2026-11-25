@@ -3,9 +3,11 @@ package org.sempods.pods.mongo.persist
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
 import com.mongodb.client.model.Filters
+import com.mongodb.client.model.FindOneAndUpdateOptions
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Projections
+import com.mongodb.client.model.ReturnDocument
 import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
@@ -80,6 +82,23 @@ class PodDao internal constructor(
   /** Removes [PodDbo.pendingManagementClient] once that registration stands. */
   internal fun clearPendingManagementClient(podId: ObjectId) {
     pods.updateOne(Filters.eq(PodDboFields.id, podId), Updates.unset(PodDboFields.pendingManagementClient))
+  }
+
+  /**
+   * The next of [podId]'s service-client epochs, counted on the pod's row from 1: one per `did:web`
+   * registration, which starts its grants version there (`PodServiceClientDbo.grantsVersion`). On
+   * the row, because it has to outlive the registration it numbered and no clock may decide it.
+   * Not read into [PodDbo]: nothing but this counter uses it.
+   */
+  internal fun nextServiceClientEpoch(podId: ObjectId): Long {
+    val row = checkNotNull(
+      pods.findOneAndUpdate(
+        Filters.eq(PodDboFields.id, podId),
+        Updates.inc(PodDboFields.serviceClientEpoch, 1L),
+        FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER).projection(Projections.include(PodDboFields.serviceClientEpoch)),
+      ),
+    ) { "no pod row for $podId" }
+    return (row.get(PodDboFields.serviceClientEpoch) as Number).toLong()
   }
 
   internal fun setOwner(podId: ObjectId, owner: String) {

@@ -118,17 +118,34 @@ class PodTokenIssuer(
    *   token on demand; no refresh-token mechanism backs this grant.
    * - The `client_type=service` claim labels the caller so the resource layer's
    *   audit hook can attribute the request correctly.
-   *
-   * @param registrationId the registration the token is for, as [SERVICE_REGISTRATION_CLAIM]. A
-   *   `client_id` can be registered again once removed; the token holds for the one it was issued to.
    */
-  @JvmOverloads
   fun issueServiceToken(
     pod: String,
     clientId: String,
     scopes: Set<String>,
     ttlSeconds: Long = SERVICE_TOKEN_TTL_SECONDS,
-    registrationId: String? = null,
+  ): String {
+    return issueToken(
+      pod = pod,
+      subject = clientId,
+      clientId = clientId,
+      scopes = scopes,
+      ttlSeconds = ttlSeconds,
+      clientType = SERVICE_CLIENT_TYPE,
+    ).token
+  }
+
+  /**
+   * The same, for the registration [registrationId] names, as [SERVICE_REGISTRATION_CLAIM]: a
+   * `client_id` can be registered again once removed, and the token holds for the one it was
+   * issued to. A separate method so the published one above keeps its JVM descriptors.
+   */
+  internal fun issueServiceToken(
+    pod: String,
+    clientId: String,
+    scopes: Set<String>,
+    registrationId: String,
+    ttlSeconds: Long = SERVICE_TOKEN_TTL_SECONDS,
   ): String {
     return issueToken(
       pod = pod,

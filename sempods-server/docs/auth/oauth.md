@@ -238,8 +238,9 @@ the `did:web` identifier, its `aud` is the registration endpoint `{podUrl}/_syst
 as one value, and it carries a `jti`. The pod checks it like a
 [client assertion](service-clients.md#didweb-services), so it is accepted once. The two audiences
 are disjoint, so a statement is never a client assertion. A `client_name` or `redirect_uris` the
-statement states takes precedence over the body's. The identifier cannot carry a `%`, so no port:
-the owner could not name it in a management route. Development accepts a loopback one.
+statement states takes precedence over the body's. Each segment of the identifier is letters, digits, `.`, `-`
+and `_`, so no port and no `/`: the owner could not name it in a management route otherwise.
+Development accepts a loopback one with a port.
 
 The response carries the identifier as `client_id`, `token_endpoint_auth_method: "private_key_jwt"`
 and no `client_secret`. Activation, the `service-clients:manage` bearer and the members in the table
@@ -250,8 +251,9 @@ unchanged.
 |---|---|
 | No `software_statement` | `invalid_software_statement` |
 | A statement that does not verify, has another or more than one audience, or was used before | `invalid_software_statement` |
-| A statement stating another `token_endpoint_auth_method` or `grant_types`, a member the table above refuses, or a `client_name` or `redirect_uris` of another type | `invalid_software_statement` |
-| An identifier with a `%`, such as `did:web:console.example%3A8443` | `invalid_software_statement` |
+| A statement stating another `token_endpoint_auth_method` or `grant_types`, a member the table above refuses, or a `client_name` or `redirect_uris` that is `null` or of another type | `invalid_software_statement` |
+| An identifier with a port, such as `did:web:console.example%3A8443`, or another character outside letters, digits, `.`, `-` and `_` | `invalid_software_statement` |
+| The pod reads too many DID documents at once | `429 slow_down` with `Retry-After` |
 
 ## Managing service clients
 

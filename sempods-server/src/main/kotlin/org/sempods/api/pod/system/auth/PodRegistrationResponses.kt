@@ -50,6 +50,7 @@ internal object PodRegistrationResponses {
     is PodRegistrationResult.ServiceRegistered -> createdService(result)
     is PodRegistrationResult.Refused -> refused(result)
     PodRegistrationResult.RateLimited -> rateLimited()
+    PodRegistrationResult.Busy -> PodTokenResponses.rateLimited("the pod is reading too many DID documents at once; retry later")
     is PodRegistrationResult.Unauthorized -> unauthorized(result.reason)
   }
 

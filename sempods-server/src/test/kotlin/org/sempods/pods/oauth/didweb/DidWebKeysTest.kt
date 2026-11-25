@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -41,6 +42,23 @@ class DidWebKeysTest {
       "loopback over http only where development allows it",
     )
     assertNull(keys.documentUrl("https://console.example"))
+  }
+
+  @Test
+  fun `an identifier is accepted where every segment can be named in a path`() {
+    val production = DidWebKeys(fetcher = { error("not read") }, allowLoopbackHttp = false)
+    val development = DidWebKeys(fetcher = { error("not read") }, allowLoopbackHttp = true)
+
+    listOf("did:web:console.example", "did:web:console.example:tenants:a_1-b.c").forEach {
+      assertTrue(production.isAddressable(it), it)
+    }
+    listOf(
+      "did:web:console.example%3A8443", "did:web:console.example:a/b", "did:web:console.example:..",
+      "did:web:console.example::a", "did:web:console.example:a%2Fb", "did:web:console.example:a b",
+    ).forEach { assertFalse(production.isAddressable(it), it) }
+    assertFalse(production.isAddressable("did:web:localhost%3A5173"), "a port, outside development")
+    assertTrue(development.isAddressable("did:web:localhost%3A5173"), "a loopback port in development")
+    assertFalse(development.isAddressable("did:web:console.example%3A8443"), "only a loopback one")
   }
 
   @Test
@@ -119,7 +137,7 @@ class DidWebKeysTest {
       val held = pool.submit<Int> { keys.publicKeys("did:web:held.example", "did:web:held.example#k", JWSAlgorithm.ES256).size }
       while (reads.get() == 0) Thread.sleep(10)
 
-      assertTrue(keys.publicKeys(did, key.keyID, JWSAlgorithm.ES256).isEmpty(), "no room: no read")
+      assertEquals(DidWebKeyLookup.Busy, keys.lookup(did, key.keyID, JWSAlgorithm.ES256), "no room: no read, and said so")
       assertEquals(1, reads.get())
 
       release.countDown()

@@ -8,6 +8,7 @@ import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.commons.utils.HashUtil.sha256Hex
 import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
+import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopeValidationResult
@@ -33,6 +34,7 @@ import java.time.Instant
 class PodServiceClientStore @Inject constructor(
   private val dao: PodServiceClientDao,
   private val podScopeValidator: PodScopeValidator,
+  private val podDao: PodDao,
 ) {
 
   internal data class Registered(
@@ -244,7 +246,7 @@ class PodServiceClientStore @Inject constructor(
       label = label,
       createdAt = createdAt,
       // See `PodServiceClientDbo.grantsVersion`: the service can register this identifier again.
-      grantsVersion = createdAt.toEpochMilli(),
+      grantsVersion = podDao.nextServiceClientEpoch(pod.id.objectId()) shl EPOCH_SHIFT,
       redirectUris = redirectUris,
       pendingUntil = if (provisional) createdAt.plus(ACTIVATION_WINDOW) else null,
       managementGrantedBy = management?.grantedBy,
@@ -384,6 +386,13 @@ class PodServiceClientStore @Inject constructor(
      * §"Token exchange".
      */
     internal const val SERVICE_CLIENT_PREFIX = "svc:"
+
+    /**
+     * Where a `did:web` registration's grants version starts: its epoch times 2^32. Each epoch has
+     * room for four billion grant changes before it reaches the next; 2^21 epochs per pod stay
+     * within the integers a JSON number carries exactly.
+     */
+    private const val EPOCH_SHIFT = 32
 
     /** How long a self-registered service waits for the owner's consent before it is removed. */
     internal val ACTIVATION_WINDOW: Duration = Duration.ofHours(24)
