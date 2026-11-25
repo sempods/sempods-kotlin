@@ -12,6 +12,9 @@ import org.eclipse.rdf4j.model.util.Models
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.junit.jupiter.api.Test
+import org.sempods.retrieval.impls.virtualthreads.VirtualThreadFindExecutor
+import org.sempods.retrieval.spi.FindExecutor
+import java.util.concurrent.Executors
 import java.net.URI
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.test.assertEquals
@@ -27,6 +30,7 @@ import kotlin.test.assertTrue
 class FindServiceTest {
 
   private val vf = SimpleValueFactory.getInstance()
+  private val executor = VirtualThreadFindExecutor()
   private val name = vf.createIRI("https://schema.org/name")
   private val findResult = vf.createIRI("https://schema.sempods.org/findResult")
   private val text = vf.createIRI("https://schema.org/text")
@@ -96,7 +100,7 @@ class FindServiceTest {
   }
 
   private fun find(vararg models: Model, limit: Int = 10, expander: ResourceExpander = CapturingExpander(), on: FindSandbox = sandbox): Model =
-    FindService(adapters = models.map { adapter(it) }.toSet(), expander = expander)
+    FindService(adapters = models.map { adapter(it) }.toSet(), expander = expander, executor = executor)
       .find(FindRequest(tokens = listOf("x"), types = emptySet(), limit = limit), on)
 
   private val sandbox = FindSandbox(
@@ -117,7 +121,7 @@ class FindServiceTest {
         return LinkedHashModel()
       }
     }
-    val service = FindService(adapters = setOf(recording, adapter(LinkedHashModel())), expander = CapturingExpander())
+    val service = FindService(adapters = setOf(recording, adapter(LinkedHashModel())), expander = CapturingExpander(), executor = executor)
     val request = FindRequest(tokens = listOf("x"), types = emptySet(), limit = 10)
 
     val trace = TraceContext.random()
@@ -125,6 +129,28 @@ class FindServiceTest {
     service.find(request, sandbox)
 
     assertEquals(listOf(trace.traceId, "none"), seen.toList())
+  }
+
+  @Test
+  fun `the fan-out runs on the executor it is given, under the caller's trace`() {
+    val pool = Executors.newSingleThreadExecutor { task -> Thread(task, "deployment-pool") }
+    try {
+      val seen = ConcurrentLinkedQueue<Pair<String, String?>>()
+      val recording = object : FindAdapter {
+        override fun find(request: FindRequest, sandbox: FindSandbox): Model {
+          seen += Thread.currentThread().name to TraceContextHolder.getTraceId()
+          return LinkedHashModel()
+        }
+      }
+      val service = FindService(adapters = setOf(recording), expander = CapturingExpander(), executor = FindExecutor(pool::execute))
+
+      val trace = TraceContext.random()
+      TraceContextHolder.with(trace) { service.find(FindRequest(tokens = listOf("x"), types = emptySet(), limit = 10), sandbox) }
+
+      assertEquals(listOf("deployment-pool" to trace.traceId), seen.toList())
+    } finally {
+      pool.shutdownNow()
+    }
   }
 
   @Test
@@ -136,6 +162,7 @@ class FindServiceTest {
         adapter(modelOf("https://e/c", "https://e/d")),
       ),
       expander = expander,
+      executor = executor,
     )
 
     val result = service.find(
@@ -158,6 +185,7 @@ class FindServiceTest {
         adapter(modelOf("https://e/c", "https://e/d")),
       ),
       expander = expander,
+      executor = executor,
     )
 
     val result = service.find(
@@ -337,7 +365,7 @@ class FindServiceTest {
       override fun find(request: FindRequest, sandbox: FindSandbox): Model = LinkedHashModel().also { asked = true }
     }
 
-    val result = FindService(setOf(adapter), CapturingExpander())
+    val result = FindService(setOf(adapter), CapturingExpander(), executor)
       .find(FindRequest(tokens = listOf("x"), types = emptySet(), limit = 10), scopedTo())
 
     assertTrue(result.isEmpty())
@@ -413,7 +441,7 @@ class FindServiceTest {
   }
 
   private fun search(vararg adapters: FindAdapter, expander: ResourceExpander, types: Set<IRI> = emptySet(), limit: Int = 10, on: FindSandbox = sandbox): Model =
-    FindService(adapters = adapters.toSet(), expander = expander)
+    FindService(adapters = adapters.toSet(), expander = expander, executor = executor)
       .find(FindRequest(tokens = listOf("x"), types = types, limit = limit), on)
 
   @Test
