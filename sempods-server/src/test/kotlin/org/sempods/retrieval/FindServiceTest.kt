@@ -498,6 +498,23 @@ class FindServiceTest {
   }
 
   @Test
+  fun `an index's observation stays in a context the store holds its hit in beyond the expansion`() {
+    val store = LinkedHashModel().apply {
+      add(hit, rdfType, article, contextA)
+      add(hit, text, vf.createLiteral("described in B"), contextB)
+    }
+    val answer = LinkedHashModel().apply {
+      val observation = vf.createBNode()
+      add(hit, findResult, observation, contextB)
+      add(observation, text, vf.createLiteral("…match…"), contextB)
+    }
+
+    val result = search(index(answer), expander = StoreExpander(store))
+
+    assertEquals(setOf(contextB), result.filter(null, findResult, null).contexts().toSet(), "placed where the engine matched: $result")
+  }
+
+  @Test
   fun `a hit a self-scoped adapter returned is not checked, though an index returned it too`() {
     val trusted = modelOf(hit.stringValue())
     val answer = LinkedHashModel().apply { observed(this, hit) }

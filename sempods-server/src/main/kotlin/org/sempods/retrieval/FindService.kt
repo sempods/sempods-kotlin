@@ -139,7 +139,7 @@ class FindService @Inject constructor(
     verification.filterTo(result) { it.subject in keep }
     val toExpand = keep - checked
     if (toExpand.isNotEmpty()) result.addAll(stored(expander.expand(toExpand, sandbox), scope))
-    return placed(result, keep, holding, asked = unseen + checked, sandbox)
+    return placed(result, keep, holding, asked = unseen, sandbox)
   }
 
   /** The lowest `schema:position` among [hit]'s observations in [model], or null when none has one. */
