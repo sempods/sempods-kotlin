@@ -39,24 +39,30 @@ class PodServiceClientProvisioning @Inject internal constructor(
     DidWeb.targetOf(clientId) != null && didWebAuthentication.isAddressable(clientId)
 
   /**
-   * Registers the `did:web` service [clientId] on a pod just created for [owner], active and holding
-   * the authority to manage it on that owner's behalf ([ServiceManagementAuthority]). The operator
-   * names the service; no software statement is asked for, because the admin surface is trusted.
-   * A registration under [clientId] that exists is left as it is.
+   * Registers the `did:web` service [clientId] on a pod about to be created for [owner], active and
+   * holding the authority to manage it on that owner's behalf ([ServiceManagementAuthority]). The
+   * operator names the service; no software statement is asked for, because the admin surface is
+   * trusted.
+   *
+   * Written before the pod's row, under the id that row will have: a pod then exists only with its
+   * management client, and a creation that stops in between leaves a registration for a pod that
+   * does not exist, which nothing can reach. The registration takes the pod's first service-client
+   * epoch, [MANAGEMENT_EPOCH], which the row is written with.
    *
    * @param ownerUris every URI the owner is known by, [owner] among them.
    */
   internal fun provisionManagement(pod: HostedPod, clientId: String, label: String, owner: String, ownerUris: Set<String>) {
-    if (serviceClients.find(pod.id, clientId) != null) return
-    try {
-      serviceClients.registerDidWeb(
-        pod, clientId, label, redirectUris = emptyList(), provisional = false,
-        management = ServiceManagementAuthority(grantedBy = owner, subjectUris = ownerUris + owner, grantedAt = Instant.now()),
-      )
-    } catch (_: ServiceClientAlreadyRegistered) {
-      return
-    }
+    serviceClients.registerDidWeb(
+      pod, clientId, label, redirectUris = emptyList(), provisional = false,
+      management = ServiceManagementAuthority(grantedBy = owner, subjectUris = ownerUris + owner, grantedAt = Instant.now()),
+      epoch = MANAGEMENT_EPOCH,
+    )
     logger.info { "Pod '${pod.name}': management service '${LogSafeText.of(clientId)}' provisioned for owner '$owner'" }
+  }
+
+  /** Removes what [provisionManagement] wrote for a pod whose row was then not written. */
+  internal fun discardManagement(pod: HostedPod) {
+    serviceClients.deleteByPod(pod.id)
   }
 
   /**
@@ -105,8 +111,11 @@ class PodServiceClientProvisioning @Inject internal constructor(
     }
   }
 
-  private companion object {
+  internal companion object {
     private val logger = KotlinLogging.logger {}
+
+    /** The service-client epoch of the management client a pod is created with: its first. */
+    internal const val MANAGEMENT_EPOCH = 1L
   }
 }
 

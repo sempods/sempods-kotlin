@@ -225,6 +225,8 @@ class PodServiceClientStore @Inject constructor(
    *
    * @param management the authority to manage the pod, where the operator provisions the client
    *   for the owner. Such a registration is active.
+   * @param epoch the service-client epoch the pod row will carry, for a pod whose row is not
+   *   written yet; otherwise the row counts the next one.
    * @throws ServiceClientAlreadyRegistered where [clientId] is registered on [pod] already.
    */
   internal fun registerDidWeb(
@@ -234,6 +236,7 @@ class PodServiceClientStore @Inject constructor(
     redirectUris: List<String>,
     provisional: Boolean,
     management: ServiceManagementAuthority? = null,
+    epoch: Long? = null,
   ): ServiceClientRegistration {
     require(clientId.startsWith(DidWeb.PREFIX)) { "not a did:web identifier: '$clientId'" }
     require(management == null || !provisional) { "a registration holding the management authority is active" }
@@ -246,7 +249,7 @@ class PodServiceClientStore @Inject constructor(
       label = label,
       createdAt = createdAt,
       // See `PodServiceClientDbo.grantsVersion`: the service can register this identifier again.
-      grantsVersion = podDao.nextServiceClientEpoch(pod.id.objectId()) shl EPOCH_SHIFT,
+      grantsVersion = (epoch ?: podDao.nextServiceClientEpoch(pod.id.objectId())) shl EPOCH_SHIFT,
       redirectUris = redirectUris,
       pendingUntil = if (provisional) createdAt.plus(ACTIVATION_WINDOW) else null,
       managementGrantedBy = management?.grantedBy,

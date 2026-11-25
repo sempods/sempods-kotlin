@@ -103,8 +103,10 @@ class SempodsControlPlaneClient(
   /**
    * As the WebID form, and registers the `did:web` service [managementClient] on the new pod with
    * the lasting authority to manage it for [ownerWebId]: create and delete contexts, read no data.
-   * [managementClientName] is what the owner sees it called. An existing pod answers
-   * [CreatePodResult.alreadyExists] and is left as it is, the service included. What the authority
+   * [managementClientName] is what the owner sees it called. The server writes the service before
+   * the pod, so a pod it answers [CreatePodResult.created] for has it, and a retry after a failed
+   * call starts afresh. An existing pod answers [CreatePodResult.alreadyExists] and is left as it
+   * is, the service included. What the authority
    * covers is the server's `sempods-server/docs/auth/service-clients.md` §"Managing a pod as a
    * service".
    */

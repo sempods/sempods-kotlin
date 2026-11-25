@@ -56,13 +56,6 @@ internal data class PodDbo(
    */
   val resourceRowCount: Long? = null,
 
-  /**
-   * The `did:web` management client the creation of this pod asked for, until it is registered.
-   * Written with the row and removed once the registration stands, so a creation that failed in
-   * between is finished by its retry, and a registration the owner removed later is not made again.
-   * Absent on every other row.
-   */
-  val pendingManagementClient: String? = null,
 )
 
 /**

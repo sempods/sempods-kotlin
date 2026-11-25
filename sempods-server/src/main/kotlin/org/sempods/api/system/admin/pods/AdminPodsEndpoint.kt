@@ -10,12 +10,14 @@ import org.sempods.commons.mongo.isDuplicateKey
 import org.sempods.commons.logging.LogSafeText
 import org.sempods.SempodsFacade
 import org.sempods.SempodsUriBuilder
+import org.bson.types.ObjectId
 import org.sempods.admin.AdminAuthorizer
 import org.sempods.api.system.admin.AdminAuthorizedEndpoint
 import org.sempods.pods.IriSyntax
 import org.sempods.pods.PodFacade
 import org.sempods.pods.PodRepositoryCache
 import org.sempods.pods.mongo.persist.PodDao
+import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodServiceClientRefusal
@@ -116,9 +118,9 @@ class AdminPodsEndpoint @Inject constructor(
    * does not transfer ownership. A fresh pod yields 201 `created`.
    *
    * `managementClient` registers that `did:web` service on the fresh pod, holding the authority to
-   * manage it for the owner. An existing pod is left as it is, this member included — except where
-   * the creation that wrote it asked for this client and failed before registering it: then the
-   * retry registers it (`PodDbo.pendingManagementClient`).
+   * manage it for the owner. It is written before the pod's row, so a pod exists only with it
+   * ([PodServiceClientProvisioning.provisionManagement]). An existing pod is left as it is, this
+   * member included.
    */
   @PUT
   @Path("{pod}")
@@ -140,13 +142,36 @@ class AdminPodsEndpoint @Inject constructor(
     val managementClientName = request.managementClientName?.trim()?.takeIf { it.isNotEmpty() }
 
     if (sempodsFacade.existsPod(pod)) {
-      managementClient?.let { finishManagement(pod, it, managementClientName) }
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
+    }
+    try {
+      SempodsUriBuilder.checkPodName(pod)
+    } catch (e: IllegalArgumentException) {
+      throw badRequest(e.message ?: "invalid pod name")
+    }
+
+    // The management client first, under the id the row will have; see the KDoc.
+    val podId = ObjectId()
+    val hosted = PodDbo(id = podId, name = pod, owner = ownerWebId).toHostedPod(sempodsUriBuilder)
+    managementClient?.let { clientId ->
+      podServiceClientProvisioning.provisionManagement(
+        pod = hosted,
+        clientId = clientId,
+        label = managementClientName ?: clientId,
+        owner = ownerWebId,
+        ownerUris = webIdUriDeriver.derivableAliases(ownerWebId).toSet(),
+      )
     }
 
     try {
-      podDao.insert(name = pod, owner = ownerWebId, pendingManagementClient = managementClient)
+      podDao.insert(
+        name = pod,
+        owner = ownerWebId,
+        id = podId,
+        serviceClientEpoch = managementClient?.let { PodServiceClientProvisioning.MANAGEMENT_EPOCH },
+      )
     } catch (e: MongoWriteException) {
+      if (managementClient != null) podServiceClientProvisioning.discardManagement(hosted)
       // Unique index on the pod name — a concurrent create won the race. The post-condition the
       // caller asked for holds either way, so this stays idempotent rather than surfacing a 500.
       // Only for that case: another write failure reported as `alreadyExists` would tell the
@@ -154,31 +179,12 @@ class AdminPodsEndpoint @Inject constructor(
       if (!e.isDuplicateKey()) throw e
       return Response.ok(PodLifecycleResponse(pod = pod, result = ALREADY_EXISTS)).build()
     } catch (e: IllegalArgumentException) {
-      // Rejected pod name (`SempodsUriBuilder.checkPodName`): bad input from the caller.
-      throw badRequest(e.message ?: "invalid pod name")
+      if (managementClient != null) podServiceClientProvisioning.discardManagement(hosted)
+      throw badRequest(e.message ?: "invalid pod")
     }
 
     logger.info { "Admin '$adminClientId' created pod '$pod' for owner '$ownerWebId'" }
-    managementClient?.let { finishManagement(pod, it, managementClientName) }
     return Response.status(201).entity(PodLifecycleResponse(pod = pod, result = CREATED)).build()
-  }
-
-  /**
-   * Registers [clientId] as [pod]'s management client where the pod's creation asked for it and it
-   * is not registered yet, then clears that mark. The owner is the stored one: it is whom the
-   * creation named. Nothing happens for a pod whose mark names another client or none.
-   */
-  private fun finishManagement(pod: String, clientId: String, label: String?) {
-    val row = podDao.fetchByName(pod) ?: return
-    if (row.pendingManagementClient != clientId) return
-    podServiceClientProvisioning.provisionManagement(
-      pod = row.toHostedPod(sempodsUriBuilder),
-      clientId = clientId,
-      label = label ?: clientId,
-      owner = row.owner,
-      ownerUris = webIdUriDeriver.derivableAliases(row.owner).toSet(),
-    )
-    podDao.clearPendingManagementClient(checkNotNull(row.id))
   }
 
   /**

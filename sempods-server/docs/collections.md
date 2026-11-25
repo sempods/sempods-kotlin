@@ -87,8 +87,9 @@ its screens in `oauth.consentTransactions`. Its rows expire within fifteen minut
 registration in `serviceManagementRegistrationId` rather than `serviceRegistrationId`, so a node
 from before it refuses the form instead of reading it as a context consent that grants nothing.
 
-`pods.pendingManagementClient` is written with a pod created with a `managementClient` and unset
-once that registration stands. A row that still carries it is a creation a retry will finish.
+A pod created with a `managementClient` gets that `oauth.serviceClients` row before its `pods` row,
+under the `_id` the pod row will have. A creation that stops in between leaves a service-client row
+whose `podId` names no pod. Nothing reaches it, and deleting it is safe.
 
 ## Two collections with no field order, and filters that miss rows
 

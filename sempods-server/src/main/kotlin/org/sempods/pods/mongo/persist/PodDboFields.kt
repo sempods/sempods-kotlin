@@ -7,6 +7,5 @@ internal object PodDboFields {
   const val displayName = "displayName"
   const val lastModifiedAt = "lastModifiedAt"
   const val resourceRowCount = "resourceRowCount"
-  const val pendingManagementClient = "pendingManagementClient"
   const val serviceClientEpoch = "serviceClientEpoch"
 }

@@ -171,26 +171,35 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
-  fun `a retry finishes a creation that failed before the management client was registered, and only that`() {
+  fun `the management client is written before the pod, and a retry leaves a removed one removed`() {
     val owner = sempodsTestFactory.newOwner()
     val ownerWebId = webIdUriDeriver.deriveFromEmail(owner.email)
     val podName = "mgmt-${java.util.UUID.randomUUID().toString().take(8)}"
     val service = DidWebServiceFixture.newService()
-    // What the first attempt left when it failed after writing the pod.
-    podDao.insert(name = podName, owner = ownerWebId, pendingManagementClient = service.did)
 
-    val retried = createPod(podName, ownerWebId, service.did)
+    assertEquals(201, createPod(podName, ownerWebId, service.did).statusCode)
 
-    assertEquals(200, retried.statusCode, retried.responseBody)
     val pod = checkNotNull(podDao.fetchByName(podName))
-    assertNull(pod.pendingManagementClient, "finished")
-    assertEquals(201, putContext(Owned(pod, ownerWebId), "first", didWeb.accessToken(pod, service)).statusCode)
+    val podId = checkNotNull(pod.id).toPodId()
+    val registration = checkNotNull(serviceClientStore.find(podId, service.did))
+    assertEquals(1L shl 32, registration.grantsVersion, "the pod's first service-client epoch")
+    val row = checkNotNull(db.getCollection(SempodsCollections.PODS).find(Filters.eq("_id", pod.id)).first())
+    assertEquals(1L, (row["serviceClientEpoch"] as Number).toLong(), "the row is written with the epoch its client took")
 
-    // Removed by the owner since, it is not made again.
-    val registration = checkNotNull(serviceClientStore.find(checkNotNull(pod.id).toPodId(), service.did))
-    assertTrue(serviceClientStore.remove(checkNotNull(pod.id).toPodId(), service.did, registration.id))
+    assertTrue(serviceClientStore.remove(podId, service.did, registration.id))
     assertEquals(200, createPod(podName, ownerWebId, service.did).statusCode)
-    assertNull(serviceClientStore.find(checkNotNull(pod.id).toPodId(), service.did))
+    assertNull(serviceClientStore.find(podId, service.did), "an existing pod is left as it is")
+  }
+
+  @Test
+  fun `a pod name refused leaves no management client behind`() {
+    val owner = sempodsTestFactory.newOwner()
+    val service = DidWebServiceFixture.newService()
+
+    val refused = createPod("x", webIdUriDeriver.deriveFromEmail(owner.email), service.did)
+
+    assertEquals(400, refused.statusCode, refused.responseBody)
+    assertEquals(0L, db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS).countDocuments(Filters.eq("clientId", service.did)))
   }
 
   @Test
@@ -323,6 +332,19 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `the owner's list shows the authority only while the owner who granted it owns the pod`() {
+    val owned = ownedPod()
+    val service = managing(owned)
+    fun listed(webId: String) = serviceClients(owned, mintServiceClientsManagerToken(owned.pod.name, webId)).single { it["client_id"] == service.did }
+    assertNotNull(listed(owned.webId)["management_granted_at"])
+
+    val newOwner = webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email)
+    podDao.setOwner(checkNotNull(owned.pod.id), newOwner)
+
+    assertNull(listed(newOwner)["management_granted_at"], "an authority that ended is not reported as held")
+  }
+
+  @Test
   fun `a change of owner refuses the token even where the service also holds context grants`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
@@ -404,6 +426,13 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
   private fun deleteContext(owned: Owned, path: String, bearer: String): TestHttpResponse =
     http.prepareDelete("${podBase(owned)}/_system/contexts/$path").addHeader("Authorization", "Bearer $bearer").execute()
+
+  @Suppress("UNCHECKED_CAST")
+  private fun serviceClients(owned: Owned, bearer: String): List<Map<String, Any?>> {
+    val response = http.prepareGet("${podBase(owned)}/_system/auth/service-clients").addHeader("Authorization", "Bearer $bearer").execute()
+    assertEquals(200, response.statusCode, response.responseBody)
+    return JsonMappers.default().readValue(response.responseBody, Map::class.java)["serviceClients"] as List<Map<String, Any?>>
+  }
 
   private fun deregister(owned: Owned, clientId: String, bearer: String?): TestHttpResponse =
     http.prepareDelete("${podBase(owned)}/_system/auth/register/${enc(clientId)}")

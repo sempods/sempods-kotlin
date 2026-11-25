@@ -215,7 +215,7 @@ Routes are relative to `podUrl`; encode the client ID as a path segment, such as
 | Method and path | Result |
 |---|---|
 | `POST /_system/auth/register` with the management bearer | Register an active service, initially without grants. |
-| `GET /_system/auth/service-clients` | List registrations and grants, without secrets; `management_granted_at` marks one holding the [management authority](#managing-a-pod-as-a-service). |
+| `GET /_system/auth/service-clients` | List registrations and grants, without secrets; `management_granted_at` marks one holding the [management authority](#managing-a-pod-as-a-service), while the owner who granted it still owns the pod. |
 | `GET /_system/auth/service-clients/{clientId}` | Read one registration and its grants version (`ETag`). |
 | `PUT /_system/auth/service-clients/{clientId}/grants` | Replace all grants with the JSON array in the body; send the read `ETag` as `If-Match`. `[]` removes access. |
 | `POST /_system/auth/service-clients/{clientId}/secret` | Rotate the secret; return the new secret once. |
