@@ -14,12 +14,17 @@ class PodConnectionsTestImpl(val real: PodConnections) : PodConnections {
   @Volatile
   private var answer: PodConnections = real
 
+  /** Lets [connections] serve every read from now on. */
+  fun answerWith(connections: PodConnections) {
+    answer = connections
+  }
+
   /** Serves every pod from [repository] from now on, as a deployment with a store of its own would. */
   fun answerWith(repository: Repository) {
-    answer = object : PodConnections {
+    answerWith(object : PodConnections {
       override fun <T> withConnection(pod: PodRef, block: (RepositoryConnection) -> T): T =
         repository.connection.use(block)
-    }
+    })
   }
 
   override fun <T> withConnection(pod: PodRef, block: (RepositoryConnection) -> T): T =

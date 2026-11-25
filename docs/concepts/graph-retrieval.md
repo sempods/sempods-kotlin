@@ -190,8 +190,8 @@ binds each type itself, because there is no module that bundles them:
 | `PodRequestAuthenticator` | the deployment's own: request → `SempodsCredentials`, see [modularity](modularity.md) |
 | `FindService` | as it is |
 | `Set<FindAdapter>` | a Guice multibinder holding the deployment's adapters |
-| `ResourceExpander` | the deployment's own, or `SparqlResourceExpander` with `SparqlQueryService` |
-| `PodConnections` | with `SparqlResourceExpander`: a read connection to the deployment's RDF4J store for the pod |
+| `ResourceExpander` | the deployment's own, or `SparqlResourceExpander` |
+| `SparqlQueryService`, `PodConnections` | with `SparqlResourceExpander` or `SparqlTextFindAdapter`: a read connection to the deployment's RDF4J store, holding that pod's statements alone |
 
 The endpoint asks no pod registry or context registry: whether the pod exists, and which contexts
 the caller reads, is the authenticator's answer. The pod's URI is `SempodsCredentials.pod.uri`,

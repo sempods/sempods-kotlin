@@ -7,6 +7,7 @@ import org.eclipse.rdf4j.model.util.Values.iri
 import org.eclipse.rdf4j.model.util.Values.literal
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.eclipse.rdf4j.model.vocabulary.RDFS
+import org.eclipse.rdf4j.repository.RepositoryConnection
 import org.eclipse.rdf4j.repository.sail.SailRepository
 import org.eclipse.rdf4j.sail.memory.MemoryStore
 import org.junit.jupiter.api.AfterEach
@@ -17,11 +18,13 @@ import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.tests.TestUtil
 import org.sempods.pods.authentication.spi.PodRequestAuthentication
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.query.spi.PodConnections
 import org.sempods.rdf.RdfWriterUtil
 import org.sempods.spec.PodRef
 import java.io.ByteArrayInputStream
 import java.net.URI
 import kotlin.test.assertEquals
+import kotlin.test.fail
 
 /**
  * `find` served from a store and a sign-in of a deployment's own: the pod is in no registry of this
@@ -91,5 +94,17 @@ class FindPodConnectionsHttpTest : SempodsIntegrationTest() {
 
     assertEquals(setOf(harbour, office), model.subjects().toSet())
     assertEquals(setOf(private), model.contexts().toSet())
+  }
+
+  @Test
+  fun `a caller who reads no context reaches no store`() = withSetup {
+    requestAuthenticator.answerWith { _, _ -> reading() }
+    podConnections.answerWith(object : PodConnections {
+      override fun <T> withConnection(pod: PodRef, block: (RepositoryConnection) -> T): T =
+        fail("an empty scope must not open a connection to ${pod.name}")
+    })
+
+    assertEquals(0, find("text" to "harbour").size)
+    assertEquals(0, find("text" to "harbour", "context" to "public").size)
   }
 }
