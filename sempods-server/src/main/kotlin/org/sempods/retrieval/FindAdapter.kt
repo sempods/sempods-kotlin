@@ -20,21 +20,37 @@ import org.eclipse.rdf4j.model.Model
  * A statement with no context that is neither kind claims a fact the pod does not hold, and
  * [FindService] drops it (`SPS-FIND-030`).
  *
- * The adapter MUST self-scope to [FindSandbox.effectiveScope] — SPARQL adapters build a `Dataset`
- * from it, external engines filter their own index by it. That set is the caller's optional context
- * downscope when present, else the readable ceiling; it is always pre-intersected with the ceiling,
- * so scoping to it can never leak. The endpoint does not post-filter, so the adapter is trusted to
- * return only data the caller may read, and to match only on it (`SPS-FIND-010`).
+ * The adapter scopes to [FindSandbox.effectiveScope] as far as it can — SPARQL adapters build a
+ * `Dataset` from it, external engines filter their own index by it. That set is the caller's
+ * optional context downscope when present, else the readable ceiling; it is always pre-intersected
+ * with the ceiling. What [FindService] does with the answer depends on [selfScoped].
  */
 interface FindAdapter {
 
   /**
+   * Whether this adapter matches only on data in [FindSandbox.effectiveScope], honours
+   * [FindRequest.types], and names the context each stored statement is in (`SPS-FIND-010`).
+   *
+   * | Value | What [FindService] does with the answer |
+   * |---|---|
+   * | `true` | takes its candidates and the contexts of its stored statements as they are |
+   * | `false` (default) | takes as candidates only the resources it links to an observation placed in a context of the effective scope, where it says the match was; keeps one only where the store holds it in the effective scope, and, when [FindRequest.types] are given, only where the [ResourceExpander] reads one of them as its `rdf:type` there; leaves its stored statements out of the answer, which takes what is stored from the expansion |
+   *
+   * An index that may lag behind the store, or that cannot filter by context, leaves this `false`,
+   * and then places each hit's observation in the context it matched in: a hit whose observations
+   * carry no context is no hit. Its observations are not checked: the store holds nothing to check
+   * them against, so a kept hit keeps them as the adapter gave them, a snippet included.
+   */
+  val selfScoped: Boolean get() = false
+
+  /**
    * @param request the parsed query: tokens, an optional `rdf:type` constraint, and the limit.
    * @param sandbox the pod-scoped authorization context. The pod is identified by
-   *   [FindSandbox.podUri] (its global URI); the adapter must self-scope to
-   *   [FindSandbox.effectiveScope].
-   * @return a model whose **IRI subjects are the found resources** (matched edges optional);
-   *   never exceeds the sandbox.
+   *   [FindSandbox.podUri] (its global URI); the adapter scopes to [FindSandbox.effectiveScope] as
+   *   far as it can.
+   * @return a model whose **IRI subjects are the found resources** (matched edges optional). A
+   *   [selfScoped] adapter's never exceeds the sandbox; another's may, and [FindService] checks it
+   *   against the store.
    */
   fun find(request: FindRequest, sandbox: FindSandbox): Model
 }

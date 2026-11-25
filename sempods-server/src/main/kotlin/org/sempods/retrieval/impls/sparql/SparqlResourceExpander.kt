@@ -14,8 +14,9 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
  * SPARQL implementation of [ResourceExpander]: one sandboxed `SELECT ?s ?p ?o ?g` over the hit IRIs
  * that returns `rdf:type` / `rdfs:label` / `schema:name` where present, each tagged with its source
  * context `?g` (so the expansion carries the same provenance as the matched edges). The expansion is
- * itself context-sandboxed (so it can't read properties from contexts the caller can't see) even
- * though the adapters already self-scoped their finds. [holdingContexts] reads the same sandbox.
+ * itself context-sandboxed (so it can't read properties from contexts the caller can't see), and
+ * it is what [org.sempods.retrieval.FindService] checks an adapter that is not
+ * [org.sempods.retrieval.FindAdapter.selfScoped] against. [holdingContexts] reads the same sandbox.
  */
 class SparqlResourceExpander @Inject constructor(
   private val sparqlQueryService: SparqlQueryService,

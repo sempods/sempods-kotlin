@@ -79,7 +79,18 @@ response: an RDF graph (JSON-LD, CONSTRUCT-compatible), context-sandboxed:
   knows a resource's type cheaply; general predicate filters are [proposed separately](../proposals/graph-retrieval.md). Exact match — a caller ORs known subtypes rather than relying on
   subclass reasoning.
 - `FindService` merges registered adapters and expands their hit subjects. When merged
-  hits exceed the limit it caps them deterministically by IRI; it has no rank fusion.
+  hits exceed the limit it caps them by the lowest `schema:position` among a hit's
+  observations, then by IRI; it has no rank fusion.
+- **An engine that cannot scope itself is checked against the store.** One that is not
+  [`selfScoped`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindAdapter.kt) — an
+  index that may lag behind the store, say — names a hit by an observation placed in the
+  selected context it matched in; a match elsewhere is no hit (`SPS-FIND-010`). The hit stays only
+  where the store holds it in the selection, and with a requested `type` only where the expansion
+  reads that type for it there. Its stored statements stay out: what the answer holds as stored
+  comes from the expansion, because the context an index gives a statement cannot be checked. A
+  dropped hit
+  takes its observations with it; a kept hit keeps them unchecked, since the store holds nothing to
+  check a snippet against. The built-in SPARQL adapter is self-scoped.
   Only a candidate a selected context holds counts towards the limit, so a stale
   index entry takes no place. A kept hit keeps the observation nodes it links to, and
   their nested blank nodes. An observation an engine attributes to a context outside
@@ -171,7 +182,7 @@ credential. Connect to the target pod with its own authority; hosted MCP perform
 
 ## Implementation
 
-- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, cap, observation placement and fixed expansion.
+- [`FindService`](../../sempods-server/src/main/kotlin/org/sempods/retrieval/FindService.kt) — merge, the store check for adapters that do not scope themselves, cap, observation placement and fixed expansion.
 - [`FindEndpoint`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindEndpoint.kt) — GET/POST, strict fields and representation.
 - [`FindDownscope`](../../sempods-server/src/main/kotlin/org/sempods/api/pod/system/find/FindDownscope.kt) — the `context` downscope, from the credentials alone.
 - [`FindEndpointHttpTest`](../../sempods-server/src/test/kotlin/org/sempods/api/pod/system/find/FindEndpointHttpTest.kt) — HTTP and sandbox contract.

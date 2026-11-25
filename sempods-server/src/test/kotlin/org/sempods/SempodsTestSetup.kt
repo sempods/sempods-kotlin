@@ -30,7 +30,7 @@ class SempodsTestSetup internal constructor(
    * changes it, and sign-ins armed on either complete on both.
    */
   val idServer: FakeOidcProvider,
-  /** A `find` engine beside the SPARQL adapter; it answers nothing until a test calls `answerWith`. */
+  /** A `find` engine beside the SPARQL adapter; it answers nothing until a test calls `answerWith` or `overReturnWith`. */
   val findAdapter: FindAdapterTestImpl,
   /** Where SPARQL reads reach a pod's store; this server's in-memory stores until a test calls `answerWith`. */
   val podConnections: PodConnectionsTestImpl,

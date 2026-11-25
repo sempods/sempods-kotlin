@@ -21,6 +21,8 @@ interface ResourceExpander {
    * @return a model carrying the expansion triples for [hits]; never exceeds the sandbox. Each
    *   statement carries the context it is stored in. [FindService] drops one without a context, or
    *   with one outside [FindSandbox.effectiveScope]: its source cannot be shown (`SPS-FIND-030`).
+   *   Every stored `rdf:type` of a hit in the scope is in it: for an adapter that is not
+   *   [FindAdapter.selfScoped], [FindService] checks a requested type only on what is read here.
    */
   fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model
 
@@ -32,7 +34,8 @@ interface ResourceExpander {
    * [FindService] calls it at most twice per `find`:
    *
    * - **Before the limit**, for the candidates the merged answer shows only through observations, with
-   *   no stored statement. A candidate absent from the result is no hit and is dropped
+   *   no stored statement, and for the candidates of an adapter that is not [FindAdapter.selfScoped]
+   *   that [expand] showed in no context. A candidate absent from the result is no hit and is dropped
    *   (`SPS-FIND-029`), so it takes no place under the limit.
    * - **During placement**, for a kept hit whose observation an adapter put in a context the answer
    *   does not show holding the hit. A context returned here keeps the observation where the adapter
