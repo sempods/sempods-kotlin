@@ -117,6 +117,8 @@ import org.sempods.query.impls.mongo.MongoPodConnections
 import org.sempods.query.spi.PodConnections
 import org.sempods.retrieval.FindAdapter
 import org.sempods.retrieval.FindService
+import org.sempods.retrieval.impls.virtualthreads.VirtualThreadFindExecutor
+import org.sempods.retrieval.spi.FindExecutor
 import org.sempods.retrieval.ResourceExpander
 import org.sempods.retrieval.impls.sparql.SparqlResourceExpander
 import org.sempods.retrieval.impls.sparql.SparqlTextFindAdapter
@@ -246,6 +248,7 @@ class SempodsModule : BaseModule() {
     // Graph-retrieval `find`. New search engines (vector, OpenSearch, …) subscribe by
     // contributing a FindAdapter to this set binder — no change to the endpoint or FindService.
     bind<FindService>().asSingleton()
+    bind<FindExecutor>().toInstance(VirtualThreadFindExecutor())
     bind<ResourceExpander>().to(SparqlResourceExpander::class.java).asSingleton()
     bind<SparqlTextFindAdapter>().asSingleton()
     val findAdapters = Multibinder.newSetBinder(binder(), FindAdapter::class.java)

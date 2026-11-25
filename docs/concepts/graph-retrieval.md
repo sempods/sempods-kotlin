@@ -200,6 +200,7 @@ binds each type itself, because there is no module that bundles them:
 | `FindEndpoint` | registered as a Jersey resource under `{pod}/_system/find` |
 | `PodRequestAuthenticator` | the deployment's own: request → `SempodsCredentials`, see [modularity](modularity.md) |
 | `FindService` | as it is |
+| `FindExecutor` | the thread each adapter runs on: `VirtualThreadFindExecutor`, or the deployment's pool as `FindExecutor(pool::execute)` |
 | `Set<FindAdapter>` | a Guice multibinder holding the deployment's adapters |
 | `ResourceExpander` | the deployment's own, or `SparqlResourceExpander` |
 | `SparqlQueryService`, `PodConnections` | with `SparqlResourceExpander` or `SparqlTextFindAdapter`: a read connection to the deployment's RDF4J store, holding that pod's statements alone |

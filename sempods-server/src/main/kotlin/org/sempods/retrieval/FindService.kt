@@ -12,13 +12,15 @@ import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.vocabulary.RDF
 import org.sempods.commons.net.SempodsVocabulary
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.commons.trace.TraceContextHolder
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import org.sempods.retrieval.spi.FindExecutor
+import java.util.concurrent.CompletableFuture
 
 /**
- * Central `find` orchestration. Fans out to every registered [FindAdapter] in parallel, merges
- * the returned models, and enriches the hits with the fixed expansion set
+ * Central `find` orchestration. Fans out to every registered [FindAdapter] in parallel, one task
+ * each on the bound [FindExecutor] under the caller's trace, logs each adapter's hit count and
+ * latency, merges the returned models, and enriches the hits with the fixed expansion set
  * (`rdf:type` / `rdfs:label` / `schema:name`).
  *
  * - **A self-scoped adapter is trusted on what it matched**, and on the contexts its stored
@@ -62,12 +64,8 @@ import java.util.concurrent.Executors
 class FindService @Inject constructor(
   private val adapters: Set<@JvmSuppressWildcards FindAdapter>,
   private val expander: ResourceExpander,
+  private val executor: FindExecutor,
 ) {
-
-  // Shared across requests: a virtual-thread-per-task executor spawns a fresh virtual thread per
-  // submitted task and holds no idle threads, so one instance for this singleton's lifetime is
-  // enough — no per-request executor churn, and nothing to shut down.
-  private val executor: ExecutorService = Executors.newVirtualThreadPerTaskExecutor()
 
   /**
    * Run a `find` against one pod and return the result graph.
@@ -85,15 +83,14 @@ class FindService @Inject constructor(
   fun find(request: FindRequest, sandbox: FindSandbox): Model {
     if (sandbox.matchesNothing()) return LinkedHashModel()
 
-    // Fan out across adapters on virtual threads (Java 25); join and merge their models. A virtual
-    // thread inherits no trace, so each task re-binds the caller's: an adapter logs under it, and
-    // reaches what a test observes for it.
+    // Fan out across adapters on the bound executor; join and merge their models. Its thread
+    // inherits no trace, so each task re-binds the caller's: an adapter logs under it, and reaches
+    // what a test observes for it.
     val trace = TraceContextHolder.get()
     val futures = adapters.map { adapter ->
-      executor.submit<Pair<Model, Boolean>> {
-        val answer = { adapter.find(request, sandbox) to adapter.selfScoped }
-        if (trace == null) answer() else TraceContextHolder.with(trace) { answer() }
-      }
+      CompletableFuture.supplyAsync({
+        if (trace == null) answer(adapter, request, sandbox) else TraceContextHolder.with(trace) { answer(adapter, request, sandbox) }
+      }, executor::execute)
     }
     val scope = sandbox.effectiveScope()?.mapTo(HashSet()) { it.toString() }
     val trusted = LinkedHashModel()
@@ -146,6 +143,20 @@ class FindService @Inject constructor(
     val toExpand = keep - checked
     if (toExpand.isNotEmpty()) result.addAll(stored(expander.expand(toExpand, sandbox), scope))
     return placed(result, keep, holding, asked = unseen, sandbox)
+  }
+
+  /** [adapter]'s answer and whether it scopes itself, logged with its hit count and latency. */
+  private fun answer(adapter: FindAdapter, request: FindRequest, sandbox: FindSandbox): Pair<Model, Boolean> {
+    val started = System.nanoTime()
+    val model = try {
+      adapter.find(request, sandbox)
+    } catch (e: RuntimeException) {
+      logger.warn { "[find] adapter=${adapter.javaClass.name} failed after ${(System.nanoTime() - started) / 1_000_000} ms: ${e.message}" }
+      throw e
+    }
+    val hits = model.subjects().count { it is IRI }
+    logger.info { "[find] adapter=${adapter.javaClass.name} hits=$hits ms=${(System.nanoTime() - started) / 1_000_000}" }
+    return model to adapter.selfScoped
   }
 
   /** The lowest `schema:position` among [hit]'s observations in [model], or null when none has one; positions count from 1. */
@@ -271,6 +282,7 @@ class FindService @Inject constructor(
     st.subject is BNode || (st.predicate == FIND_RESULT && st.`object` is BNode)
 
   private companion object {
+    val logger = KotlinLogging.logger {}
     val VF: SimpleValueFactory = SimpleValueFactory.getInstance()
     val FIND_RESULT: IRI = VF.createIRI(SempodsVocabulary.FIND_RESULT)
     val POSITION: IRI = VF.createIRI("https://schema.org/position")

@@ -121,7 +121,8 @@ belongs to another trace.
 Neither a platform thread pool nor a virtual-thread executor inherits the binding. Where it
 matters, the trace is captured and re-bound explicitly: `podIo` in `sempods-mcp` reads the holder
 on the calling thread and re-binds it inside the virtual thread it submits to, and `FindService` in
-`sempods-server` does the same for each `find` adapter it fans out to. Anything else handing work to
+`sempods-server` does the same for each `find` adapter it fans out to, on whichever `FindExecutor`
+a deployment binds. Anything else handing work to
 an executor owes the same two lines.
 
 ## Scope
