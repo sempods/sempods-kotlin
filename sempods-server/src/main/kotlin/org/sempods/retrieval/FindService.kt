@@ -25,8 +25,9 @@ import java.util.concurrent.Executors
  *   statements name ([FindAdapter.selfScoped]).
  * - **Any other adapter's answer is checked against the store first**, with one expansion over the
  *   resources it names, reused for those that are kept. A candidate no self-scoped adapter returned
- *   stays only when the [ResourceExpander] reads an `rdf:type` for it in
- *   [FindSandbox.effectiveScope], one of [FindRequest.types] when any are given, and goes with its
+ *   stays only when the store holds it in [FindSandbox.effectiveScope] — the expansion shows that,
+ *   or [ResourceExpander.holdingContexts] before the limit — and, when [FindRequest.types] are
+ *   given, only when the expansion reads one of them as its `rdf:type` there. It goes with its
  *   observations otherwise. Its stored statements only name candidates and do not reach the
  *   answer: what is stored about a kept hit comes from the expansion, and the contexts the
  *   expansion shows are where the hit is held.
@@ -102,24 +103,25 @@ class FindService @Inject constructor(
 
     // What an adapter that does not self-scope said is checked against the store: one expansion
     // over the resources it names, reused for those that are kept. Its candidate is a hit only where
-    // the store shows it typed in the selection. Its stored statements name the candidates and stay
-    // out of the answer: a context it gives a statement cannot be checked, so the store's own
-    // expansion speaks for the resource.
+    // the store holds it in the selection, typed as requested when a type is. Its stored statements
+    // name the candidates and stay out of the answer: a context it gives a statement cannot be
+    // checked, so the store's own expansion speaks for the resource.
     val vouched = trusted.subjects().filterIsInstance<IRI>().toSet()
     val checked = unchecked.subjects().filterIsInstance<IRI>().toSet()
     val verification = if (checked.isEmpty()) emptyList() else stored(expander.expand(checked, sandbox), scope)
     val storeHolding = HashMap<IRI, MutableSet<Resource>>()
     verification.forEach { st -> (st.subject as? IRI)?.let { storeHolding.getOrPut(it) { HashSet() } += checkNotNull(st.context) } }
-    val verified = verification
-      .filter { it.predicate == RDF.TYPE && (request.types.isEmpty() || it.`object` in request.types) }
+    val typed = verification
+      .filter { it.predicate == RDF.TYPE && it.`object` in request.types }
       .mapNotNullTo(HashSet()) { it.subject as? IRI }
     val merged = LinkedHashModel(trusted)
     unchecked.filterTo(merged, ::isGenerated)
 
     // Only a candidate a context in the selection holds is a hit (SPS-FIND-029). A stored
-    // statement shows that; a candidate the answer names only through observations is looked up
-    // before the cap, so it cannot take a place a held candidate would have had.
-    val candidates = vouched + (verified intersect checked)
+    // statement shows that; a candidate the answer names only through observations, and one the
+    // expansion did not show, is looked up before the cap, so it cannot take a place a held
+    // candidate would have had.
+    val candidates = vouched + if (request.types.isEmpty()) checked else typed intersect checked
     val holding = storedHolding(trusted)
     storeHolding.forEach { (hit, contexts) -> if (hit in candidates) holding.getOrPut(hit) { HashSet() } += contexts }
     val unseen = candidates.filterTo(HashSet()) { it !in holding }

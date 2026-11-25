@@ -34,10 +34,10 @@ interface FindAdapter {
    * | Value | What [FindService] does with the answer |
    * |---|---|
    * | `true` | takes its candidates and the contexts of its stored statements as they are |
-   * | `false` (default) | keeps a candidate only where the [ResourceExpander] reads an `rdf:type` for it in the effective scope, one of [FindRequest.types] when any are given; its stored statements name candidates and do not reach the answer, which takes what is stored from the expansion |
+   * | `false` (default) | keeps a candidate only where the store holds it in the effective scope, and, when [FindRequest.types] are given, only where the [ResourceExpander] reads one of them as its `rdf:type` there; its stored statements name candidates and do not reach the answer, which takes what is stored from the expansion |
    *
    * An index that may lag behind the store, or that cannot filter by context, leaves this `false`.
-   * A candidate without an `rdf:type` in the store is then never a hit. Its observations are not
+   * Its observations are not
    * checked: the store holds nothing to check them against, so a kept hit keeps them as the adapter
    * gave them, a snippet included.
    */

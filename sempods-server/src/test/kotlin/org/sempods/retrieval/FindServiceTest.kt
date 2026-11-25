@@ -48,15 +48,31 @@ class FindServiceTest {
     override fun find(request: FindRequest, sandbox: FindSandbox): Model = model
   }
 
-  /** Expands from [store], within the sandbox, and records each call. */
+  /**
+   * Reads [store] within the sandbox, as a store-backed expander does: [expand] the fixed set
+   * (`rdf:type`, `schema:name`), [holdingContexts] any statement. Records each call.
+   */
   private class StoreExpander(private val store: Model) : ResourceExpander {
     val expanded = mutableListOf<Set<IRI>>()
+    val looked = mutableListOf<Set<IRI>>()
+    private val fixed = setOf(
+      SimpleValueFactory.getInstance().createIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+      SimpleValueFactory.getInstance().createIRI("https://schema.org/name"),
+    )
+
+    private fun inScope(hits: Collection<IRI>, sandbox: FindSandbox): List<org.eclipse.rdf4j.model.Statement> {
+      val scope = sandbox.effectiveScope()?.mapTo(HashSet()) { it.toString() }
+      return store.filter { st -> st.subject in hits && (scope == null || st.context?.stringValue() in scope) }
+    }
+
     override fun expand(hits: Collection<IRI>, sandbox: FindSandbox): Model {
       expanded += hits.toSet()
-      val scope = sandbox.effectiveScope()?.mapTo(HashSet()) { it.toString() }
-      return store.filterTo(LinkedHashModel()) { st ->
-        st.subject in hits && (scope == null || st.context?.stringValue() in scope)
-      }
+      return inScope(hits, sandbox).filterTo(LinkedHashModel()) { it.predicate in fixed }
+    }
+
+    override fun holdingContexts(hits: Collection<IRI>, sandbox: FindSandbox): Map<IRI, Set<Resource>> {
+      looked += hits.toSet()
+      return inScope(hits, sandbox).groupBy({ it.subject as IRI }, { checkNotNull(it.context) }).mapValues { it.value.toSet() }
     }
   }
 
@@ -416,22 +432,27 @@ class FindServiceTest {
   }
 
   @Test
-  fun `an index's hit stays only where the store shows it typed in the selection, observations included`() {
-    val held = vf.createIRI("https://e/held")
+  fun `an index's hit stays only where the store holds it in the selection, observations included`() {
+    val typed = vf.createIRI("https://e/typed")
     val hidden = vf.createIRI("https://e/hidden")
-    val untyped = vf.createIRI("https://e/untyped")
+    val named = vf.createIRI("https://e/named")
+    val described = vf.createIRI("https://e/described")
+    val gone = vf.createIRI("https://e/gone")
     val store = LinkedHashModel().apply {
-      add(held, rdfType, article, contextA)
+      add(typed, rdfType, article, contextA)
       add(hidden, rdfType, article, contextB)
-      add(untyped, name, vf.createLiteral("no type"), contextA)
+      add(named, name, vf.createLiteral("no type"), contextA)
+      add(described, text, vf.createLiteral("outside the fixed set"), contextA)
     }
-    val answer = LinkedHashModel().apply { listOf(held, hidden, untyped).forEach { observed(this, it) } }
+    val answer = LinkedHashModel().apply { listOf(typed, hidden, named, described, gone).forEach { observed(this, it) } }
+    val expander = StoreExpander(store)
 
-    val result = search(index(answer), expander = StoreExpander(store), on = scopedTo(contextA))
+    val result = search(index(answer), expander = expander, on = scopedTo(contextA))
 
-    assertEquals(setOf(held.stringValue()), subjectsOf(result))
-    assertEquals(1, result.filter(null, findResult, null).size, "only the kept hit's observation is left: $result")
-    assertTrue(result.filter(null, rdfType, null).all { it.context == contextA }, "the expansion stays in the selection: $result")
+    assertEquals(setOf(typed, named, described).map { it.stringValue() }.toSet(), subjectsOf(result))
+    assertEquals(3, result.filter(null, findResult, null).size, "only the kept hits' observations are left: $result")
+    assertTrue(result.all { it.context == contextA }, "everything stays in the selection: $result")
+    assertEquals(listOf(setOf(hidden, described, gone)), expander.looked, "one lookup for what the expansion did not show")
   }
 
   @Test
@@ -441,6 +462,9 @@ class FindServiceTest {
 
     assertTrue(search(index(answer), expander = StoreExpander(store), types = setOf(article)).isEmpty())
     assertEquals(setOf(hit.stringValue()), subjectsOf(search(index(answer), expander = StoreExpander(store), types = setOf(event))))
+
+    val untyped = LinkedHashModel().apply { add(hit, name, vf.createLiteral("no type"), contextA) }
+    assertTrue(search(index(answer), expander = StoreExpander(untyped), types = setOf(event)).isEmpty(), "a requested type needs a stored one")
   }
 
   @Test
