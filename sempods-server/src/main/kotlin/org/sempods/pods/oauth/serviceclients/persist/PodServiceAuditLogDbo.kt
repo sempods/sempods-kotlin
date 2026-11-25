@@ -6,7 +6,7 @@ import java.time.Instant
 /**
  * One row per request made by a statically-registered service client (a
  * caller authenticated via the OAuth `client_credentials` grant). Populated
- * by [org.sempods.pods.oauth.BearerPodRequestAuthenticator] when it verifies a
+ * by [org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator] when it verifies a
  * service-client token.
  *
  * Kept deliberately lean: timestamp + caller identity + request shape,

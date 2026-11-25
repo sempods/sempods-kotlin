@@ -5,9 +5,9 @@ import com.google.inject.Guice
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.HttpHeaders
 import org.junit.jupiter.api.Test
-import org.sempods.pods.grants.PodApiRequest
-import org.sempods.pods.grants.PodRequestAuthentication
-import org.sempods.pods.grants.PodRequestAuthenticator
+import org.sempods.pods.authentication.spi.PodApiRequest
+import org.sempods.pods.authentication.spi.PodRequestAuthentication
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.spec.PodRef
 import java.net.URI

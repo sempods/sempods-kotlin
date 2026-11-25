@@ -1,4 +1,7 @@
-package org.sempods.pods.grants
+package org.sempods.pods.authentication.spi
+
+import org.sempods.pods.grants.PodAuthorizer
+import org.sempods.pods.grants.SempodsCredentials
 
 /**
  * The **request-authentication seam** (`docs/concepts/modularity.md`): turns one request to a pod
@@ -6,7 +9,7 @@ package org.sempods.pods.grants
  * cannot.
  *
  * It covers the whole step, not one part of it. The binding `SempodsModule` installs,
- * `org.sempods.pods.oauth.BearerPodRequestAuthenticator`, looks the pod up, verifies a bearer this
+ * `org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator`, looks the pod up, verifies a bearer this
  * server issued, refuses one whose person has signed out since, records a service client's request
  * and asks [PodAuthorizer] which contexts the caller reaches. A deployment whose callers carry
  * another credential binds its own, and with it owns revoking that credential.

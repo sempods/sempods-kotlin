@@ -1,19 +1,20 @@
-package org.sempods.pods.oauth
+package org.sempods.pods.authentication.impls.oauth
 
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.SempodsConfig
 import org.sempods.SempodsUriBuilder
 import org.sempods.mcp.core.BearerChallenge
-import org.sempods.pods.grants.PodApiRequest
+import org.sempods.pods.authentication.spi.PodApiRequest
+import org.sempods.pods.authentication.spi.PodRequestAuthentication
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
 import org.sempods.pods.grants.PodAuthorizer
-import org.sempods.pods.grants.PodRequestAuthentication
-import org.sempods.pods.grants.PodRequestAuthenticator
 import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.podId
 import org.sempods.pods.mongo.persist.toRef
+import org.sempods.pods.oauth.PodSignOut
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDao
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceAuditLogDbo
 import org.sempods.pods.oauth.spi.PodAccessToken

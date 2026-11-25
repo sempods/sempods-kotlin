@@ -8,9 +8,9 @@ import jakarta.ws.rs.core.MultivaluedMap
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriInfo
 import org.sempods.commons.jaxrs.BaseEndpoint
-import org.sempods.pods.grants.PodApiRequest
-import org.sempods.pods.grants.PodRequestAuthentication
-import org.sempods.pods.grants.PodRequestAuthenticator
+import org.sempods.pods.authentication.spi.PodApiRequest
+import org.sempods.pods.authentication.spi.PodRequestAuthentication
+import org.sempods.pods.authentication.spi.PodRequestAuthenticator
 import org.sempods.pods.grants.SempodsCredentials
 
 /**

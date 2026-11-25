@@ -208,6 +208,8 @@ for what it is built on:
 
 ```text
 org.sempods.pods.oauth.spi            PodRequestVerifier, PodResourceRequest, PodAccessToken, …
+org.sempods.pods.authentication.spi   PodRequestAuthenticator, PodApiRequest, …
+org.sempods.pods.authentication.impls.oauth   BearerPodRequestAuthenticator, this server's bearer
 org.sempods.pods.media.impls.fs       FilesystemPodMediaStore
 org.sempods.ai.impls.ollama           the Ollama provider
 ```

@@ -5,7 +5,8 @@ import java.net.URI
 import java.time.Instant
 
 /**
- * What one request is allowed to do, as [PodRequestAuthenticator] resolved it — by default through
+ * What one request is allowed to do, as
+ * [org.sempods.pods.authentication.spi.PodRequestAuthenticator] resolved it — by default through
  * [PodAuthorizer]. The result type every endpoint below `{pod}/…` carries from the authentication
  * down into the read and write paths.
  *
@@ -47,7 +48,7 @@ data class SempodsCredentials(
   /**
    * Whether the deployment identified the caller. `false` is the anonymous reader of public
    * contexts. Defaults to the presence of [oauthClientId], which is what it means for this
-   * server's bearer; a [PodRequestAuthenticator] whose callers carry another credential sets it.
+   * server's bearer; a [org.sempods.pods.authentication.spi.PodRequestAuthenticator] whose callers carry another credential sets it.
    *
    * An authenticated caller names itself through [tokenSub] (its WebID) or [oauthClientId]: a
    * context or media write records that as its creator, and a context write refuses a caller that

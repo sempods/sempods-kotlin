@@ -17,7 +17,7 @@ import java.net.URI
  *
  * An implementation answers only *is this credential good, and for this pod*. What the verified
  * caller may reach is [org.sempods.pods.grants.PodAuthorizer], and
- * [org.sempods.pods.oauth.BearerPodRequestAuthenticator] asks about a sign-out afterwards. A
+ * [org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator] asks about a sign-out afterwards. A
  * verifier that accepts every request, or a token of a foreign issuer, breaks this contract.
  *
  * The three outcomes stay distinct: no credentials ([PodTokenAuthentication.NoToken]), rejected

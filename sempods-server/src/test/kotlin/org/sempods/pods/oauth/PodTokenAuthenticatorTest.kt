@@ -33,8 +33,9 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * Docker-free unit test of the verification half of [BearerPodRequestAuthenticator.verify] — the
- * table of "what makes a pod bearer unusable".
+ * Docker-free unit test of the verification half of
+ * [org.sempods.pods.authentication.impls.oauth.BearerPodRequestAuthenticator.verify] — the table of
+ * "what makes a pod bearer unusable".
  *
  * The distinction the endpoint keys off is [PodTokenRejection.podMismatch]: a token that verifies
  * but names another issuer is a 401 on the read path and a 403 on the app-token path, and that is
