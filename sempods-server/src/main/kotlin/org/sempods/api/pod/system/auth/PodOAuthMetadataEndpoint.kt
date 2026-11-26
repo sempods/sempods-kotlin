@@ -122,8 +122,14 @@ class RootOAuthMetadataEndpoint @Inject constructor(
   }
 }
 
-/** RFC 9728 §2 and RFC 8414 §2 both call the field `scopes_supported`, and both mean this list. */
-private val SCOPES_SUPPORTED = PodScopeValidator.featureScopes.toList() + OFFLINE_ACCESS_SCOPE
+/**
+ * RFC 9728 §2 and RFC 8414 §2 both call the field `scopes_supported`, and both mean this list. A
+ * privileged scope no request may name is absent: it reaches a service only inside its management
+ * authority, which `sempods_service_management_scopes` advertises.
+ */
+private val SCOPES_SUPPORTED = PodScopeValidator.featureScopes.filter {
+  it !in PodScopeValidator.privilegedFeatureScopes || it in PodScopeValidator.requestablePrivilegedScopes
+} + OFFLINE_ACCESS_SCOPE
 
 internal fun buildProtectedResourceMetadata(
   pod: PodDbo,

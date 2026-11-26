@@ -248,6 +248,63 @@ class PodGrantsFacade @Inject constructor(
     }
   }
 
+  // ── the owner's withdrawals: one direct grant on one context ─────────────────
+
+  /**
+   * Withdraws every grant [webId] holds anchored at [contextUri], across derivable aliases, and
+   * cascades into the apps acting for them as [revokeWebIdGrants] does. A `#manage` grant on an
+   * ancestor is not anchored here and stays.
+   *
+   * The cascade ends every delegation of theirs that no remaining grant backs — for a person who
+   * holds no grant at all, such as a former owner, every one.
+   */
+  internal fun withdrawWebIdGrantsOn(pod: HostedPod, webId: String, contextUri: String): GrantCascadeResult =
+    revokeWebIdGrants(pod, webId, anchoredAt(contextUri))
+
+  /**
+   * Withdraws what the owner delegated to [clientId] anchored at [contextUri]. Where the app is left
+   * holding nothing for the owner, its refresh families end too, as [sweepUnbackedAppGrants] ends
+   * them; an app keeping another grant, `public-read` included, keeps its session.
+   *
+   * The owner holds no WebID grants, so nothing cascades: these rows are the whole of it.
+   */
+  internal fun withdrawOwnerDelegationOn(pod: HostedPod, clientId: String, contextUri: String): GrantCascadeResult {
+    val storedPodId = pod.id.objectId()
+    val ownerUris = webIdUriDeriver.derivableAliases(pod.owner) + pod.owner
+    val rows = podGrantsDao.fetchGrantsForSubject(storedPodId, ownerUris).filter { it.appId == clientId }
+    val anchored = anchoredAt(contextUri)
+    var deletedAppGrants = 0L
+    var revokedRefreshTokens = 0L
+    rows.map { it.webId }.distinct().forEach { webId ->
+      val deleted = podGrantsDao.deleteGrants(storedPodId, clientId, webId, anchored)
+      deletedAppGrants += deleted
+      // Asked after the delete, so a consent landing in between keeps the session it restored.
+      if (deleted > 0 && podGrantsDao.fetchGrantStrings(storedPodId, clientId, listOf(webId)).isEmpty()) {
+        revokedRefreshTokens += refreshTokenStore.revokeForUser(
+          pod = pod.id,
+          clientId = clientId,
+          webId = webId,
+          reason = PodRefreshTokenStore.RevocationReason.WITHDRAWN_GRANT,
+        )
+      }
+    }
+    if (deletedAppGrants > 0) {
+      logger.info {
+        "[grants/withdraw] The owner's delegation withdrawn: pod='${pod.name}', clientId='$clientId', " +
+            "context='$contextUri', deletedAppGrants=$deletedAppGrants, revokedRefreshTokens=$revokedRefreshTokens"
+      }
+    }
+    return GrantCascadeResult(
+      deletedAppGrants = deletedAppGrants,
+      revokedRefreshTokens = revokedRefreshTokens,
+      affectedApps = if (deletedAppGrants > 0) setOf(clientId) else emptySet(),
+    )
+  }
+
+  /** Every grant string anchored at [contextUri]: one per permission. */
+  internal fun anchoredAt(contextUri: String): List<String> =
+    ScopePermission.entries.map { "$contextUri#${it.value}" }
+
   // ── recipient level: what an app or a service may do ─────────────────────────
 
   /**

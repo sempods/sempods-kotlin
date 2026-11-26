@@ -45,6 +45,19 @@ const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
 const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
 
 /**
+ * OAuth scope literal for the owner's authority over who reaches each context: listing the people,
+ * apps and services that hold grants there, and withdrawing a direct one. It reads no data and
+ * gives none; withdrawing is all it changes. The third of
+ * [PodScopeValidator.privilegedFeatureScopes].
+ *
+ * Granted only as part of a service client's lasting management authority
+ * ([PodScopeValidator.serviceManagementScopes]). An authorization request may not ask for it
+ * ([PodScopeValidator.requestablePrivilegedScopes]): no consent screen offers it on its own. The
+ * routes are `sempods-server/docs/auth/service-clients.md` §"Managing grants".
+ */
+const val GRANTS_MANAGE_SCOPE = "grants:manage"
+
+/**
  * Whether this bearer carries an authority granted for one named operation.
  *
  * The routes that ask resolve no context — the gate that asks only for an app, the registration
@@ -138,7 +151,14 @@ class PodScopeValidator {
      * is what lets a reconnect skip the dialog.
      */
     val privilegedFeatureScopes: Set<String> =
-      setOf(SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE)
+      setOf(SERVICE_CLIENTS_MANAGE_SCOPE, CONTEXTS_MANAGE_SCOPE, GRANTS_MANAGE_SCOPE)
+
+    /**
+     * The privileged scopes an authorization request may ask for, each on a consent screen of its
+     * own. [GRANTS_MANAGE_SCOPE] is not among them: it reaches a program only inside a service's
+     * management authority, and `/authorize` refuses a request naming it.
+     */
+    val requestablePrivilegedScopes: Set<String> = privilegedFeatureScopes - GRANTS_MANAGE_SCOPE
 
     /**
      * What a service client's lasting management authority covers: the scopes its
@@ -146,8 +166,12 @@ class PodScopeValidator {
      * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority]). Never
      * [SERVICE_CLIENTS_MANAGE_SCOPE], which can create a service that reaches data. The pod
      * advertises this set as `sempods_service_management_scopes`.
+     *
+     * [GRANTS_MANAGE_SCOPE] belongs here because it only withdraws. A way to add grants would give
+     * data access to a person or a service, and would have to be asked the question
+     * [SERVICE_CLIENTS_MANAGE_SCOPE] was.
      */
-    val serviceManagementScopes: Set<String> = setOf(CONTEXTS_MANAGE_SCOPE)
+    val serviceManagementScopes: Set<String> = setOf(CONTEXTS_MANAGE_SCOPE, GRANTS_MANAGE_SCOPE)
 
     /**
      * Stable, coarse feature/capability scopes that are NOT per-context grants and do not

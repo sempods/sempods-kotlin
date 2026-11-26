@@ -136,6 +136,29 @@ Save this service's secret too. Replacement sets the whole grant set; an empty l
 [SempodsPodServiceClients](../src/main/kotlin/org/sempods/client/SempodsPodServiceClients.kt)
 owns the operation, retry and `412` contracts. See also [Host provisioning](../../sempods-server/docs/host-provisioning.md).
 
+### Managing grants
+
+An owner console lists who reaches a context and withdraws access. It needs a `managementToken`
+carrying `grants:manage`, which only a service holding the pod's
+[management authority](../../sempods-server/docs/auth/service-clients.md#managing-a-pod-as-a-service)
+receives. Given `base`, `http` and a context IRI `notes`, this withdraws each person's direct
+grants there:
+
+<!-- doc-example: sempods-client/src/test/kotlin/org/sempods/client/DocumentationExamplesTest.kt#grants-withdraw -->
+```kotlin
+val grants = SempodsPodGrants(
+  SempodsSession(base, SempodsRequestAuth.bearer(managementToken)), http)
+val holders = checkNotNull(grants.holders(notes).body)
+holders.people
+  .filter { person -> person.grants.any { it.isDirect } }
+  .forEach { person -> grants.withdrawPerson(notes, person.webId) }
+```
+
+A person reached only through an ancestor's `#manage` grant is withdrawn on that ancestor.
+[SempodsPodGrants](../src/main/kotlin/org/sempods/client/SempodsPodGrants.kt) owns the
+operations and their answers; [grant management](../../sempods-server/docs/auth/service-clients.md#managing-grants)
+is the pod's side.
+
 ### Asynchronous use
 
 [SempodsAsync](../src/main/kotlin/org/sempods/client/SempodsAsync.kt) runs blocking work away from

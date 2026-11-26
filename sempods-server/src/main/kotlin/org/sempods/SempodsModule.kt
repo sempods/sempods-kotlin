@@ -45,6 +45,7 @@ import org.sempods.pods.oauth.flows.PodServiceConsentFlow
 import org.sempods.pods.oauth.flows.PodSignIn
 import org.sempods.pods.oauth.flows.PodSignInCompletion
 import org.sempods.pods.oauth.flows.PodOwnerAuthority
+import org.sempods.pods.oauth.flows.PodGrantManagement
 import org.sempods.pods.oauth.flows.PodServiceClientManagement
 import org.sempods.pods.oauth.flows.PodServiceClientProvisioning
 import org.sempods.pods.oauth.flows.PodTokenExchange
@@ -98,6 +99,7 @@ import org.sempods.pods.changes.PodChangeDispatcher
 import org.sempods.pods.changes.PodChangeListener
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PodContextPermissionResolver
+import org.sempods.pods.grants.PodGrantHolders
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.persist.PodGrantsDao
@@ -206,6 +208,7 @@ class SempodsModule : BaseModule() {
     bind<PodScopeValidator>().asSingleton()
     bind<PodContextPermissionResolver>().asSingleton()
     bind<PodGrantsFacade>().asSingleton()
+    bind<PodGrantHolders>().asSingleton()
     bind<PodTokenAuthenticator>().asSingleton()
     bind<PodRequestVerifier>().to(PodTokenAuthenticator::class.java)
     bindPodAuthorizer()
@@ -236,6 +239,7 @@ class SempodsModule : BaseModule() {
     bind<PodServiceClientProvisioning>().asSingleton()
     bind<PodOwnerAuthority>().asSingleton()
     bind<PodServiceClientManagement>().asSingleton()
+    bind<PodGrantManagement>().asSingleton()
     bind<PodServiceConsentFlow>().asSingleton()
     bind<PodSignIn>().asSingleton()
     bind<PodSignInCompletion>().asSingleton()
@@ -280,6 +284,7 @@ class SempodsModule : BaseModule() {
       ContextRegistryCacheFilter::class.java,
       PodAuthEndpoint::class.java,
       PodServiceClientsEndpoint::class.java,
+      PodGrantsEndpoint::class.java,
       PodOAuthMetadataEndpoint::class.java,
       RootOAuthMetadataEndpoint::class.java,
       McpEndpoint::class.java,

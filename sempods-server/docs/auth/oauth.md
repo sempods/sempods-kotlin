@@ -123,6 +123,9 @@ grant no access. Feature scopes select these other capabilities:
 | `service-clients:manage` | Register services and decide their context access |
 | `contexts:manage` | Create and delete contexts as the owner, with no data-read permission |
 
+`grants:manage` is refused here with `invalid_scope`: only a service's
+[management authority](service-clients.md#managing-a-pod-as-a-service) carries it.
+
 ## Token exchange
 
 Send a form body to `/_system/auth/token`:

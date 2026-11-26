@@ -154,6 +154,19 @@ class PodContextPermissionResolver @Inject constructor(
     manageRoots.filter { root -> root != contextUri && covers(root, contextUri) }.maxByOrNull { it.length }
 
   /**
+   * Whether [grant] reaches [contextUri], and from where: anchored at the context itself
+   * ([ReachingGrant.inheritedFrom] `null`), or a `#manage` on an ancestor that covers it by the
+   * slash-delimited rule. `null` where it does not reach it. The owner's grant listing asks this
+   * per context, over grants it has parsed once.
+   */
+  internal fun reaching(grant: ScopeValidationResult.Context, contextUri: String): ReachingGrant? = when {
+    grant.contextUri == contextUri -> ReachingGrant(grant.permission, inheritedFrom = null)
+    grant.permission == ScopePermission.manage && covers(grant.contextUri, contextUri) ->
+      ReachingGrant(ScopePermission.manage, inheritedFrom = grant.contextUri)
+    else -> null
+  }
+
+  /**
    * Build the display-oriented effective-permission view behind both `GET _system/contexts`
    * (REST) and the MCP `list_contexts` tool, so the two surfaces cannot drift.
    *
@@ -208,8 +221,11 @@ class PodContextPermissionResolver @Inject constructor(
     return EffectiveContextPermissions(byContext = byContext, writableContexts = writableContexts)
   }
 
-  /** Collapse a raw permission set so `write`/`manage` imply `read`. */
-  private fun collapse(perms: Set<ScopePermission>): List<String> = buildList {
+  /**
+   * Collapse a raw permission set so `write`/`manage` imply `read` — what a holder can do, as the
+   * context catalogue reports it.
+   */
+  internal fun collapse(perms: Set<ScopePermission>): List<String> = buildList {
     add("read")
     if (ScopePermission.write in perms || ScopePermission.manage in perms) add("write")
     if (ScopePermission.manage in perms) add("manage")
@@ -258,6 +274,15 @@ data class EffectiveContextPermissions(
   val byContext: Map<String, ContextPermissionEntry>,
   /** Contexts the caller may write to, ascending. */
   val writableContexts: List<String>,
+)
+
+/**
+ * A grant that reaches one context. [inheritedFrom] is the ancestor whose `#manage` grant it is, or
+ * `null` for a grant anchored at the context itself — the only kind withdrawn there.
+ */
+data class ReachingGrant(
+  val permission: ScopePermission,
+  val inheritedFrom: String?,
 )
 
 /** Server-resolved context access for one token, replacing token-carried context scopes. */

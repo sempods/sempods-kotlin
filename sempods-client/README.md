@@ -73,6 +73,11 @@ and a local HTTP fixture.
 | `find()` | Search for resources by text, as an RDF graph of the hits |
 | `metadata()` | Check existence or last modification |
 
+Two groups are built on a session of their own:
+[`SempodsPodServiceClients`](docs/client.md#managing-service-access) registers services and assigns
+their grants, and [`SempodsPodGrants`](docs/client.md#managing-grants) lets an owner console list
+who reaches each context and withdraw access.
+
 Every write names its context with `SempodsWriteOptions.inContext(contextIri)`. Pass the `ETag`
 of a read that selected only that context as `withIfMatch(...)` to avoid overwriting a concurrent
 change. The

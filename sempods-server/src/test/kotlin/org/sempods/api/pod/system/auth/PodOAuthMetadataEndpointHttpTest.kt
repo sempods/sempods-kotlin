@@ -178,7 +178,7 @@ class PodOAuthMetadataEndpointHttpTest : SempodsIntegrationTest() {
       "where a registered service sends the owner to decide its access",
     )
     assertEquals(
-      listOf("contexts:manage"),
+      listOf("contexts:manage", "grants:manage"),
       body["sempods_service_management_scopes"],
       "what a service client's lasting management authority carries",
     )

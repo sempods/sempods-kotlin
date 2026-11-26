@@ -250,7 +250,7 @@ Authorization-server metadata (RFC 8414):
   "scopes_supported":                      ["public-read", "offline_access"],
   "code_challenge_methods_supported":      ["S256"],
   "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "private_key_jwt"],
-  "sempods_service_management_scopes":     ["contexts:manage"]
+  "sempods_service_management_scopes":     ["contexts:manage", "grants:manage"]
 }
 ```
 
