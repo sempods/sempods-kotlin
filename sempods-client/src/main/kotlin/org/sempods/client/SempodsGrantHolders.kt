@@ -4,9 +4,9 @@ import java.time.Instant
 import java.util.Collections
 
 /**
- * Who reaches one context of a pod, as [SempodsPodGrants.holders] reads it. Grouped by person: an
- * app acting for a person is listed under them, because withdrawing the person withdraws it too.
- * The pod owner holds no grants of their own, so their apps are [apps].
+ * Who holds grants reaching one context of a pod, as [SempodsPodGrants.holders] reads it. Grouped by
+ * person: an app acting for a person is listed under them, because withdrawing the person withdraws
+ * it too. The pod owner holds no grants of their own, so their apps are [apps].
  */
 class SempodsContextHolders private constructor(
   /** The context, as the context catalogue names it. */
@@ -42,10 +42,12 @@ class SempodsContextHolders private constructor(
 }
 
 /**
- * A person reaching a context, with the apps acting for them there.
+ * A person reaching a context, with the apps acting for them there. One entry per person, however
+ * many WebIDs they hold grants under; withdrawing names any of them.
  *
  * [grants] is empty where only their [delegations] reach it: the delegations of someone who holds
- * no grant there any more, such as a former owner. Withdrawing the person ends those.
+ * no grant there any more, such as a former owner. Withdrawing the person withdraws the direct ones
+ * on this context.
  */
 class SempodsGrantPerson private constructor(
   val webId: String,
@@ -132,7 +134,10 @@ class SempodsGrantService private constructor(
   val grantsVersion: Long,
 ) {
 
-  /** What the service can do on the context, as the context catalogue reports it. */
+  /**
+   * What the service can do on the context, as the context catalogue reports it. Empty for a service
+   * holding the management authority, whose tokens reach no data; its [grants] are still withdrawn.
+   */
   val permissions: List<String> = Collections.unmodifiableList(permissions.toList())
 
   /** Its grants that reach the context, each with where it is anchored. */

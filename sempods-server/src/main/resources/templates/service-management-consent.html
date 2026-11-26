@@ -72,8 +72,14 @@
         <li>see the name of every context on your pod,</li>
         <li>create contexts,</li>
         <li>delete contexts, with everything in them,</li>
-        <li>see which people, apps and services can reach each context, and take that access away.</li>
+        <li>see the grants people, apps and services hold on each context, and withdraw them.</li>
       </ul>
+      <p class="note" id="widened" th:if="${widened}">
+        You allowed it to manage contexts only. Allowing it again adds seeing and withdrawing grants.
+      </p>
+      <p class="note">
+        Withdrawing grants does not change who can read a public context: anyone can.
+      </p>
       <p class="note">
         It reads none of your data. It loses this when you remove it or no longer own the pod.
       </p>
@@ -93,7 +99,7 @@
     <div class="consent-footer">
       <button type="submit" class="btn btn-secondary" id="cancelBtn" name="action" value="cancel"
               formnovalidate th:text="${held} ? 'Keep it' : 'Cancel'">Cancel</button>
-      <button th:if="${!held}" type="submit" class="btn btn-primary" id="confirmBtn">Allow management</button>
+      <button th:if="${!held || widened}" type="submit" class="btn btn-primary" id="confirmBtn">Allow management</button>
       <button th:if="${held}" type="submit" class="btn btn-danger" id="removeBtn" name="action" value="remove"
               formnovalidate>Remove service</button>
     </div>

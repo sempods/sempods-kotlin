@@ -45,7 +45,7 @@ const val SERVICE_CLIENTS_MANAGE_SCOPE = "service-clients:manage"
 const val CONTEXTS_MANAGE_SCOPE = "contexts:manage"
 
 /**
- * OAuth scope literal for the owner's authority over who reaches each context: listing the people,
+ * OAuth scope literal for the owner's authority over the grants on each context: listing the people,
  * apps and services that hold grants there, and withdrawing a direct one. It reads no data and
  * gives none; withdrawing is all it changes. The third of
  * [PodScopeValidator.privilegedFeatureScopes].
@@ -161,9 +161,9 @@ class PodScopeValidator {
     val requestablePrivilegedScopes: Set<String> = privilegedFeatureScopes - GRANTS_MANAGE_SCOPE
 
     /**
-     * What a service client's lasting management authority covers: the scopes its
-     * `client_credentials` token carries while the authority stands
-     * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority]). Never
+     * What a service client's lasting management authority covers when the owner approves it now.
+     * Its `client_credentials` token carries the part the owner approved while the authority stands
+     * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority.scopes]). Never
      * [SERVICE_CLIENTS_MANAGE_SCOPE], which can create a service that reaches data. The pod
      * advertises this set as `sempods_service_management_scopes`.
      *

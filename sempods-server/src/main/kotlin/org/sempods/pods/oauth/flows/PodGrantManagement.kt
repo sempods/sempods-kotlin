@@ -14,11 +14,12 @@ import org.sempods.pods.grants.PodGrantHolders
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.ReachingGrant
 import org.sempods.pods.grants.SempodsCredentials
+import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PrivilegedAuthority
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 
 /**
- * The owner's view of who reaches each context, and the withdrawal of one direct grant on one
+ * The owner's view of the grants on each context, and the withdrawal of one direct grant on one
  * context. What each does on the wire is `sempods-server/docs/auth/service-clients.md`
  * §"Managing grants".
  *
@@ -35,6 +36,7 @@ class PodGrantManagement @Inject internal constructor(
   private val holders: PodGrantHolders,
   private val podGrantsFacade: PodGrantsFacade,
   private val serviceClients: PodServiceClientStore,
+  private val dynamicClients: DynamicClientStore,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
 
@@ -42,18 +44,29 @@ class PodGrantManagement @Inject internal constructor(
   internal fun counts(pod: HostedPod, caller: SempodsCredentials): PodGrantManagementResult<List<ContextHolderCounts>> =
     authorized(pod, caller) { PodGrantManagementResult.Done(holders.snapshot(pod).counts()) }
 
-  /** Who reaches [contextUri], grouped. */
+  /** Who holds grants reaching [contextUri], grouped, with the names `dyn:` apps registered under. */
   internal fun holders(pod: HostedPod, caller: SempodsCredentials, contextUri: String): PodGrantManagementResult<ContextHolders> =
     authorized(pod, caller) {
-      holders.snapshot(pod).on(contextUri)?.let { PodGrantManagementResult.Done(it) }
+      // `containsKey`, because `getOrPut` asks again for a stored `null`: an app with no name.
+      val names = HashMap<String, String?>()
+      val snapshot = holders.snapshot(pod) { clientId ->
+        if (names.containsKey(clientId)) names[clientId]
+        else dynamicClients.registrationOf(pod.id, clientId)?.clientName?.takeIf { it.isNotBlank() }.also { names[clientId] = it }
+      }
+      snapshot.on(contextUri)?.let { PodGrantManagementResult.Done(it) }
         ?: PodGrantManagementResult.Refused(PodGrantManagementRefusal.UNKNOWN_CONTEXT)
     }
 
   /**
    * Withdraws [webId]'s direct grants on [contextUri], with the delegations they back
-   * ([PodGrantsFacade.withdrawWebIdGrantsOn]). A person listed with delegations here and no grant
-   * reaching here is withdrawn too: the cascade ends what no grant of theirs backs, which for a
-   * person holding no grant at all — a former owner — is every delegation they made.
+   * ([PodGrantsFacade.withdrawWebIdGrantsOn]); [webId] may be any URI the person is known by.
+   *
+   * | The person | Withdrawn |
+   * |---|---|
+   * | holds a direct grant there | their grants anchored there, under every WebID they hold them under |
+   * | holds only an inherited one | nothing: [PodGrantManagementRefusal.INHERITED] |
+   * | holds none reaching there, and delegated directly there | those delegations, anchored there ([PodGrantsFacade.withdrawDelegationsOn]) |
+   * | holds none, and delegated only from an ancestor | nothing: [PodGrantManagementRefusal.INHERITED] |
    */
   internal fun withdrawPerson(
     pod: HostedPod,
@@ -64,15 +77,22 @@ class PodGrantManagement @Inject internal constructor(
     val context = holders.snapshot(pod).on(contextUri)
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.UNKNOWN_CONTEXT)
     val spellings = webIdUriDeriver.derivableAliases(webId) + webId
-    val person = context.people.firstOrNull { it.webId in spellings }
+    val person = context.people.firstOrNull { it.uris.any(spellings::contains) }
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.NOT_HELD)
-    directOrRefused(person.grants, withdrawable = person.grants.isEmpty()) {
-      val result = podGrantsFacade.withdrawWebIdGrantsOn(pod, person.webId, contextUri)
+    val delegated = person.delegations.flatMap { it.grants }
+    val withdrawn = when {
+      person.grants.isNotEmpty() -> directOrRefused(person.grants) {
+        podGrantsFacade.withdrawWebIdGrantsOn(pod, person.grantWebIds, contextUri)
+      }
+      else -> directOrRefused(delegated) { podGrantsFacade.withdrawDelegationsOn(pod, person.uris, contextUri) }
+    }
+    if (withdrawn is PodGrantManagementResult.Done) {
       logger.info {
         "[grants/withdraw] A person's grants withdrawn: pod='${pod.name}', webId='${LogSafeText.of(person.webId)}', " +
-            "context='$contextUri', by='${authority.webId}', deletedAppGrants=${result.deletedAppGrants}"
+            "context='$contextUri', by='${authority.webId}'"
       }
     }
+    withdrawn
   }
 
   /** Withdraws what the owner delegated to [clientId] on [contextUri]. */
@@ -86,7 +106,9 @@ class PodGrantManagement @Inject internal constructor(
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.UNKNOWN_CONTEXT)
     val app = context.ownerApps.firstOrNull { it.clientId == clientId }
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.NOT_HELD)
-    directOrRefused(app.grants) { podGrantsFacade.withdrawOwnerDelegationOn(pod, clientId, contextUri) }
+    directOrRefused(app.grants) {
+      podGrantsFacade.withdrawDelegationsOn(pod, podGrantsFacade.ownerUris(pod), contextUri, clientId)
+    }
   }
 
   /**
@@ -130,16 +152,12 @@ class PodGrantManagement @Inject internal constructor(
     }
   }
 
-  /**
-   * Runs [withdraw] where [grants] hold a direct one, or where [withdrawable] says so anyway;
-   * otherwise refuses with the ancestors they come from.
-   */
+  /** Runs [withdraw] where [grants] hold a direct one; otherwise refuses with the ancestors they come from. */
   private inline fun directOrRefused(
     grants: List<ReachingGrant>,
-    withdrawable: Boolean = false,
     withdraw: () -> Unit,
   ): PodGrantManagementResult<Unit> {
-    if (withdrawable || grants.any { it.inheritedFrom == null }) {
+    if (grants.any { it.inheritedFrom == null }) {
       withdraw()
       return PodGrantManagementResult.Done(Unit)
     }

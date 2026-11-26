@@ -169,8 +169,8 @@ one, such as `did:web:localhost%3A5173`, which no management route can name.
 ## Managing a pod as a service
 
 A service that manages pods for their owner, such as an owner console, creates and deletes
-contexts, withdraws grants and reads no data. It holds a lasting authority to manage the pod, which the owner grants
-once. For Alice's pod and the console `did:web:console.example`:
+contexts, withdraws grants and reads no data. It holds a lasting authority to manage the pod, which
+the owner grants once. For Alice's pod and the console `did:web:console.example`:
 
 | Step | Pod-relative call | What happens |
 |---|---|---|
@@ -178,13 +178,15 @@ once. For Alice's pod and the console `did:web:console.example`:
 | 2. Ask Alice | `GET /_system/auth/service-consent?client_id=did%3Aweb%3Aconsole.example&state=…&authority=manage` | The page names the authority and has no contexts to tick. Confirming grants it and activates the registration. |
 | 3. Get a token | `POST /_system/auth/token` with Client Credentials, no `scope` | The token carries `contexts:manage grants:manage` |
 | 4. Manage contexts | `GET`, `PUT` and `DELETE /_system/contexts…` | As with [`contexts:manage`](oauth.md#managing-contexts): every context shows as `manage` alone |
-| 5. Manage grants | `GET` and `DELETE /_system/auth/grants…` | [Who reaches each context](#managing-grants), and withdrawing a direct grant |
+| 5. Manage grants | `GET` and `DELETE /_system/auth/grants…` | [The grants on each context](#managing-grants), and withdrawing a direct one |
 
 Only a service registered at the pod, `svc:` or `did:web`, is offered it; for an operator-provisioned
 one the page answers `403`. A host can set it up instead when it
 [creates the pod](../host-provisioning.md#creating-a-pod).
 The pod advertises the scopes the authority carries as `sempods_service_management_scopes` in its
-authorization-server metadata. A pod without the member does not offer it.
+authorization-server metadata. A pod without the member does not offer it. The token carries what
+the owner approved: an authority approved before it covered grants carries `contexts:manage` alone.
+The consent page then offers the rest, and confirming it adds `grants:manage`.
 
 The authority reaches no data: a token carrying it reads no context, including one the service was
 granted otherwise. `service-clients:manage` is never part of it, because that can create data access.
@@ -207,7 +209,7 @@ cannot remove that one either.
 
 ## Managing grants
 
-An owner console shows who reaches each context and withdraws access. The routes take a bearer
+An owner console shows the grants on each context and withdraws them. The routes take a bearer
 carrying `grants:manage`, which only the [management authority](#managing-a-pod-as-a-service)
 carries; an authorization request naming it is refused `invalid_scope`. They are experimental and
 specific to this implementation: [sempods-spec#137](https://github.com/sempods/sempods-spec/issues/137)
@@ -219,7 +221,7 @@ Context IRIs, WebIDs and client identifiers are path segments in base64url witho
 | Method and path | Result |
 |---|---|
 | `GET /_system/auth/grants` | For every registered context, how many `people`, `apps` and `services` reach it |
-| `GET /_system/auth/grants/{context}` | Who reaches one context, grouped |
+| `GET /_system/auth/grants/{context}` | Who holds grants reaching one context, grouped |
 | `DELETE /_system/auth/grants/{context}/people/{webId}` | Withdraw the person's direct grants there, and the apps acting for them that those grants backed |
 | `DELETE /_system/auth/grants/{context}/apps/{clientId}` | Withdraw what the owner delegated to the app there |
 | `DELETE /_system/auth/grants/{context}/services/{clientId}` | Withdraw the service's direct grants there and keep its others; send `If-Match` with its `grants_version` |
@@ -250,8 +252,12 @@ the owner's apps are a group of their own:
 }
 ```
 
+Only explicit grants are listed. A public context is readable by anyone, and withdrawing grants
+leaves that as it is.
+
 `permissions` is what the holder can do, as the [context catalogue](oauth.md#managing-contexts)
-reports it. `grants` are the grants behind it. A grant with `inherited_from` is a `#manage` grant
+reports it. `grants` are the grants behind it. A service holding the management authority is listed
+with its grants and empty `permissions`, and the counts leave it out: its tokens reach no data. A grant with `inherited_from` is a `#manage` grant
 on that ancestor; here Bob's `notes#manage` reaches `notes/work`. Withdrawing Bob on `notes/work`
 removes his `read` there and leaves `notes#manage` standing. Where only an inherited grant reaches
 the context, the pod answers `409` with `inherited_from`: withdraw it on the ancestor, which ends it
@@ -261,10 +267,13 @@ on every context it covers.
 app a refresh token for that person. A request with a token already held does not move it. The
 member is absent where the pod records nothing, such as an app that never held a refresh token.
 
+A person known by several WebIDs is one entry: the WebIDs one sign-in recognised together, which
+their delegations record. Withdrawing them by any of those WebIDs withdraws the grants under all.
+
 A withdrawal holds on the holder's next request. A person who holds no grant reaching the context
-can still be listed with delegations there, such as a former owner. Withdrawing them ends every
-delegation no grant of theirs backs, which for someone holding no grant is all of them. An app left
-holding nothing loses its refresh tokens.
+can still be listed with delegations there, such as a former owner. Withdrawing them withdraws those
+delegations on this context alone; one reaching it from an ancestor answers `409` like a grant. An
+app left holding nothing loses its refresh tokens.
 
 | Answer | When |
 |---|---|

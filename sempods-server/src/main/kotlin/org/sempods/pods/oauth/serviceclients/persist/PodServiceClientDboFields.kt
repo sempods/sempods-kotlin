@@ -18,4 +18,5 @@ internal object PodServiceClientDboFields {
   const val managementGrantedBy = "managementGrantedBy"
   const val managementSubjectUris = "managementSubjectUris"
   const val managementGrantedAt = "managementGrantedAt"
+  const val managementScopes = "managementScopes"
 }

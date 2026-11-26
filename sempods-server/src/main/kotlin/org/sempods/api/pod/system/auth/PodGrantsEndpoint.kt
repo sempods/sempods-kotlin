@@ -30,8 +30,8 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 /**
- * [PodGrantManagement] on the wire: who reaches each context, and the withdrawal of one direct
- * grant. Every route takes a bearer carrying [GRANTS_MANAGE_SCOPE]. Experimental and specific to
+ * [PodGrantManagement] on the wire: who holds grants on each context, and the withdrawal of one
+ * direct grant. Every route takes a bearer carrying [GRANTS_MANAGE_SCOPE]. Experimental and specific to
  * this implementation; what each route answers is `sempods-server/docs/auth/service-clients.md`
  * §"Managing grants".
  *
@@ -55,7 +55,7 @@ class PodGrantsEndpoint @Inject constructor(
       }))
     }
 
-  /** Who reaches one context, grouped. */
+  /** Who holds grants reaching one context, grouped. */
   @GET
   @Path("{context}")
   fun holders(
@@ -77,7 +77,8 @@ class PodGrantsEndpoint @Inject constructor(
       "services" to holders.services.map { service ->
         linkedMapOf<String, Any?>("client_id" to service.clientId).apply {
           service.name?.let { put("client_name", it) }
-          put("permissions", permissions(service.grants))
+          // A service holding the management authority can do nothing with these: its tokens reach no data.
+          put("permissions", if (service.reachesData) permissions(service.grants) else emptyList())
           put("grants", grants(service.grants))
           service.lastUsedAt?.let { put("last_used_at", iso(it)) }
           put("grants_version", service.grantsVersion)

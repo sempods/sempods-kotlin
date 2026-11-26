@@ -4,6 +4,10 @@ import com.google.inject.Inject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.sempods.SempodsIntegrationTest
+import com.mongodb.client.MongoDatabase
+import com.mongodb.client.model.Filters
+import com.mongodb.client.model.Updates
+import org.sempods.SempodsCollections
 import org.sempods.SempodsModule
 import org.sempods.client.SempodsPodGrants
 import org.sempods.client.SempodsRequestAuth
@@ -15,6 +19,7 @@ import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.utils.UriEncodingUtil
 import org.sempods.pods.grants.GRANTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
+import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.mongo.persist.toHostedPod
@@ -29,7 +34,7 @@ import kotlin.test.assertTrue
 
 /**
  * The owner's grant management under `{pod}/_system/auth/grants`, through the management authority
- * a service client holds for the owner: who reaches each context, grouped by person, and the
+ * a service client holds for the owner: the grants on each context, grouped by person, and the
  * withdrawal of one direct grant, which holds on the holder's next request.
  */
 class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
@@ -57,6 +62,12 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
 
   @Inject
   private lateinit var refreshTokenStore: PodRefreshTokenStore
+
+  @Inject
+  private lateinit var podGrantsDao: PodGrantsDao
+
+  @Inject
+  private lateinit var db: MongoDatabase
 
   // ── Authorization ───────────────────────────────────────────────────────────
 
@@ -372,6 +383,111 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
     assertTrue(checkNotNull(grants.holders(work).body).people.none { it.webId == bob })
   }
 
+  @Test
+  fun `an authority approved before it covered grants does not carry grants manage until the owner approves again`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val service = managing(owned)
+    // What a registration granted before this field existed stores.
+    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS)
+      .updateOne(Filters.eq("clientId", service.did), Updates.unset("managementScopes"))
+
+    val minted = didWeb.json(didWeb.token(owned.pod, service.assertion(owned.pod)))
+    assertEquals("contexts:manage", minted["scope"])
+    assertEquals(403, get(grantsOf(owned, notes), minted["access_token"] as String).statusCode)
+    val page = openManagement(owned, service.did)
+    assertTrue("This service manages your pod" in page.responseBody, "it still holds the authority")
+    assertTrue("id=\"widened\"" in page.responseBody && "confirmBtn" in page.responseBody, "and is offered the rest")
+
+    val confirmed = delegated.submit(services.page(page), owned.cookie, scopes = emptySet())
+    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
+    assertEquals(200, get(grantsOf(owned, notes), didWeb.accessToken(owned.pod, service)).statusCode)
+  }
+
+  @Test
+  fun `two WebIDs one consent named are one person, and withdrawing them withdraws both`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val note = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(notes))
+    val token = didWeb.accessToken(owned.pod, managing(owned))
+    val (first, second) = person() to person()
+    podGrantsFacade.addWebIdGrants(owned.hosted(), first, listOf("$notes#read"), grantedBy = owned.webId)
+    podGrantsFacade.addWebIdGrants(owned.hosted(), second, listOf("$notes#read"), grantedBy = owned.webId)
+    val app = mintScopedToken(owned.pod.name, listOf("$notes#read"), webId = first)
+    podGrantsFacade.recordConsentedSubjectUris(checkNotNull(owned.pod.id).toPodId(), MINTED_CLIENT_ID, first, listOf(second))
+
+    val people = list(holders(owned, notes, token)["people"]).filter { it["web_id"] == first || it["web_id"] == second }
+    assertEquals(1, people.size, "one person: $people")
+    assertEquals(204, delete("${grantsOf(owned, notes)}/people/${b64(second)}", token).statusCode)
+
+    assertRefused(read(note, app))
+    assertTrue(list(holders(owned, notes, token)["people"]).none { it["web_id"] == first || it["web_id"] == second })
+  }
+
+  @Test
+  fun `a former owner's delegation from an ancestor is refused with that ancestor, and a direct one is withdrawn there alone`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val work = owned.context("notes/work")
+    val other = owned.context("other")
+    val podId = checkNotNull(owned.pod.id)
+    podGrantsDao.replaceGrants(podId, "did:web:inherited.example", owned.webId, setOf("$notes#manage"), listOf(owned.webId), owned.webId)
+    podGrantsDao.replaceGrants(podId, "did:web:direct.example", owned.webId, setOf("$work#read", "$other#read"), listOf(owned.webId), owned.webId)
+    val newOwner = Owned(owned.pod, webIdUriDeriver.deriveFromEmail(sempodsTestFactory.newOwner().email))
+    podDao.setOwner(podId, newOwner.webId)
+    val token = didWeb.accessToken(owned.pod, managing(newOwner))
+    val route = "${grantsOf(newOwner, work)}/people/${b64(owned.webId)}"
+
+    assertEquals(204, delete(route, token).statusCode, "the direct one on notes/work")
+    assertEquals(setOf("$other#read"), podGrantsDao.fetchGrantStrings(podId, "did:web:direct.example", listOf(owned.webId)), "its grant elsewhere stays")
+    val refused = delete(route, token)
+    assertEquals(409, refused.statusCode, refused.responseBody)
+    assertEquals(listOf(notes), json(refused)["inherited_from"])
+    assertEquals(setOf("$notes#manage"), podGrantsDao.fetchGrantStrings(podId, "did:web:inherited.example", listOf(owned.webId)), "nothing withdrawn")
+  }
+
+  @Test
+  fun `withdrawing the owner's last grant for an app ends its refresh tokens, and a grant it keeps keeps them`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val other = owned.context("other")
+    val token = didWeb.accessToken(owned.pod, managing(owned))
+    mintScopedToken(owned.pod.name, listOf("$notes#write", "$other#read"), webId = owned.webId)
+    val podId = checkNotNull(owned.pod.id).toPodId()
+    refreshTokenStore.issueNewFamily(podId, owned.pod.name, MINTED_CLIENT_ID, owned.webId, emptySet(), PodRefreshTokenStore.Lifetime.SESSION)
+
+    assertEquals(204, delete("${grantsOf(owned, notes)}/apps/${b64(MINTED_CLIENT_ID)}", token).statusCode)
+    assertTrue(refreshTokenStore.liveTokens(podId, MINTED_CLIENT_ID, listOf(owned.webId)).isNotEmpty(), "it still holds other#read")
+    assertEquals(204, delete("${grantsOf(owned, other)}/apps/${b64(MINTED_CLIENT_ID)}", token).statusCode)
+    assertTrue(refreshTokenStore.liveTokens(podId, MINTED_CLIENT_ID, listOf(owned.webId)).isEmpty(), "nothing left, so its session ends")
+  }
+
+  @Test
+  fun `a service holding the authority is listed with its grants but can do nothing with them`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val service = managing(owned)
+    services.confirm(owned.pod, service.did, owned.cookie, setOf("$notes#read"))
+    val token = didWeb.accessToken(owned.pod, service)
+
+    val listed = list(holders(owned, notes, token)["services"]).single()
+    assertEquals(listOf(mapOf("permission" to "read", "inherited_from" to null)), listed["grants"])
+    assertEquals(emptyList<Any?>(), listed["permissions"], "its tokens reach no data")
+    val counts = json(get("${podBase(owned)}/_system/auth/grants", token))
+    assertEquals(0, list(counts["contexts"]).single { it["context_iri"] == notes }["services"])
+  }
+
+  @Test
+  fun `an app is named by the name it registered with`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val token = didWeb.accessToken(owned.pod, managing(owned))
+    val app = delegated.register(owned.pod)
+    podGrantsDao.replaceGrants(checkNotNull(owned.pod.id), app.clientId, owned.webId, setOf("$notes#read"), listOf(owned.webId), owned.webId)
+
+    assertEquals("Delegated App", list(holders(owned, notes, token)["apps"]).single { it["client_id"] == app.clientId }["client_name"])
+  }
+
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
   /** One request to every route, for the authorization cases. */
@@ -390,18 +506,21 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
   /** A did:web service registered on [owned]'s pod, holding the authority its owner approved. */
   private fun managing(owned: Owned): DidWebService {
     val service = didWeb.registered(owned.pod, DidWebServiceFixture.newService())
-    val page = http.prepareGet(services.consentUrl(owned.pod))
-      .addQueryParam("client_id", service.did)
+    val page = openManagement(owned, service.did)
+    assertTrue("withdraw them" in page.responseBody, "the page names the grants it may withdraw")
+    val confirmed = delegated.submit(services.page(page), owned.cookie, scopes = emptySet())
+    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
+    return service
+  }
+
+  private fun openManagement(owned: Owned, clientId: String): TestHttpResponse =
+    http.prepareGet(services.consentUrl(owned.pod))
+      .addQueryParam("client_id", clientId)
       .addQueryParam("state", "manage-1")
       .addQueryParam("authority", "manage")
       .addHeader("Cookie", owned.cookie)
       .setFollowRedirect(false)
       .execute()
-    assertTrue("take that access away" in page.responseBody, "the page names the grants it may withdraw")
-    val confirmed = delegated.submit(services.page(page), owned.cookie, scopes = emptySet())
-    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
-    return service
-  }
 
   private fun holders(owned: Owned, context: String, bearer: String): Map<String, Any?> {
     val response = get(grantsOf(owned, context), bearer)

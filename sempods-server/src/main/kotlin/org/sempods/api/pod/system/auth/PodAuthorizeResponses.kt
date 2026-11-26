@@ -243,6 +243,7 @@ internal object PodAuthorizeResponses {
       "registeredAt" to instantInWords(screen.registeredAt),
       "activationExpiresAt" to (screen.activationExpiresAt?.let(::instantInWords) ?: ""),
       "held" to screen.managementHeld,
+      "widened" to screen.managementWidened,
       "csrfToken" to screen.csrfToken,
       "webId" to screen.webId,
     ),

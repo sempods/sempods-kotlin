@@ -452,7 +452,8 @@ class PodTokenExchange @Inject internal constructor(
           "the authority to manage this pod ended when its owner changed; the owner grants it again in the service consent",
         )
       }
-      PodScopeValidator.serviceManagementScopes
+      // What the owner approved, which for an approval older than `grants:manage` is less.
+      authority.scopes.intersect(PodScopeValidator.serviceManagementScopes)
     }.orEmpty()
 
     if (client.scopes.isEmpty() && management.isEmpty()) {

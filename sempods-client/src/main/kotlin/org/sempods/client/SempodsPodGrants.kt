@@ -8,8 +8,9 @@ import java.time.format.DateTimeParseException
 import java.util.Base64
 
 /**
- * Who reaches each context of a pod, and the withdrawal of one direct grant — what an owner console
- * shows its owner. Experimental, and specific to the sempods reference implementation: the
+ * The grants held on each context of a pod, and the withdrawal of one direct grant — what an owner
+ * console shows its owner. Only explicit grants are listed: a public context is readable by anyone,
+ * and withdrawing grants leaves that as it is. Experimental, and specific to the sempods reference implementation: the
  * specification leaves an owner's grant management to implementations. `sempods-server/docs/auth/service-clients.md`
  * §"Managing grants" has the pod's side.
  *
@@ -21,16 +22,20 @@ import java.util.Base64
  * ```java
  * var grants = new SempodsPodGrants(new SempodsSession(pod, SempodsRequestAuth.bearer(token)), client);
  * SempodsContextHolders holders = grants.holders(contextIri).getBody();
- * for (SempodsGrantPerson person : holders.getPeople()) { … }
- * grants.withdrawPerson(contextIri, person.getWebId());
+ * for (SempodsGrantPerson person : holders.getPeople()) {
+ *   if (person.getGrants().stream().anyMatch(SempodsReachingGrant::isDirect)) {
+ *     grants.withdrawPerson(contextIri, person.getWebId());
+ *   }
+ * }
  * ```
  *
  * **Only a direct grant is withdrawn on a context.** One whose [SempodsReachingGrant.inheritedFrom]
  * names an ancestor is withdrawn there, and the pod answers `409` here. A withdrawal holds on the
  * holder's next request.
  *
- * **What is safe to send again:** every call. A withdrawal whose answer was lost answers `false` on
- * the resend, and [withdrawService] `412`: the version moved.
+ * **What is safe to send again:** every call. A withdrawal whose answer was lost answers, on the
+ * resend, `false` where nothing is left, `409` where an inherited grant still reaches the context,
+ * and [withdrawService] `412`, because the version moved. Read [holders] again before deciding.
  *
  * A refusal is a [SempodsStatusException] with the status, the headers and the pod's error document:
  *
@@ -50,7 +55,10 @@ class SempodsPodGrants(
 
   private val exchange = Exchange(calls)
 
-  /** How many people, owner's apps and services reach each registered context, in one request. */
+  /**
+   * How many people, owner's apps and services hold grants reaching each registered context, in one
+   * request. A service holding the management authority is not counted: its tokens reach no data.
+   */
   @Throws(IOException::class)
   fun counts(): SempodsResponse<List<SempodsContextHolderCounts>> = exchange.run(countsRequest(), ANSWERS, COUNTS)
 
@@ -58,7 +66,7 @@ class SempodsPodGrants(
   @Throws(IOException::class)
   fun countsJson(): SempodsResponse<String> = exchange.run(countsRequest(), ANSWERS, BodyReading.TEXT)
 
-  /** Who reaches [contextIri], grouped by person, the owner's apps and services. */
+  /** Who holds grants reaching [contextIri], grouped by person, the owner's apps and services. */
   @Throws(IOException::class)
   fun holders(contextIri: String): SempodsResponse<SempodsContextHolders> = exchange.run(holdersRequest(contextIri), ANSWERS, HOLDERS)
 

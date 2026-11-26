@@ -138,7 +138,7 @@ owns the operation, retry and `412` contracts. See also [Host provisioning](../.
 
 ### Managing grants
 
-An owner console lists who reaches a context and withdraws access. It needs a `managementToken`
+An owner console lists the grants on a context and withdraws them. It needs a `managementToken`
 carrying `grants:manage`, which only a service holding the pod's
 [management authority](../../sempods-server/docs/auth/service-clients.md#managing-a-pod-as-a-service)
 receives. Given `base`, `http` and a context IRI `notes`, this withdraws each person's direct

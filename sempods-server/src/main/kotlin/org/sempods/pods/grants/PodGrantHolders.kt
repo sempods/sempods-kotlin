@@ -8,25 +8,27 @@ import org.sempods.pods.grants.persist.PodGrantDbo
 import org.sempods.pods.grants.persist.PodGrantsDao
 import org.sempods.pods.grants.persist.PodWebIdGrantsDao
 import org.sempods.pods.mongo.persist.objectId
-import org.sempods.pods.oauth.DynamicClientStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.pods.oauth.serviceclients.PodServiceClientStore
 import java.time.Instant
 
 /**
- * Who reaches the contexts of a pod, as its owner sees it: the people holding grants, the apps
- * acting for each of them, the owner's own apps, and the services acting as themselves.
+ * The grants held on the contexts of a pod, as its owner sees them: the people holding grants, the
+ * apps acting for each of them, the owner's own apps, and the services acting as themselves.
  *
  * **The person is the unit.** A delegation is keyed by app and WebID and is bounded by that
  * person's grants at consent ([PodGrantsFacade]), so it is listed under the person and goes with
- * them. The owner holds no WebID grants — their authority is implicit — so their delegations are a
- * group of their own.
+ * them. One person may hold grants under several WebIDs: those a sign-in recognised together, which
+ * a delegation records in [PodGrantDbo.subjectUris], and the derivable spellings of each. They are
+ * one person here. The owner holds no WebID grants — their authority is implicit — so their
+ * delegations are a group of their own.
+ *
+ * Only explicit grants are listed. A public context is readable by anyone without one, and nothing
+ * here changes that.
  *
  * Read in one pass: the registry, both grant levels, the registrations and the refresh rows, each
- * once, however many contexts the pod has. [snapshot] answers every context from that pass.
- *
- * Only registered contexts are answered. A grant naming an unregistered one reaches nothing; the
- * context-deletion sweep removes such grants.
+ * once, however many contexts the pod has. [snapshot] answers every context from that pass. Only
+ * registered contexts are answered; the context-deletion sweep removes grants naming others.
  */
 class PodGrantHolders @Inject internal constructor(
   private val podContextsDao: PodContextsDao,
@@ -34,41 +36,30 @@ class PodGrantHolders @Inject internal constructor(
   private val podGrantsDao: PodGrantsDao,
   private val podServiceClientStore: PodServiceClientStore,
   private val refreshTokenStore: PodRefreshTokenStore,
-  private val dynamicClientStore: DynamicClientStore,
   private val podScopeValidator: PodScopeValidator,
   private val podContextPermissionResolver: PodContextPermissionResolver,
   private val podGrantsFacade: PodGrantsFacade,
   private val webIdUriDeriver: WebIdUriDeriver,
 ) {
 
-  /** Everyone holding a grant on [pod], ready to be asked about any registered context. */
-  internal fun snapshot(pod: HostedPod): GrantHoldersSnapshot {
+  /**
+   * Everyone holding a grant on [pod], ready to be asked about any registered context.
+   *
+   * @param appName what to call an app acting for a person, asked once per app; `null` for none.
+   *   Only a listing shows names, so the counts and the withdrawals pass nothing and look none up.
+   */
+  internal fun snapshot(pod: HostedPod, appName: (clientId: String) -> String? = { null }): GrantHoldersSnapshot {
     val storedPodId = pod.id.objectId()
     val contexts = podContextsDao.fetchByPod(storedPodId).map { it.contextUri }.sorted()
     val lastIssued = refreshTokenStore.lastIssuedPerConnection(pod.id)
 
     val people = people(pod)
-    val delegations = podGrantsDao.fetchGrantsByPod(storedPodId)
     val ownerRows = mutableListOf<PodGrantDbo>()
-    val rowsByPerson = linkedMapOf<PersonKey, MutableList<PodGrantDbo>>()
-    delegations.forEach { row ->
+    podGrantsDao.fetchGrantsByPod(storedPodId).forEach { row ->
       val uris = rowUris(row)
-      when {
-        podGrantsFacade.isPodOwner(pod, uris) -> ownerRows += row
-        else -> {
-          // A row that names nobody holding grants is still a person's: a former owner's, or one a
-          // cascade has not reached. It is listed, and withdrawing the person ends it.
-          val person = people.firstOrNull { it.uris.any(uris::contains) }
-            ?: PersonKey(row.webId, webIdUriDeriver.derivableAliases(row.webId) + row.webId).also { people += it }
-          rowsByPerson.getOrPut(person) { mutableListOf() } += row
-        }
-      }
+      if (podGrantsFacade.isPodOwner(pod, uris)) ownerRows += row else people.attach(row, uris)
     }
 
-    val names = mutableMapOf<String, String?>()
-    fun appName(clientId: String): String? = names.getOrPut(clientId) {
-      dynamicClientStore.lookup(pod.id, clientId)?.clientName?.takeIf { it.isNotBlank() }
-    }
     fun apps(rows: List<PodGrantDbo>): List<HeldApp> = rows.groupBy { it.appId }.map { (appId, appRows) ->
       HeldApp(
         clientId = appId,
@@ -80,9 +71,11 @@ class PodGrantHolders @Inject internal constructor(
 
     val heldPeople = people.map { person ->
       HeldPerson(
-        webId = person.webId,
+        webId = person.displayed(),
+        uris = person.uris,
+        grantWebIds = person.grantWebIds,
         grants = parse(pod, person.grants),
-        delegations = apps(rowsByPerson[person].orEmpty()),
+        delegations = apps(person.rows),
       )
     }
     val services = podServiceClientStore.list(pod.id).map { registration ->
@@ -92,6 +85,9 @@ class PodGrantHolders @Inject internal constructor(
         grants = parse(pod, registration.scopes),
         lastUsedAt = registration.lastUsedAt,
         grantsVersion = registration.grantsVersion,
+        // Every token it obtains carries the authority, and a token carrying one resolves no grant
+        // (`GrantStorePodAuthorizer`); after a change of owner it obtains none.
+        reachesData = registration.management == null,
       )
     }
     return GrantHoldersSnapshot(
@@ -103,25 +99,18 @@ class PodGrantHolders @Inject internal constructor(
     )
   }
 
-  /**
-   * The people holding WebID grants on [pod], other than its owner, with the URIs of one person
-   * merged: a grant written under either derivable spelling is the same person's.
-   */
-  private fun people(pod: HostedPod): MutableList<PersonKey> {
-    val rows = podWebIdGrantsDao.fetchByPod(pod.id.objectId())
+  /** The people holding WebID grants on [pod], other than its owner, before their delegations are attached. */
+  private fun people(pod: HostedPod): People {
+    val people = People()
+    podWebIdGrantsDao.fetchByPod(pod.id.objectId())
       .filterNot { podGrantsFacade.isPodOwner(pod, it.webId) }
-    val people = mutableListOf<PersonKey>()
-    rows.groupBy { it.webId }.forEach { (webId, grants) ->
-      val aliases = webIdUriDeriver.derivableAliases(webId) + webId
-      val known = people.firstOrNull { person -> person.uris.any(aliases::contains) }
-      if (known == null) {
-        people += PersonKey(webId, aliases, grants.mapTo(mutableSetOf()) { it.scope })
-      } else {
-        known.grants += grants.map { it.scope }
-        // The dereferenceable spelling names the person in the answer where there is one.
-        if (!known.webId.startsWith("http") && webId.startsWith("http")) known.webId = webId
+      .groupBy { it.webId }
+      .forEach { (webId, grants) ->
+        people.join(webIdUriDeriver.derivableAliases(webId) + webId).apply {
+          grantWebIds += webId
+          this.grants += grants.map { it.scope }
+        }
       }
-    }
     return people
   }
 
@@ -133,12 +122,53 @@ class PodGrantHolders @Inject internal constructor(
   private fun parse(pod: HostedPod, scopes: Collection<String>): List<ScopeValidationResult.Context> =
     scopes.mapNotNull { podScopeValidator.validate(it, pod.baseUrl) as? ScopeValidationResult.Context }.distinct()
 
-  /** A person being grouped: identity equality, since [webId] may change to a better spelling. */
-  private class PersonKey(
-    var webId: String,
-    val uris: Set<String>,
-    val grants: MutableSet<String> = mutableSetOf(),
-  )
+  /**
+   * People being grouped. A set of URIs that shares one with a person is that person, and one that
+   * shares URIs with several joins them: two WebIDs a delegation was consented under are one person
+   * even where each holds grants of its own.
+   */
+  private class People : Iterable<Person> {
+    private val people = mutableListOf<Person>()
+
+    override fun iterator(): Iterator<Person> = people.iterator()
+
+    fun join(uris: Set<String>): Person {
+      val matching = people.filter { person -> person.uris.any(uris::contains) }
+      val person = matching.firstOrNull() ?: Person().also { people += it }
+      matching.drop(1).forEach { other ->
+        person.absorb(other)
+        people.remove(other)
+      }
+      person.uris += uris
+      return person
+    }
+
+    /** Lists [row] under its person; a row naming nobody holding grants starts a person of its own. */
+    fun attach(row: PodGrantDbo, uris: Set<String>) {
+      join(uris).rows += row
+    }
+  }
+
+  private class Person {
+    val uris = mutableSetOf<String>()
+    val grantWebIds = mutableSetOf<String>()
+    val grants = mutableSetOf<String>()
+    val rows = mutableListOf<PodGrantDbo>()
+
+    fun absorb(other: Person) {
+      uris += other.uris
+      grantWebIds += other.grantWebIds
+      grants += other.grants
+      rows += other.rows
+    }
+
+    /**
+     * The WebID the answer names: one holding grants, the dereferenceable spelling first; for
+     * someone holding none, the WebID of their earliest delegation.
+     */
+    fun displayed(): String =
+      (grantWebIds.ifEmpty { rows.map { it.webId } }).sortedWith(compareBy({ !it.startsWith("http") }, { it })).first()
+  }
 }
 
 /**
@@ -154,7 +184,7 @@ internal class GrantHoldersSnapshot(
   private val resolver: PodContextPermissionResolver,
 ) {
 
-  /** Who reaches [contextUri]; `null` where no such context is registered. */
+  /** Who holds grants reaching [contextUri]; `null` where no such context is registered. */
   fun on(contextUri: String): ContextHolders? {
     if (contextUri !in contexts) return null
     return ContextHolders(
@@ -163,25 +193,28 @@ internal class GrantHoldersSnapshot(
         val delegations = person.delegations.mapNotNull { it.on(contextUri) }
         val grants = reaching(person.grants, contextUri)
         if (grants.isEmpty() && delegations.isEmpty()) null
-        else PersonHolder(webId = person.webId, grants = grants, delegations = delegations)
+        else PersonHolder(person.webId, person.uris, person.grantWebIds, grants, delegations)
       }.sortedBy { it.webId },
       ownerApps = ownerApps.mapNotNull { it.on(contextUri) }.sortedBy { it.clientId },
       services = services.mapNotNull { service ->
         reaching(service.grants, contextUri).takeIf { it.isNotEmpty() }?.let { grants ->
-          ServiceHolder(service.clientId, service.name, grants, service.lastUsedAt, service.grantsVersion)
+          ServiceHolder(service.clientId, service.name, grants, service.lastUsedAt, service.grantsVersion, service.reachesData)
         }
       }.sortedBy { it.clientId },
     )
   }
 
-  /** How many of each group reach every registered context, ascending by context. */
+  /**
+   * How many of each group reach every registered context, ascending by context. A service whose
+   * grants reach no data ([ServiceHolder.reachesData]) is not counted.
+   */
   fun counts(): List<ContextHolderCounts> = contexts.map { contextUri ->
     val holders = checkNotNull(on(contextUri))
     ContextHolderCounts(
       contextUri = contextUri,
       people = holders.people.size,
       ownerApps = holders.ownerApps.size,
-      services = holders.services.size,
+      services = holders.services.count { it.reachesData },
     )
   }
 
@@ -196,6 +229,8 @@ internal class GrantHoldersSnapshot(
 
 internal class HeldPerson(
   val webId: String,
+  val uris: Set<String>,
+  val grantWebIds: Set<String>,
   val grants: List<ScopeValidationResult.Context>,
   val delegations: List<HeldApp>,
 )
@@ -213,9 +248,10 @@ internal class HeldService(
   val grants: List<ScopeValidationResult.Context>,
   val lastUsedAt: Instant?,
   val grantsVersion: Long,
+  val reachesData: Boolean,
 )
 
-/** Who reaches one context, grouped as [PodGrantHolders] states. */
+/** Who holds grants reaching one context, grouped as [PodGrantHolders] states. */
 internal data class ContextHolders(
   val contextUri: String,
   val people: List<PersonHolder>,
@@ -226,10 +262,15 @@ internal data class ContextHolders(
 
 /**
  * A person reaching a context. [grants] may be empty where only their [delegations] do: the
- * delegations of someone who holds no grant of their own any more.
+ * delegations of someone who holds no grant reaching it, such as a former owner.
  */
 internal data class PersonHolder(
+  /** The WebID the answer names them by. */
   val webId: String,
+  /** Every URI they are known by here; a withdrawal may name any of them. */
+  val uris: Set<String>,
+  /** The WebIDs their grants are stored under, which a withdrawal withdraws from. */
+  val grantWebIds: Set<String>,
   val grants: List<ReachingGrant>,
   /** The apps acting for this person that reach the context. */
   val delegations: List<AppHolder>,
@@ -257,6 +298,11 @@ internal data class ServiceHolder(
   val grants: List<ReachingGrant>,
   val lastUsedAt: Instant?,
   val grantsVersion: Long,
+  /**
+   * `false` for a service holding the management authority: its stored grants can be withdrawn, but
+   * every token it obtains reaches no data, so it can do nothing on the context.
+   */
+  val reachesData: Boolean,
 )
 
 /** How many of each group reach one context. */

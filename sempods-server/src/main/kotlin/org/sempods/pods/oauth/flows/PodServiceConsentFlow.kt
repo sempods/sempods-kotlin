@@ -118,6 +118,7 @@ class PodServiceConsentFlow @Inject internal constructor(
       "[service-clients/consent] Showing service consent: pod='${pod.name}', " +
           "serviceClient='${registration.clientId}', webId='${identity.webId}', version=${registration.grantsVersion}"
     }
+    val standing = registration.management?.takeIf { podGrantsFacade.isPodOwner(pod, it.subjectUris) }
     return PodServiceConsentResult.Screen(
       PodServiceConsentScreen(
         podName = pod.name,
@@ -132,7 +133,8 @@ class PodServiceConsentFlow @Inject internal constructor(
         webId = identity.webId,
         management = management,
         // An authority a former owner granted has ended: the person here now is asked afresh.
-        managementHeld = registration.management?.let { podGrantsFacade.isPodOwner(pod, it.subjectUris) } == true,
+        managementHeld = standing != null,
+        managementWidened = standing?.widened == true,
       ),
     )
   }
@@ -340,6 +342,8 @@ internal data class PodServiceConsentForm(
  * @param held the grants the service holds now.
  * @param management whether the page offers the authority to manage the pod instead of contexts.
  * @param managementHeld whether the service holds that authority already.
+ * @param managementWidened whether it holds it for less than the page names now: approved before
+ *   the authority covered grants. Confirming again approves the rest.
  */
 internal data class PodServiceConsentScreen(
   val podName: String,
@@ -354,6 +358,7 @@ internal data class PodServiceConsentScreen(
   val webId: String,
   val management: Boolean = false,
   val managementHeld: Boolean = false,
+  val managementWidened: Boolean = false,
 )
 
 /** What the service consent answers. */
