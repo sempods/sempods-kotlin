@@ -9,7 +9,7 @@ mongodb = "5.15.0"
 okhttp = "5.5.1"
 # The instrumentation line is published as `-alpha`; only a consumer probe uses it.
 opentelemetryInstrumentation = "2.34.0-alpha"
-rdf4j = "6.2.0-M2"
+rdf4j = "6.1.0"
 slf4j = "2.0.20"
 
 [libraries]
