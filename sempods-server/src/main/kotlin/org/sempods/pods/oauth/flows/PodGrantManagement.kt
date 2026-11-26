@@ -82,7 +82,7 @@ class PodGrantManagement @Inject internal constructor(
     val delegated = person.delegations.flatMap { it.grants }
     val withdrawn = when {
       person.grants.isNotEmpty() -> directOrRefused(person.grants) {
-        podGrantsFacade.withdrawWebIdGrantsOn(pod, person.grantWebIds, contextUri)
+        podGrantsFacade.withdrawWebIdGrantsOn(pod, person.grantWebIds, person.uris, contextUri)
       }
       else -> directOrRefused(delegated) { podGrantsFacade.withdrawDelegationsOn(pod, person.uris, contextUri) }
     }

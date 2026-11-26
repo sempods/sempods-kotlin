@@ -251,15 +251,32 @@ class PodGrantsFacade @Inject constructor(
   // ── the owner's withdrawals: one direct grant on one context ─────────────────
 
   /**
-   * Withdraws every grant [webIds] hold anchored at [contextUri], across derivable aliases, and
-   * cascades into the apps acting for them as [revokeWebIdGrants] does. A `#manage` grant on an
-   * ancestor is not anchored here and stays.
+   * Withdraws every grant one person holds anchored at [contextUri] — under each of [webIds] and
+   * their derivable aliases — and then cascades once into the apps acting for them, over
+   * [subjectUris], every URI the person is known by. A `#manage` grant on an ancestor is not anchored
+   * here and stays.
    *
-   * One WebID after another: where two of them are one person, the cascade of the first still finds
-   * a delegation backed by the second, and the second's cascade ends it.
+   * **All the grants first, one cascade after.** WebIDs linked by consent records, A with B and B
+   * with C, are one person. Withdrawn and cascaded one WebID at a time, a delegation naming A and B
+   * would survive: B still backs it when A's cascade runs, and C's cascade no longer sees it.
    */
-  internal fun withdrawWebIdGrantsOn(pod: HostedPod, webIds: Collection<String>, contextUri: String): GrantCascadeResult =
-    webIds.fold(GrantCascadeResult.empty) { acc, webId -> acc + revokeWebIdGrants(pod, webId, anchoredAt(contextUri)) }
+  internal fun withdrawWebIdGrantsOn(
+    pod: HostedPod,
+    webIds: Collection<String>,
+    subjectUris: Set<String>,
+    contextUri: String,
+  ): GrantCascadeResult {
+    val aliases = webIds.flatMapTo(mutableSetOf()) { webIdUriDeriver.derivableAliases(it) + it }
+    val anchored = anchoredAt(contextUri)
+    val revokedUserGrants = aliases.sumOf { podWebIdGrantsDao.deleteGrants(pod.id.objectId(), it, anchored) }
+    val result = cascadeToAppGrants(pod, aliases + subjectUris)
+    logger.info {
+      "[grants/withdraw] pod='${pod.name}', context='$contextUri', webIds=${webIds.size}, " +
+          "revokedUserGrants=$revokedUserGrants, deletedAppGrants=${result.deletedAppGrants}, " +
+          "apps=${result.affectedApps.sorted()}, revokedRefreshTokens=${result.revokedRefreshTokens}"
+    }
+    return result
+  }
 
   /**
    * Withdraws what the person known by [subjectUris] delegated anchored at [contextUri]: to

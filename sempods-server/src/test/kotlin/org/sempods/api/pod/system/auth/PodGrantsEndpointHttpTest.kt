@@ -425,6 +425,28 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `WebIDs linked in a chain are withdrawn together, and no delegation between them survives`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val note = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(notes))
+    val token = didWeb.accessToken(owned.pod, managing(owned))
+    val (a, b, c) = Triple(person(), person(), person())
+    listOf(a, b, c).forEach { podGrantsFacade.addWebIdGrants(owned.hosted(), it, listOf("$notes#read"), grantedBy = owned.webId) }
+    val podId = checkNotNull(owned.pod.id)
+    // A delegation recorded under {A, B}, and one under {B, C}.
+    val firstApp = mintScopedToken(owned.pod.name, listOf("$notes#read"), webId = a)
+    podGrantsFacade.recordConsentedSubjectUris(podId.toPodId(), MINTED_CLIENT_ID, a, listOf(b))
+    podGrantsDao.replaceGrants(podId, "did:web:second.example", c, setOf("$notes#read"), listOf(b, c), c)
+
+    assertEquals(1, list(holders(owned, notes, token)["people"]).count { it["web_id"] in setOf(a, b, c) }, "one person")
+    assertEquals(204, delete("${grantsOf(owned, notes)}/people/${b64(c)}", token).statusCode)
+
+    assertRefused(read(note, firstApp))
+    assertEquals(emptySet(), podGrantsDao.fetchGrantStrings(podId, MINTED_CLIENT_ID, listOf(a)))
+    assertEquals(emptySet(), podGrantsDao.fetchGrantStrings(podId, "did:web:second.example", listOf(c)))
+  }
+
+  @Test
   fun `a former owner's delegation from an ancestor is refused with that ancestor, and a direct one is withdrawn there alone`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
