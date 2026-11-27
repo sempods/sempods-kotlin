@@ -48,6 +48,7 @@ offer. A privileged scope such as `service-clients:manage` produces most of thes
 | `'<scope>' is the pod owner's to grant` | the signed-in person is not the pod owner |
 | `'<scope>' cannot be combined with public-read or a context scope` | the request also asked for data access |
 | `'<scopes>' are granted one at a time` | the request asked for more than one privileged scope |
+| `'<scope>' is granted only as a service's authority to manage this pod` | the request asked for `grants:manage`, which no dialog offers |
 | `'<scope>' cannot be combined with access to data`, `'<scope>' is granted once and does not renew`, `'<scope>' was not offered on this screen`, `a context this dialog did not offer` | the submitted consent form differs from the dialog the pod rendered |
 
 **Recovery:** fix the request, then start a fresh `/authorize`. Ask for a privileged scope alone,

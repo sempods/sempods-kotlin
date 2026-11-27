@@ -201,6 +201,15 @@ class PodAuthorizeFlow @Inject internal constructor(
     val privilegedRequested = requestedScopes.intersect(PodScopeValidator.privilegedFeatureScopes)
     if (privilegedRequested.isNotEmpty()) {
       val asked = privilegedRequested.sorted().joinToString(" ")
+      // No screen offers it: it reaches a program only inside a service's management authority.
+      val unrequestable = privilegedRequested - PodScopeValidator.requestablePrivilegedScopes
+      if (unrequestable.isNotEmpty()) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+          "'${unrequestable.sorted().joinToString(" ")}' is granted only as a service's authority to manage this pod",
+          clientState,
+        )
+      }
       val reachesData = requestedScopes.any {
         it == PUBLIC_READ_SCOPE || podScopeValidator.validate(it, pod.baseUrl) is ScopeValidationResult.Context
       }

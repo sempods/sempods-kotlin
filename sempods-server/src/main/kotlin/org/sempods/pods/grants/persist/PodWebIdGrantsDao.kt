@@ -186,6 +186,13 @@ class PodWebIdGrantsDao internal constructor(db: MongoDatabase, collectionName: 
   }
 
   /**
+   * Every owner-level grant on [podId], across all WebIDs — the owner's grant listing, which groups
+   * them by person. Backed by the unique index's `podId` prefix.
+   */
+  internal fun fetchByPod(podId: ObjectId): List<PodWebIdGrantDbo> =
+    grantRows.find(Filters.eq(PodWebIdGrantDboFields.podId, podId)).map { it.toDbo() }.toList()
+
+  /**
    * Drop every owner-level grant of a pod.
    *
    * `deleteMany`, because Morphia's `deleteAll()` is `DeleteOptions().multi(true)`: a `deleteOne`

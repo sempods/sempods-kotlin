@@ -107,8 +107,10 @@ Pod access tokens carry no `aud` claim. A pod accepts every token it signed on a
 token an app obtained for the REST API also works at the pod's MCP endpoint. This is a
 [specification deviation](oauth.md#specification-deviations).
 
-Non-owner grants have storage but no owner management UI. Public-context visibility is held in the
-operational store, not in RDF. [User connections](connections.md) covers sign-out and refresh limits.
+Nothing over HTTP gives a person other than the owner a grant. An owner console lists and
+withdraws grants through [grant management](service-clients.md#managing-grants). Public-context
+visibility is held in the operational store, not in RDF. [User connections](connections.md) covers
+sign-out and refresh limits.
 
 | OIDC leg | Deadline | Implementation |
 |---|---|---|

@@ -33,8 +33,9 @@ import kotlin.test.assertTrue
 /**
  * A service client holding the lasting authority to manage a pod for its owner: granted in the
  * service consent with `authority=manage` or provisioned with the pod, carried as `contexts:manage`
- * in its `client_credentials` tokens, re-checked against the owner on every call, and ended by
- * removing the registration — by the owner or by the service itself. It reads no data.
+ * and `grants:manage` in its `client_credentials` tokens, re-checked against the owner on every
+ * call, and ended by removing the registration — by the owner or by the service itself. It reads no
+ * data.
  */
 class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
@@ -84,8 +85,8 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
     val minted = didWeb.token(owned.pod, service.assertion(owned.pod))
     assertEquals(200, minted.statusCode, minted.responseBody)
-    assertEquals("contexts:manage", didWeb.json(minted)["scope"])
-    assertEquals("contexts:manage", SignedJWT.parse(didWeb.json(minted)["access_token"] as String).jwtClaimsSet.getStringClaim("scope"))
+    assertEquals("contexts:manage grants:manage", didWeb.json(minted)["scope"])
+    assertEquals("contexts:manage grants:manage", SignedJWT.parse(didWeb.json(minted)["access_token"] as String).jwtClaimsSet.getStringClaim("scope"))
   }
 
   @Test
@@ -395,7 +396,7 @@ class ServiceManagementAuthorityHttpTest : SempodsIntegrationTest() {
 
     val metadata = http.prepareGet("${SempodsModule.config.apiBaseUrl}${owned.pod.name}/.well-known/oauth-authorization-server").execute()
 
-    assertEquals(listOf("contexts:manage"), didWeb.json(metadata)["sempods_service_management_scopes"])
+    assertEquals(listOf("contexts:manage", "grants:manage"), didWeb.json(metadata)["sempods_service_management_scopes"])
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────

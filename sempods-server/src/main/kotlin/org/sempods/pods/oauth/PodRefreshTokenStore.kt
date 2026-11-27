@@ -15,6 +15,7 @@ import org.sempods.SempodsCollections
 import org.sempods.SempodsConfig
 import org.sempods.auth.core.RefreshTokenStore
 import org.sempods.auth.core.RefreshTokenStore.Field
+import org.sempods.commons.mongo.getInstant
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.objectId
 import org.sempods.pods.mongo.persist.toPodId
@@ -435,6 +436,28 @@ class PodRefreshTokenStore internal constructor(
   internal fun noLongerStands(tokenHash: String): Boolean =
     store.liveTokensWhere(Filters.eq(RefreshTokenStore.Field.TOKEN_HASH, tokenHash)).isEmpty()
 
+  /**
+   * When each app last received a refresh token for each person on [pod], keyed by `(clientId,
+   * webId)` as the rows store them: a family's issuance, or its latest rotation. What the owner's
+   * grant listing reports as an app's last use. A connection whose rows have all expired and been
+   * reaped is absent; so is an app that never held a refresh token.
+   *
+   * One aggregation over the pod's rows, revoked ones included: a family ended since was still used
+   * when it was.
+   */
+  internal fun lastIssuedPerConnection(pod: PodId): Map<Pair<String, String>, Instant> =
+    tokens.aggregate(listOf(
+      Aggregates.match(podFilter(pod)),
+      Document("\$group", Document("_id", Document(FIELD_CLIENT_ID, "\$$FIELD_CLIENT_ID").append(FIELD_WEB_ID, "\$$FIELD_WEB_ID"))
+        .append(FIELD_LAST_ISSUED, Document("\$max", Document("\$ifNull", listOf("\$${Field.ROTATED_AT}", "\$${Field.ISSUED_AT}"))))),
+    )).mapNotNull { row ->
+      val key = row.get("_id", Document::class.java) ?: return@mapNotNull null
+      val clientId = key.getString(FIELD_CLIENT_ID) ?: return@mapNotNull null
+      val webId = key.getString(FIELD_WEB_ID) ?: return@mapNotNull null
+      val at = row.getInstant(FIELD_LAST_ISSUED) ?: return@mapNotNull null
+      (clientId to webId) to at
+    }.toList().toMap()
+
   /** What one app holds for one person, or null where no URI names them. */
   private fun ownerFilter(pod: PodId, clientId: String, webIds: Collection<String>): Bson? {
     val distinct = webIds.filter { it.isNotBlank() }.distinct()
@@ -472,6 +495,9 @@ class PodRefreshTokenStore internal constructor(
     const val FIELD_POD_NAME = "podName"
     const val FIELD_CLIENT_ID = "clientId"
     const val FIELD_WEB_ID = "webId"
+
+    /** The aggregation's output field in [lastIssuedPerConnection]; never stored. */
+    const val FIELD_LAST_ISSUED = "lastIssued"
     const val FIELD_FAMILY_ORDER = "familyOrder"
   }
 }
