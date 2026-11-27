@@ -166,9 +166,8 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
   }
 
   /**
-   * Grants the registration [expectedId] names the authority to manage the pod for [scopes], on
-   * behalf of [grantedBy] recognised by [subjectUris], and activates it. `false` where it is gone or
-   * expired.
+   * Grants the registration [expectedId] names the authority to manage the pod, on behalf of
+   * [grantedBy] recognised by [subjectUris], and activates it. `false` where it is gone or expired.
    */
   internal fun grantManagement(
     podId: ObjectId,
@@ -176,7 +175,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
     expectedId: ObjectId,
     grantedBy: String,
     subjectUris: Set<String>,
-    scopes: Set<String>,
     at: Instant = Instant.now(),
   ): Boolean = serviceClients.updateOne(
     liveRegistrationFilter(podId, clientId, expectedId, at),
@@ -184,7 +182,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       Updates.set(PodServiceClientDboFields.managementGrantedBy, grantedBy),
       Updates.set(PodServiceClientDboFields.managementSubjectUris, subjectUris.toList()),
       Updates.set(PodServiceClientDboFields.managementGrantedAt, Date.from(at)),
-      Updates.set(PodServiceClientDboFields.managementScopes, scopes.sorted()),
       Updates.unset(PodServiceClientDboFields.pendingUntil),
     ),
   ).matchedCount > 0L
@@ -307,7 +304,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       .putNotNull(PodServiceClientDboFields.managementGrantedBy, managementGrantedBy)
       .putStrings(PodServiceClientDboFields.managementSubjectUris, managementSubjectUris)
       .putInstant(PodServiceClientDboFields.managementGrantedAt, managementGrantedAt)
-      .putStrings(PodServiceClientDboFields.managementScopes, managementScopes)
 
     private fun Document.toDbo(): PodServiceClientDbo = PodServiceClientDbo(
       id = getObjectId(PodServiceClientDboFields.id),
@@ -334,7 +330,6 @@ class PodServiceClientDao internal constructor(db: MongoDatabase, collectionName
       managementGrantedBy = getString(PodServiceClientDboFields.managementGrantedBy),
       managementSubjectUris = getStringSet(PodServiceClientDboFields.managementSubjectUris),
       managementGrantedAt = getInstant(PodServiceClientDboFields.managementGrantedAt),
-      managementScopes = getStringSet(PodServiceClientDboFields.managementScopes),
     )
   }
 }

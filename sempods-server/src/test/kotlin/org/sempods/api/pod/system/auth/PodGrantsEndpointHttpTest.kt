@@ -4,10 +4,6 @@ import com.google.inject.Inject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.sempods.SempodsIntegrationTest
-import com.mongodb.client.MongoDatabase
-import com.mongodb.client.model.Filters
-import com.mongodb.client.model.Updates
-import org.sempods.SempodsCollections
 import org.sempods.SempodsModule
 import org.sempods.client.SempodsPermission
 import org.sempods.client.SempodsRequestAuth
@@ -67,8 +63,6 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
   @Inject
   private lateinit var podGrantsDao: PodGrantsDao
 
-  @Inject
-  private lateinit var db: MongoDatabase
 
   // ── Authorization ───────────────────────────────────────────────────────────
 
@@ -382,27 +376,6 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
     assertEquals(409, assertThrows<SempodsStatusException> { grants.withdrawPerson(work, bob) }.status, "only the inherited one is left")
     assertTrue(grants.withdrawPerson(notes, bob))
     assertTrue(checkNotNull(grants.holders(work).body).people.none { it.webId == bob })
-  }
-
-  @Test
-  fun `an authority approved before it covered grants does not carry grants manage until the owner approves again`() {
-    val owned = ownedPod()
-    val notes = owned.context("notes")
-    val service = managing(owned)
-    // What a registration granted before this field existed stores.
-    db.getCollection(SempodsCollections.OAUTH_SERVICE_CLIENTS)
-      .updateOne(Filters.eq("clientId", service.did), Updates.unset("managementScopes"))
-
-    val minted = didWeb.json(didWeb.token(owned.pod, service.assertion(owned.pod)))
-    assertEquals("contexts:manage", minted["scope"])
-    assertEquals(403, get(grantsOf(owned, notes), minted["access_token"] as String).statusCode)
-    val page = openManagement(owned, service.did)
-    assertTrue("This service manages your pod" in page.responseBody, "it still holds the authority")
-    assertTrue("id=\"widened\"" in page.responseBody && "confirmBtn" in page.responseBody, "and is offered the rest")
-
-    val confirmed = delegated.submit(services.page(page), owned.cookie, scopes = emptySet())
-    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
-    assertEquals(200, get(grantsOf(owned, notes), didWeb.accessToken(owned.pod, service)).statusCode)
   }
 
   @Test

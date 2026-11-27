@@ -161,9 +161,9 @@ class PodScopeValidator {
     val requestablePrivilegedScopes: Set<String> = privilegedFeatureScopes - GRANTS_MANAGE_SCOPE
 
     /**
-     * What a service client's lasting management authority covers when the owner approves it now.
-     * Its `client_credentials` token carries the part the owner approved while the authority stands
-     * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority.scopes]). Never
+     * What a service client's lasting management authority covers: the scopes its
+     * `client_credentials` token carries while the authority stands
+     * ([org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority]). Never
      * [SERVICE_CLIENTS_MANAGE_SCOPE], which can create a service that reaches data. The pod
      * advertises this set as `sempods_service_management_scopes`.
      *

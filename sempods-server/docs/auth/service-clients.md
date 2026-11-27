@@ -184,9 +184,7 @@ Only a service registered at the pod, `svc:` or `did:web`, is offered it; for an
 one the page answers `403`. A host can set it up instead when it
 [creates the pod](../host-provisioning.md#creating-a-pod).
 The pod advertises the scopes the authority carries as `sempods_service_management_scopes` in its
-authorization-server metadata. A pod without the member does not offer it. The token carries what
-the owner approved: an authority approved before it covered grants carries `contexts:manage` alone.
-The consent page then offers the rest, and confirming it adds `grants:manage`.
+authorization-server metadata. A pod without the member does not offer it.
 
 The authority reaches no data: a token carrying it reads no context, including one the service was
 granted otherwise. `service-clients:manage` is never part of it, because that can create data access.

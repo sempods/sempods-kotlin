@@ -97,10 +97,4 @@ internal data class PodServiceClientDbo(
   val managementSubjectUris: Set<String> = emptySet(),
 
   val managementGrantedAt: Instant? = null,
-
-  /**
-   * The scopes the owner approved the authority for. Empty on a row granted before the field
-   * existed, which approved `contexts:manage` alone ([ServiceManagementAuthority.scopes]).
-   */
-  val managementScopes: Set<String> = emptySet(),
 )

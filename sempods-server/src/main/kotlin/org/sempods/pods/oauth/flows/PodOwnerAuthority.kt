@@ -23,8 +23,8 @@ import org.sempods.pods.oauth.serviceclients.ServiceManagementAuthority
  * URI may not name the owner where that set does.
  *
  * A service client's token is the other way in: the authority is the one its registration holds
- * ([ServiceManagementAuthority]), lasting until the registration goes, and reaches only the scopes
- * the owner approved it for ([ServiceManagementAuthority.scopes]). Its owner check is the same.
+ * ([ServiceManagementAuthority]), lasting until the registration goes, and reaches only
+ * [PodScopeValidator.serviceManagementScopes]. Its owner check is the same.
  */
 class PodOwnerAuthority @Inject internal constructor(
   private val authorities: PodManagementAuthorityStore,
@@ -74,9 +74,6 @@ class PodOwnerAuthority @Inject internal constructor(
     val management = serviceClients.find(pod.id, clientId)
       ?.takeIf { it.id.value == caller.serviceRegistrationId }
       ?.management ?: return null
-    // A token of an approval older than [scope] does not carry it; asked here as well, so no token
-    // can claim more than the registration holds now.
-    if (scope !in management.scopes) return null
     return PrivilegedAuthority(
       pod = pod.id,
       clientId = clientId,

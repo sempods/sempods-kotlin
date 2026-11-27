@@ -10,7 +10,6 @@ import org.sempods.pods.HostedPod
 import org.sempods.pods.PodId
 import org.sempods.pods.mongo.persist.PodDao
 import org.sempods.pods.mongo.persist.objectId
-import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
 import org.sempods.pods.grants.ScopeValidationResult
 import org.sempods.pods.oauth.serviceclients.persist.PodServiceClientDao
@@ -256,7 +255,6 @@ class PodServiceClientStore @Inject constructor(
       managementGrantedBy = management?.grantedBy,
       managementSubjectUris = management?.subjectUris.orEmpty(),
       managementGrantedAt = management?.grantedAt,
-      managementScopes = management?.scopes.orEmpty(),
     )
     dao.deleteExpired(dbo.podId, clientId)
     val stored = try {
@@ -269,9 +267,7 @@ class PodServiceClientStore @Inject constructor(
 
   /**
    * Grants the registration [expected] names the lasting authority to manage [pod] on behalf of
-   * [grantedBy], recognised by [subjectUris], and activates it: for every scope the authority covers
-   * now ([PodScopeValidator.serviceManagementScopes]), which is what the consent page names. `false`
-   * where it is gone.
+   * [grantedBy], recognised by [subjectUris], and activates it. `false` where it is gone.
    */
   internal fun grantManagement(
     pod: PodId,
@@ -281,9 +277,7 @@ class PodServiceClientStore @Inject constructor(
     subjectUris: Set<String>,
   ): Boolean {
     require(grantedBy in subjectUris) { "the URIs a person was recognised by include the one they are" }
-    return dao.grantManagement(
-      pod.objectId(), clientId, expected.objectId(), grantedBy, subjectUris, PodScopeValidator.serviceManagementScopes,
-    )
+    return dao.grantManagement(pod.objectId(), clientId, expected.objectId(), grantedBy, subjectUris)
   }
 
   private fun PodServiceClientDbo.toRegistration() = ServiceClientRegistration(
@@ -306,7 +300,6 @@ class PodServiceClientStore @Inject constructor(
         grantedBy = webId,
         subjectUris = managementSubjectUris.ifEmpty { setOf(webId) },
         grantedAt = managementGrantedAt ?: createdAt,
-        scopes = managementScopes.ifEmpty { setOf(CONTEXTS_MANAGE_SCOPE) },
       )
     },
   )
@@ -468,8 +461,8 @@ internal data class ServiceClientRegistration(
 }
 
 /**
- * A service client's lasting authority to manage the pod for its owner: the [scopes] the owner
- * approved in its tokens, and no data. It
+ * A service client's lasting authority to manage the pod for its owner: the scopes
+ * [org.sempods.pods.grants.PodScopeValidator.serviceManagementScopes] in its tokens, and no data. It
  * holds while its owner does: every call compares the pod's current owner with [subjectUris]
  * (`PodOwnerAuthority`). It ends with the registration.
  *
@@ -481,17 +474,7 @@ internal data class ServiceManagementAuthority(
   val grantedBy: String,
   val subjectUris: Set<String>,
   val grantedAt: Instant,
-  /**
-   * What the owner approved, among [PodScopeValidator.serviceManagementScopes]: the scopes the token
-   * carries and the routes accept. An authority approved before `grants:manage` existed holds
-   * `contexts:manage` alone until the owner confirms the consent page again ([widened]).
-   */
-  val scopes: Set<String> = PodScopeValidator.serviceManagementScopes,
-) {
-
-  /** Whether the authority covers less than the consent page offers now. */
-  val widened: Boolean get() = !scopes.containsAll(PodScopeValidator.serviceManagementScopes)
-}
+)
 
 /**
  * A handle to one registration, opaque to everyone holding it.
