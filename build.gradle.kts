@@ -43,6 +43,7 @@ val publishedModules = listOf(
   "sempods-media",
   "sempods-media-s3",
   "sempods-model",
+  "sempods-pod-management-client",
   "sempods-server",
 )
 extra["publishedModules"] = publishedModules
@@ -260,6 +261,19 @@ subprojects {
       // As for the core probe: Jackson 3's databind depends on the 2.x annotations.
       allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),
     ),
+    ":consumer-probe:pod-management" to JavaProbe(
+      probed = ":sempods-pod-management-client",
+      // The grant routes are JSON over the core, so a consumer of them stays on the core's floor.
+      javaRelease = 21,
+      forbidden = mapOf(
+        "org.eclipse.rdf4j" to "RDF4J",
+        "org.apache.jena" to "Jena",
+        "com.fasterxml.jackson" to "Jackson 2",
+        "org.sempods:sempods-model" to "the RDF DTOs",
+      ),
+      // As for the core probe: Jackson 3's databind depends on the 2.x annotations.
+      allowed = setOf("com.fasterxml.jackson.core:jackson-annotations"),
+    ),
   )
 
   javaProbes[path]?.let { probe ->
@@ -343,6 +357,13 @@ subprojects {
     // Its surface is the core's alone; a JSON library is how it reads and writes the admin routes'
     // documents, and no RDF library is involved at all.
     "sempods-control-plane-client" to mapOf(
+      "com.fasterxml.jackson." to "a JSON library",
+      "tools.jackson." to "a JSON library",
+      "org.eclipse.rdf4j." to "an RDF library",
+      "org.apache.jena." to "an RDF library",
+    ),
+    // The same for the owner's grant routes.
+    "sempods-pod-management-client" to mapOf(
       "com.fasterxml.jackson." to "a JSON library",
       "tools.jackson." to "a JSON library",
       "org.eclipse.rdf4j." to "an RDF library",

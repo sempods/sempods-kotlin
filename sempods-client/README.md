@@ -14,6 +14,7 @@ and a body.
 | [`sempods-client-rdf4j`](../sempods-client-rdf4j/README.md) | RDF4J models and values on the same client | Java 25+ |
 | [`sempods-client-media`](../sempods-client-media/README.md) | Uploading and assigning binary media | Java 21+ |
 | [`sempods-control-plane-client`](../sempods-control-plane-client/README.md) | Host administration, such as creating pods | Java 21+ |
+| [`sempods-pod-management-client`](../sempods-pod-management-client/README.md) | A pod owner's grant management, on the sempods reference implementation only | Java 21+ |
 
 Use one BOM version for all modules:
 

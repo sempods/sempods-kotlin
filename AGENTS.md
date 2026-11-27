@@ -122,8 +122,9 @@ IST documentation:
   or a published IRI depends on them
 - Client family: [sempods-client/README.md](sempods-client/README.md) — quick start and module choice;
   [client API guide](sempods-client/docs/client.md) and [transport](sempods-client/docs/transport.md);
-  [RDF4J](sempods-client-rdf4j/README.md), [media](sempods-client-media/README.md) and
-  [host administration](sempods-control-plane-client/README.md)
+  [RDF4J](sempods-client-rdf4j/README.md), [media](sempods-client-media/README.md),
+  [host administration](sempods-control-plane-client/README.md) and
+  [pod management](sempods-pod-management-client/README.md)
 - Authentication: [docs/auth/README.md](docs/auth/README.md) — cross-module overview;
   [pod OAuth](sempods-server/docs/auth/README.md), [identity service](sempods-auth/README.md)
   and [shared auth library](sempods-auth-core/README.md)
@@ -155,8 +156,8 @@ IST documentation:
   the bytecode and fails the build; `:consumer-probe:auth` and `:consumer-probe:mcp` cover the
   embedding contract of the two services the plugin structurally cannot see — that contract only,
   not their wider accidental surface. `:consumer-probe:client`, `:consumer-probe:client-media`,
-  `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane` and
-  `:consumer-probe:opentelemetry` check the client artifacts from outside. See
+  `:consumer-probe:client-rdf4j`, `:consumer-probe:control-plane`, `:consumer-probe:pod-management`
+  and `:consumer-probe:opentelemetry` check the client artifacts from outside. See
   `docs/concepts/modularity.md` §"Open-source readiness".
 
 ## Quick reference

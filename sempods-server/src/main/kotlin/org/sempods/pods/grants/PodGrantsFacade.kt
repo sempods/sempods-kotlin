@@ -248,6 +248,96 @@ class PodGrantsFacade @Inject constructor(
     }
   }
 
+  // ── the owner's withdrawals: one direct grant on one context ─────────────────
+
+  /**
+   * Withdraws every grant one person holds anchored at [contextUri] — under each of [webIds] and
+   * their derivable aliases — and then cascades once into the apps acting for them, over
+   * [subjectUris], every URI the person is known by. A `#manage` grant on an ancestor is not anchored
+   * here and stays.
+   *
+   * **All the grants first, one cascade after.** WebIDs linked by consent records, A with B and B
+   * with C, are one person. Withdrawn and cascaded one WebID at a time, a delegation naming A and B
+   * would survive: B still backs it when A's cascade runs, and C's cascade no longer sees it.
+   *
+   * **Not repaired by sending the withdrawal again**, unlike [revokeWebIdGrants]. A run that dies
+   * after the grants are deleted and before the cascade leaves the person holding no grant, and the
+   * route then takes them for someone who never held one: it withdraws only what is delegated
+   * anchored at the context. A delegation derived from a withdrawn `#manage`, such as
+   * `R/child#write`, stays until the app next authorizes, where the consent's repair narrows it to
+   * what is backed (`PodAuthorizeFlow`). Telling the two apart needs the withdrawal recorded before
+   * it starts: https://github.com/sempods/sempods-kotlin/issues/494.
+   */
+  internal fun withdrawWebIdGrantsOn(
+    pod: HostedPod,
+    webIds: Collection<String>,
+    subjectUris: Set<String>,
+    contextUri: String,
+  ): GrantCascadeResult {
+    val aliases = webIds.flatMapTo(mutableSetOf()) { webIdUriDeriver.derivableAliases(it) + it }
+    val anchored = anchoredAt(contextUri)
+    val revokedUserGrants = aliases.sumOf { podWebIdGrantsDao.deleteGrants(pod.id.objectId(), it, anchored) }
+    val result = cascadeToAppGrants(pod, aliases + subjectUris)
+    logger.info {
+      "[grants/withdraw] pod='${pod.name}', context='$contextUri', webIds=${webIds.size}, " +
+          "revokedUserGrants=$revokedUserGrants, deletedAppGrants=${result.deletedAppGrants}, " +
+          "apps=${result.affectedApps.sorted()}, revokedRefreshTokens=${result.revokedRefreshTokens}"
+    }
+    return result
+  }
+
+  /**
+   * Withdraws what the person known by [subjectUris] delegated anchored at [contextUri]: to
+   * [clientId], or to every app where it is `null`. Nothing cascades and nothing else is touched —
+   * the owner holds no WebID grants, and neither does a person listed with delegations alone, such
+   * as a former owner.
+   *
+   * Where an app is left holding nothing for the person, its refresh tokens end too, named before
+   * the emptiness is asked, as [revokeEmptiedFamilies] names them: a consent restoring the grants
+   * in between keeps the family it starts. An app keeping another grant, `public-read` included,
+   * keeps its session.
+   */
+  internal fun withdrawDelegationsOn(
+    pod: HostedPod,
+    subjectUris: Set<String>,
+    contextUri: String,
+    clientId: String? = null,
+  ): GrantCascadeResult {
+    val storedPodId = pod.id.objectId()
+    val anchored = anchoredAt(contextUri)
+    val connections = podGrantsDao.fetchGrantsForSubject(storedPodId, subjectUris)
+      .filter { clientId == null || it.appId == clientId }
+      .map { it.appId to it.webId }
+      .distinct()
+    var deletedAppGrants = 0L
+    var revokedRefreshTokens = 0L
+    val affectedApps = mutableSetOf<String>()
+    connections.forEach { (appId, webId) ->
+      val deleted = podGrantsDao.deleteGrants(storedPodId, appId, webId, anchored)
+      if (deleted == 0L) return@forEach
+      deletedAppGrants += deleted
+      affectedApps += appId
+      val standing = refreshTokenStore.liveTokens(pod.id, appId, listOf(webId))
+      if (standing.isNotEmpty() && podGrantsDao.fetchGrantStrings(storedPodId, appId, listOf(webId)).isEmpty()) {
+        revokedRefreshTokens += refreshTokenStore.revokeTokens(standing)
+      }
+    }
+    if (deletedAppGrants > 0) {
+      logger.info {
+        "[grants/withdraw] Delegations withdrawn: pod='${pod.name}', context='$contextUri', " +
+            "apps=${affectedApps.sorted()}, deletedAppGrants=$deletedAppGrants, revokedRefreshTokens=$revokedRefreshTokens"
+      }
+    }
+    return GrantCascadeResult(deletedAppGrants, revokedRefreshTokens, affectedApps)
+  }
+
+  /** Every URI the pod owner is known by here: the stored WebID and its derivable twin. */
+  internal fun ownerUris(pod: HostedPod): Set<String> = webIdUriDeriver.derivableAliases(pod.owner) + pod.owner
+
+  /** Every grant string anchored at [contextUri]: one per permission. */
+  internal fun anchoredAt(contextUri: String): List<String> =
+    ScopePermission.entries.map { "$contextUri#${it.value}" }
+
   // ── recipient level: what an app or a service may do ─────────────────────────
 
   /**

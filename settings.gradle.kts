@@ -136,6 +136,7 @@ include(
   "consumer-probe:client-media",
   "consumer-probe:client-rdf4j",
   "consumer-probe:control-plane",
+  "consumer-probe:pod-management",
   "consumer-probe:mcp",
   "consumer-probe:opentelemetry",
   "deployments:sempods:image",
@@ -151,5 +152,6 @@ include(
   "sempods-media",
   "sempods-media-s3",
   "sempods-model",
+  "sempods-pod-management-client",
   "sempods-server",
 )

@@ -196,5 +196,6 @@ raw query results remain available for forwarding. See the
 - [RDF4J API](../../sempods-client-rdf4j/src/main/kotlin/org/sempods/client/rdf4j/)
 - [Media API](../../sempods-client-media/src/main/kotlin/org/sempods/client/media/SempodsPodMedia.kt)
 - [Admin API](../../sempods-control-plane-client/src/main/kotlin/org/sempods/controlplane/SempodsControlPlaneClient.kt)
+- [Pod management API](../../sempods-pod-management-client/src/main/kotlin/org/sempods/management/SempodsPodGrants.kt)
 
 <!-- doc-examples: checked -->
