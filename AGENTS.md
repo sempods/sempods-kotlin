@@ -221,11 +221,36 @@ When asked to review a GitHub pull request, post each actionable finding in
 English as an inline review comment on the relevant lines of the current diff.
 
 Codex's pull-request review reads this section for every changed file, so it stands on its own.
+
+### Marking and rating
+
+An agent may post under a maintainer's GitHub account. Its findings must not read as that
+maintainer's decisions.
+
+Begin every review comment, reply and review summary you post with two lines that name you, for
+example:
+
+```text
+<!-- agent-review: codex -->
+🤖 Codex review
+```
+
+Rate each finding by the project's state today. Work merged but not released has no deployment to
+migrate. Use these three ratings:
+
+| Rating | Finding |
+|---|---|
+| P1 | Wrong behaviour, a security hole or a crash on a released or deployed path |
+| P2 | The same on a merged but unreleased path, or a broken contract between modules |
+| P3 | Hardening for a state that does not exist yet: compatibility with unreleased or snapshot builds, a crash between two writes, a rare race. Documentation drift |
+
+When unsure, say so and keep the lower rating.
+
+### Documentation
+
 The canonical procedure is [`docs/agents/doc-review.md`](docs/agents/doc-review.md); this is its
 registered subset (see [`docs/agents/ai-instructions.md`](docs/agents/ai-instructions.md)
 §"Auto-injection constraints").
-
-### Documentation
 
 Flag a pull request whose documentation no longer matches its code. These are the checks that
 fail quietly:
