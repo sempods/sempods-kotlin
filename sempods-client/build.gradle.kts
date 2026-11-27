@@ -18,6 +18,7 @@ dependencies {
   // is Nimbus's, the library the pod's own authorization server speaks. Never on the surface.
   implementation(libs.oidcSdk)
 
+  testImplementation(project(":test-support:mock-pod"))
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
   testImplementation(libs.junitJupiterParams)

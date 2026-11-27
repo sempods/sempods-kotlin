@@ -3,7 +3,6 @@ package org.sempods.client.rdf4j
 import org.eclipse.rdf4j.model.impl.LinkedHashModel
 import org.eclipse.rdf4j.model.util.Values.iri
 import org.eclipse.rdf4j.model.util.Values.literal
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
@@ -21,17 +20,14 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.sempodsClient
 
 /** A model call is the core's call: the same credential, resend and admission as a raw call on the same pod. */
 class SempodsRdf4jSessionTest : MockPodTest() {
 
   /** One call at a time and no queue, so a held call shows who shares the slot. */
-  private val client = sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0))
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
+  override fun newClient() = sempodsClient(SempodsAdmission(maxActive = 1, maxWaiting = 0))
 
   private val event get() = "$origin/alice/events/1"
 

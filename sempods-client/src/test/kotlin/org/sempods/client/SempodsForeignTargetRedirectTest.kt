@@ -3,13 +3,16 @@ package org.sempods.client
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
 
 /**
  * What following redirects does, and what it refuses to carry along.
@@ -18,13 +21,6 @@ import org.mockserver.model.HttpResponse.response
  * a chain to leave the origin the caller named and come back to it.
  */
 class SempodsForeignTargetRedirectTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   /** The origin a caller names, and another one on the same server. */
   private val other get() = "http://127.0.0.1:${server.port}"

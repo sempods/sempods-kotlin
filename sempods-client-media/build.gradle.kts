@@ -20,7 +20,7 @@ dependencies {
   // The routes both sides read from one place.
   implementation(project(":sempods-commons"))
 
+  testImplementation(project(":test-support:mock-pod"))
   testImplementation(libs.mockServer)
-  testImplementation(libs.slf4jApi)
   testImplementation(libs.bundles.test)
 }

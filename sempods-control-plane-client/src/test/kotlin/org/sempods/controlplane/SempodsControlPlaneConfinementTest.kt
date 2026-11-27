@@ -2,17 +2,11 @@ package org.sempods.controlplane
 
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.sempods.client.SempodsClientException
@@ -21,7 +15,8 @@ import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsSession
-import org.slf4j.event.Level
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
 
 /**
  * Where the host credential may go, and where it may not.
@@ -30,27 +25,7 @@ import org.slf4j.event.Level
  * boundary — and that is the boundary this checks: a request moved to another authority is refused
  * before it is written, and two sessions sharing one client never lend each other a credential.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsControlPlaneConfinementTest {
-
-  private lateinit var server: ClientAndServer
-  private lateinit var origin: String
-
-  @BeforeAll
-  fun startServer() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
-    origin = "http://localhost:${server.port}"
-  }
-
-  @AfterAll
-  fun stopServer() {
-    server.stop()
-  }
-
-  @BeforeEach
-  fun resetServer() {
-    server.reset()
-  }
+class SempodsControlPlaneConfinementTest : MockPodTest() {
 
   @Test
   fun `an interceptor that moves the request to another authority takes no admin credential along`() {
@@ -61,7 +36,7 @@ class SempodsControlPlaneConfinementTest {
     }
     server.`when`(request()).respond(response().withStatusCode(204))
 
-    closing(SempodsOkHttp.install(OkHttpClient.Builder().addInterceptor(moving)).build()) { http ->
+    SempodsOkHttp.install(OkHttpClient.Builder().addInterceptor(moving)).build().closing { http ->
       val refused = assertThrows<SempodsClientException> { adminOn(http).deletePod("alice") }
       assertTrue(refused.message!!.contains("not under this session's pod"), refused.message)
     }
@@ -77,7 +52,7 @@ class SempodsControlPlaneConfinementTest {
           .withHeader("Location", "http://127.0.0.1:${server.port}/_system/admin/pods/alice"),
       )
 
-    closing(SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build()) { http ->
+    SempodsOkHttp.install(OkHttpClient.Builder()).followRedirects(true).build().closing { http ->
       val refused = assertThrows<SempodsClientException> { adminOn(http).deletePod("alice") }
       assertTrue(refused.message!!.contains("not under this session's pod"), refused.message)
     }
@@ -89,7 +64,7 @@ class SempodsControlPlaneConfinementTest {
     server.`when`(request().withPath("/alice/_system/meta/date-modified"))
       .respond(response().withStatusCode(200).withBody("""{"dateModified":null}"""))
 
-    closing(SempodsOkHttp.install(OkHttpClient.Builder()).build()) { http ->
+    SempodsOkHttp.install(OkHttpClient.Builder()).build().closing { http ->
       adminOn(http).deletePod("alice")
 
       val pod = SempodsPod(
@@ -114,7 +89,7 @@ class SempodsControlPlaneConfinementTest {
     val bearerPlusHeader = SempodsRequestAuth.bearer(ADMIN_SECRET)
       .andThen { request, _ -> request.header("X-Tenant", "acme") }
 
-    closing(SempodsOkHttp.install(OkHttpClient.Builder()).build()) { http ->
+    SempodsOkHttp.install(OkHttpClient.Builder()).build().closing { http ->
       admin(apiKey, http).deletePod("alice")
       admin(bearerPlusHeader, http).deletePod("bob")
     }
@@ -132,14 +107,6 @@ class SempodsControlPlaneConfinementTest {
 
   private fun admin(auth: SempodsRequestAuth, http: OkHttpClient) =
     SempodsControlPlaneClient(SempodsSession(SempodsPodBase.of(origin), auth), http)
-
-  private inline fun <T> closing(http: OkHttpClient, block: (OkHttpClient) -> T): T =
-    try {
-      block(http)
-    } finally {
-      http.dispatcher.executorService.shutdown()
-      http.connectionPool.evictAll()
-    }
 
   private companion object {
 

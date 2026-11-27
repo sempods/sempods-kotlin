@@ -5,7 +5,6 @@ import org.eclipse.rdf4j.model.util.Values.iri
 import org.eclipse.rdf4j.model.util.Values.literal
 import org.eclipse.rdf4j.rio.RDFFormat
 import org.eclipse.rdf4j.rio.helpers.StatementCollector
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -21,18 +20,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.sempods.testsupport.MockPodTest
 
 /** A URI outside any pod, read as a model or into a handler, and the remote JSON-LD contexts it names. */
 class SempodsRdf4jForeignTargetTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = recordingClient(sent)
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
+  override fun newClient() = recordingClient(sent)
 
   @BeforeEach
   fun forgetRequests() {

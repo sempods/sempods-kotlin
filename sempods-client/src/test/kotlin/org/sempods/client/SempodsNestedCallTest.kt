@@ -3,7 +3,6 @@ package org.sempods.client
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody
 import okio.BufferedSink
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
@@ -19,6 +18,8 @@ import java.util.concurrent.TimeoutException
 import java.time.Duration
 import kotlin.concurrent.thread
 import kotlin.test.assertTrue
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.sempodsClient
 
 /**
  * A call an operation makes while another of its calls is still in flight — in the body that call
@@ -40,7 +41,7 @@ class SempodsNestedCallTest : MockPodTest() {
    * still waiting, and a test that only looks at the exception type cannot tell that from a cancel
    * reaching it. Every assertion below is therefore on the clock as well.
    */
-  private val client = sempodsClient(admission = null) {
+  override fun newClient() = sempodsClient(admission = null) {
     readTimeout(Duration.ofSeconds(60))
     writeTimeout(Duration.ofSeconds(60))
     callTimeout(Duration.ofSeconds(60))
@@ -48,11 +49,6 @@ class SempodsNestedCallTest : MockPodTest() {
 
   /** Long enough for a cancel to land, far short of anything a deadline could explain. */
   private val withinCancel = 5L
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun session() = SempodsSession(SempodsPodBase.of("$origin/alice"))
 

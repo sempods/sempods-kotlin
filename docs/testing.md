@@ -184,9 +184,11 @@ A test that needs an external HTTP API stubs it with a local server and passes t
 the production client — which therefore takes its base URI as a constructor parameter with the real
 host as the default. Nothing in the suite is allowed to reach the network or use a live credential.
 
-**The stub belongs to the class, not to the suite.** `SempodsControlPlaneClientHttpTest` and the
-client core's `MockPodTest` base class show the shape: a `ClientAndServer` started once in `@BeforeAll` on a
-freshly picked port, `reset()` in `@BeforeEach`, stopped in `@AfterAll`. That is the isolation —
+**The stub belongs to the class, not to the suite.** A client module's test class extends
+`MockPodTest` from the unpublished [`:test-support:mock-pod`](../test-support/mock-pod/) module,
+which has that shape: a `ClientAndServer` started once in `@BeforeAll` on a freshly picked port,
+`reset()` in `@BeforeEach`, stopped in `@AfterAll`, and a `client` built with
+`SempodsOkHttp.install` and shut down after the class. That is the isolation —
 one server per class, cleared between methods, which the class-level parallelism leaves intact
 because methods within a class do not run side by side. A stub is *not* keyed on the trace the way
 the test observer is, so sharing one between classes would need isolation you would have to build
@@ -200,7 +202,8 @@ MockServer expectation fails with someone else's `404 page not found`, or with
 listener never gets a held port, and no later bind on `127.0.0.1` can take its own. The JDK's
 `HttpServer` and `ServerSocket` take the address in their constructor
 (`InetAddress.getLoopbackAddress()`). MockServer reads it from `mockserver.localBoundIP`, which the
-root `build.gradle.kts` sets for every test JVM; `MockServerLoopbackTest` fails on macOS without it.
+root `build.gradle.kts` sets for every test JVM; `MockServerLoopbackTest` fails on macOS without it,
+and `MockPodLoopbackTest` on any machine with an address beyond loopback.
 One class is the exception: `SempodsForeignTargetGuardTest` has to answer at `[::1]` too, so its
 server binds `::` and stays exposed to the shadowing above. `ClientAndServer`'s own client talks to
 `127.0.0.1` only, which rules out a second server bound to `::1`.
@@ -334,7 +337,9 @@ exception thrown on a task pool thread, which no assertion ever sees.
   comma or "and" where the prose wants a dash.
 - JUnit Jupiter, `kotlin.test` assertions, MockK for unit-level mocking.
 - A shared test utility is a class of its own, never a companion in a test class: that companion
-  is a shared dependency in disguise. It goes in `testFixtures` when another module uses it. One
+  is a shared dependency in disguise. It goes in `testFixtures` when another module uses it, unless
+  it would put a test library into a published contract: test fixtures are published, so such a
+  utility gets an unpublished module under `test-support/`, like `MockPodTest`. One
   suite's own helper stays in `src/test`, bound in that suite's test module, like
   `SempodsTestFactory`.
 - No test may depend on the network or on a live credential.

@@ -2,7 +2,6 @@ package org.sempods.client.rdf4j
 
 import org.eclipse.rdf4j.model.BNode
 import org.eclipse.rdf4j.model.util.Values.iri
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -18,18 +17,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import org.sempods.testsupport.MockPodTest
 
 /** What the find group asks the pod for, and how its answer becomes a model. */
 class SempodsRdf4jFindContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = recordingClient(sent)
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
+  override fun newClient() = recordingClient(sent)
 
   @BeforeEach
   fun forgetRequests() {

@@ -7,7 +7,6 @@ import org.eclipse.rdf4j.model.Value
 import org.eclipse.rdf4j.model.util.Values.iri
 import org.eclipse.rdf4j.model.util.Values.tripleTerm
 import org.eclipse.rdf4j.rio.helpers.TripleTermUtil
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.parallel.ResourceLock
@@ -26,16 +25,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.sempods.testsupport.MockPodTest
 
 /** How a read reports a body that is not N-Quads, and that one that is comes back with every value as the pod sent it. */
 class SempodsRdf4jDecodingTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private val event get() = "$origin/alice/events/1"
 

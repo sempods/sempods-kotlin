@@ -22,7 +22,7 @@ depends on it — and the modules here are being published to Maven Central, whe
 else's problem to unpick. `checkNoLoggingBinding` (root `build.gradle.kts`, wired into `check`)
 fails the build if a published library carries it. Two exemptions, both narrow:
 
-- **A module nobody publishes** — `:consumer-probe:*`, `:deployments:*` — has no consumer to
+- **A module nobody publishes** — `:consumer-probe:*`, `:deployments:*`, `:test-support:*` — has no consumer to
   impose a binding on, and the probes inherit the service's anyway.
 - **A module that applies the `application` plugin** picks its own binding; that is what owning a
   `main` means. `:sempods-auth` and `:sempods-mcp` are the two, and both are published *and* carry

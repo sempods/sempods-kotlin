@@ -3,22 +3,16 @@ package org.sempods.client
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
 import tools.jackson.databind.json.JsonMapper
 
 /** A public client's side of a pod's OAuth: registering, the authorization URL, and redeeming its code. */
 class SempodsPodAuthorizationContractTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private val json = JsonMapper()
 

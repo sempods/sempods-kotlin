@@ -152,4 +152,5 @@ include(
   "sempods-media-s3",
   "sempods-model",
   "sempods-server",
+  "test-support:mock-pod",
 )

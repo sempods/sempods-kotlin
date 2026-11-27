@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.junit.jupiter.api.assertThrows
@@ -15,6 +14,7 @@ import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
 
 /**
  * What the typed SELECT and ASK results make of a body, and what they refuse to make of one.
@@ -23,13 +23,6 @@ import org.mockserver.model.HttpResponse.response
  * a result, an empty result or `false`, and the failure says where without quoting the document.
  */
 class SempodsSparqlResultsDecodingTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun sparql() = SempodsPod(SempodsSession(SempodsPodBase.of("$origin/alice")), client).sparql()
 

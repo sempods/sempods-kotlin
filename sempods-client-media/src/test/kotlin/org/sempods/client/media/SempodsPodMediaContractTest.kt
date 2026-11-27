@@ -1,24 +1,17 @@
 package org.sempods.client.media
 
-import okhttp3.OkHttpClient
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.sempods.client.SempodsDecodingException
-import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPod
 import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsStatusException
 import org.sempods.media.PodMediaSource
+import org.sempods.testsupport.MockPodTest
 import java.net.URI
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
@@ -27,37 +20,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** What the media group asks the pod for, and what it makes of the answers. */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsPodMediaContractTest {
+class SempodsPodMediaContractTest : MockPodTest() {
 
-  private lateinit var server: ClientAndServer
-  private lateinit var client: OkHttpClient
-  private lateinit var media: SempodsPodMedia
+  private val media by lazy {
+    val session = SempodsSession(SempodsPodBase.of("$origin/alice"), SempodsRequestAuth.bearer("service-token"))
+    SempodsPod(session, client).media()
+  }
 
   private val tasks = "https://pods.example/alice/_system/contexts/tasks"
-
-  @BeforeAll
-  fun start() {
-    server = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(org.slf4j.event.Level.WARN))
-    client = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    val session = SempodsSession(
-      SempodsPodBase.of("http://localhost:${server.port}/alice"),
-      SempodsRequestAuth.bearer("service-token"),
-    )
-    media = SempodsPod(session, client).media()
-  }
-
-  @AfterAll
-  fun stop() {
-    server.stop()
-    client.dispatcher.executorService.shutdown()
-    client.connectionPool.evictAll()
-  }
-
-  @BeforeEach
-  fun reset() {
-    server.reset()
-  }
 
   private fun stored(id: String = "abc123") {
     server.`when`(request().withMethod("POST").withPath("/alice/_system/media")).respond(

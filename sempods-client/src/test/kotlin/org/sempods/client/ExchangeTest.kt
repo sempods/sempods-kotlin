@@ -7,7 +7,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -15,19 +14,15 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.ConnectionOptions.connectionOptions
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /**
  * The execution every endpoint operation shares: how much of a body it reads, what it keeps of a
  * failure, and that it gives its admission slot back however it ends.
  */
 class ExchangeTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun get(path: String = "x") =
     SempodsSession(SempodsPodBase.of("$origin/alice")).newRequest("GET", path).build()
