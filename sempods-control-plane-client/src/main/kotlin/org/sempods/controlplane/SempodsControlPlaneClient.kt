@@ -102,7 +102,7 @@ class SempodsControlPlaneClient(
 
   /**
    * As the WebID form, and registers the `did:web` service [managementClient] on the new pod with
-   * the lasting authority to manage it for [ownerWebId]: create and delete contexts, read no data.
+   * the lasting authority to manage it for [ownerWebId], which reads no data.
    * [managementClientName] is what the owner sees it called. The server writes the service before
    * the pod, so a pod exists only with it. A call the server refused created nothing; one that
    * failed in transport may have created the pod, and its retry then answers

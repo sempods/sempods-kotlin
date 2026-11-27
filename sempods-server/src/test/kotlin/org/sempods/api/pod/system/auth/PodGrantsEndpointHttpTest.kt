@@ -9,7 +9,6 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
 import org.sempods.SempodsModule
-import org.sempods.client.SempodsPodGrants
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsStatusException
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -17,6 +16,7 @@ import org.sempods.commons.json.JsonMappers
 import org.sempods.commons.okhttp.TestHttpClient
 import org.sempods.commons.okhttp.TestHttpResponse
 import org.sempods.commons.utils.UriEncodingUtil
+import org.sempods.management.SempodsPodGrants
 import org.sempods.pods.grants.GRANTS_MANAGE_SCOPE
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.grants.persist.PodGrantsDao

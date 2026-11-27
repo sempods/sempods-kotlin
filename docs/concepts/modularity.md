@@ -353,8 +353,8 @@ beyond any annotation — [#237](https://github.com/sempods/sempods-kotlin/issue
 is a JUnit suite written in Java; across the project boundary its compile classpath is a consumer's,
 so a missing `@Throws` or anything else Java cannot call is a compile error there. It runs on a
 **Java 21** JVM, the lowest in this repository: bytecode built for 21 and only ever run on 25 would
-be a floor nobody stood on, and `:consumer-probe:client-media` and `:consumer-probe:control-plane`
-stand on the same one. `:consumer-probe:client-rdf4j` asks the same of the RDF4J adapter, on
+be a floor nobody stood on, and `:consumer-probe:client-media`, `:consumer-probe:control-plane` and
+`:consumer-probe:pod-management` stand on the same one. `:consumer-probe:client-rdf4j` asks the same of the RDF4J adapter, on
 **Java 25**: RDF4J 6 is built for 25, so a consumer of the adapter stands on nothing lower. Beside
 each, `checkNoForbiddenDependencies` fails if a consumer would resolve a library the module excludes
 — a question dependency analysis cannot answer,

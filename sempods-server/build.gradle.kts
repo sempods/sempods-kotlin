@@ -114,6 +114,8 @@ dependencies {
   testImplementation(project(":sempods-client-media"))
   // The host admin client, run against the admin routes.
   testImplementation(project(":sempods-control-plane-client"))
+  // The pod owner's grant client, run against the grant routes.
+  testImplementation(project(":sempods-pod-management-client"))
 
   // test libs
   // The suite drives a real connector, so it builds a Jetty `Server`; Jersey rides on it.

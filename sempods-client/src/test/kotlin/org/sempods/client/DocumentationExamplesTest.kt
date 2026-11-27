@@ -171,34 +171,6 @@ class DocumentationExamplesTest : MockPodTest() {
   }
 
   @Test
-  fun `the grants example withdraws each person's direct grants on a context`() {
-    val base = SempodsPodBase.of("$origin/alice")
-    val managementToken = "console-management"
-    val notes = "${base.url}/_system/contexts/notes"
-    val bob = "https://id.example/bob"
-    fun b64(value: String) = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray())
-    server.`when`(request().withMethod("GET").withPath("/alice/_system/auth/grants/${b64(notes)}"))
-      .respond(response().withBody(
-        """{"context_iri":"$notes","people":[{"web_id":"$bob","permissions":["read"],""" +
-          """"grants":[{"permission":"read","inherited_from":null}],"delegations":[]}],"apps":[],"services":[]}""",
-      ))
-    server.`when`(request().withMethod("DELETE").withPath("/alice/_system/auth/grants/${b64(notes)}/people/${b64(bob)}"))
-      .respond(response().withStatusCode(204))
-
-    // doc-example:start grants-withdraw
-    val grants = SempodsPodGrants(
-      SempodsSession(base, SempodsRequestAuth.bearer(managementToken)), http)
-    val holders = checkNotNull(grants.holders(notes).body)
-    holders.people
-      .filter { person -> person.grants.any { it.isDirect } }
-      .forEach { person -> grants.withdrawPerson(notes, person.webId) }
-    // doc-example:end grants-withdraw
-
-    assertEquals(1, server.retrieveRecordedRequests(request().withMethod("DELETE")).size)
-    assertTrue(server.retrieveRecordedRequests(request()).all { it.getFirstHeader("Authorization") == "Bearer $managementToken" })
-  }
-
-  @Test
   fun `the user example sends PKCE and redeems the checked callback`() {
     val podUrl = "$origin/alice"
     val redirectUri = "http://127.0.0.1:4711/callback"

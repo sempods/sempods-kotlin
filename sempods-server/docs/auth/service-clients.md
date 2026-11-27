@@ -286,8 +286,8 @@ app left holding nothing loses its refresh tokens.
 | `428` | Withdrawing a service without `If-Match` |
 
 Withdrawing a single delegation of another person, replacing grants and adding them are not
-offered. The [JVM client](../../../sempods-client/README.md) wraps these routes as
-`SempodsPodGrants`.
+offered. The [pod management client](../../../sempods-pod-management-client/README.md) wraps these
+routes for the JVM.
 
 ## Managing service clients
 

@@ -88,8 +88,8 @@ Service Impl ──┘
 - **An application framework is a consumer of `sempods-commons`, never its base.** A framework that
   bundles sessions, users, mails and tasks may sit on top of the family and take what it needs;
   nothing in `sempods-commons` may depend back on it. `sempods-server`, `sempods-auth`, `sempods-mcp`,
-  `sempods-model`, `sempods-client`, `sempods-control-plane-client` and the pod server's deployment
-  image take `sempods-commons` and no framework at all. See
+  `sempods-model`, `sempods-client`, `sempods-control-plane-client`, `sempods-pod-management-client`
+  and the pod server's deployment image take `sempods-commons` and no framework at all. See
   [`../concepts/modularity.md`](../concepts/modularity.md) §"Open-source readiness"
 - **A Facade is a legitimate reuse surface.** sempods is a *reference implementation* built from
   selectable seams, and a toolkit whose parts cannot be called from outside is not a toolkit. A

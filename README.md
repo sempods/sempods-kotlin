@@ -198,6 +198,8 @@ sempods-client/ sempods-client-rdf4j/ sempods-client-media/
                     HTTP client implementing the contract against a remote pod
 sempods-control-plane-client/
                     HTTP client for the host-level admin surface (pod hosting)
+sempods-pod-management-client/
+                    HTTP client for a pod owner's grant management (reference implementation only)
 deployments/        the server as a process, and the local stack
 docs/               shared concepts and a navigation index; local guides live with their modules
 ```

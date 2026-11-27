@@ -1,18 +1,22 @@
-package org.sempods.client
+package org.sempods.management
 
 import okhttp3.Call
 import okhttp3.Request
+import org.sempods.client.SempodsExchange
+import org.sempods.client.SempodsResponse
+import org.sempods.client.SempodsSession
 import java.io.IOException
-import java.time.Instant
-import java.time.format.DateTimeParseException
 import java.util.Base64
 
 /**
  * The grants held on each context of a pod, and the withdrawal of one direct grant — what an owner
  * console shows its owner. Only explicit grants are listed: a public context is readable by anyone,
- * and withdrawing grants leaves that as it is. Experimental, and specific to the sempods reference implementation: the
- * specification leaves an owner's grant management to implementations. `sempods-server/docs/auth/service-clients.md`
+ * and withdrawing grants leaves that as it is. `sempods-server/docs/auth/service-clients.md`
  * §"Managing grants" has the pod's side.
+ *
+ * **These routes are the sempods reference implementation's own, and stay so:** the specification
+ * leaves an owner's grant management to implementations (sempods-spec#137). That is why this is a
+ * module of its own rather than a group of `:sempods-client`, which speaks what any pod offers.
  *
  * Every call needs a bearer carrying `grants:manage`, which only a service client holding the pod's
  * management authority receives. A pod offering it lists the scope in
@@ -53,26 +57,26 @@ class SempodsPodGrants(
   val calls: Call.Factory,
 ) {
 
-  private val exchange = Exchange(calls)
+  private val exchange = SempodsExchange(calls)
 
   /**
    * How many people, owner's apps and services hold grants reaching each registered context, in one
    * request. A service holding the management authority is not counted: its tokens reach no data.
    */
   @Throws(IOException::class)
-  fun counts(): SempodsResponse<List<SempodsContextHolderCounts>> = exchange.run(countsRequest(), ANSWERS, COUNTS)
+  fun counts(): SempodsResponse<List<SempodsContextHolderCounts>> = countsJson().map { GrantsJson.counts(it) }
 
   /** The same answer with the body as the text the server sent, malformed or not. */
   @Throws(IOException::class)
-  fun countsJson(): SempodsResponse<String> = exchange.run(countsRequest(), ANSWERS, BodyReading.TEXT)
+  fun countsJson(): SempodsResponse<String> = exchange.text(countsRequest(), *ANSWERS)
 
   /** Who holds grants reaching [contextIri], grouped by person, the owner's apps and services. */
   @Throws(IOException::class)
-  fun holders(contextIri: String): SempodsResponse<SempodsContextHolders> = exchange.run(holdersRequest(contextIri), ANSWERS, HOLDERS)
+  fun holders(contextIri: String): SempodsResponse<SempodsContextHolders> = holdersJson(contextIri).map { GrantsJson.holders(it) }
 
   /** The same answer with the body as the text the server sent, malformed or not. */
   @Throws(IOException::class)
-  fun holdersJson(contextIri: String): SempodsResponse<String> = exchange.run(holdersRequest(contextIri), ANSWERS, BodyReading.TEXT)
+  fun holdersJson(contextIri: String): SempodsResponse<String> = exchange.text(holdersRequest(contextIri), *ANSWERS)
 
   /**
    * Withdraws [webId]'s direct grants on [contextIri], and with them the apps acting for that person
@@ -80,12 +84,12 @@ class SempodsPodGrants(
    */
   @Throws(IOException::class)
   fun withdrawPerson(contextIri: String, webId: String): Boolean =
-    exchange.status(withdrawal(contextIri, PEOPLE, webId).build(), WITHDRAW_ANSWERS) == 204
+    exchange.status(withdrawal(contextIri, PEOPLE, webId).build(), 204, 404) == 204
 
   /** Withdraws what the owner delegated to [clientId] on [contextIri]. `true` for `204`, `false` for `404`. */
   @Throws(IOException::class)
   fun withdrawApp(contextIri: String, clientId: String): Boolean =
-    exchange.status(withdrawal(contextIri, APPS, clientId).build(), WITHDRAW_ANSWERS) == 204
+    exchange.status(withdrawal(contextIri, APPS, clientId).build(), 204, 404) == 204
 
   /**
    * Withdraws [clientId]'s direct grants on [contextIri], keeping its others — only if its grants are
@@ -96,17 +100,17 @@ class SempodsPodGrants(
   fun withdrawService(contextIri: String, clientId: String, grantsVersion: Long): Boolean {
     require(grantsVersion >= 0) { "A grants version is not negative." }
     val request = withdrawal(contextIri, SERVICES, clientId).header("If-Match", "\"$grantsVersion\"").build()
-    return exchange.status(request, WITHDRAW_ANSWERS) == 204
+    return exchange.status(request, 204, 404) == 204
   }
 
-  private fun countsRequest(): Request = session.newRequest("GET", GRANTS).header("Accept", "application/json").build()
+  private fun countsRequest(): Request = session.newRequest("GET", GRANTS).header("Accept", APPLICATION_JSON).build()
 
   private fun holdersRequest(contextIri: String): Request =
-    session.newRequest("GET", GRANTS, segment(contextIri, "context")).header("Accept", "application/json").build()
+    session.newRequest("GET", GRANTS, segment(contextIri, "context")).header("Accept", APPLICATION_JSON).build()
 
   private fun withdrawal(contextIri: String, group: String, holder: String): Request.Builder =
     session.newRequest("DELETE", GRANTS, segment(contextIri, "context"), group, segment(holder, "holder"))
-      .header("Accept", "application/json")
+      .header("Accept", APPLICATION_JSON)
 
   private companion object {
 
@@ -118,76 +122,14 @@ class SempodsPodGrants(
 
     const val SERVICES = "services"
 
-    val ANSWERS = (200..299).toSet()
+    const val APPLICATION_JSON = "application/json"
 
-    val WITHDRAW_ANSWERS = setOf(204, 404)
+    val ANSWERS = (200..299).toList().toIntArray()
 
     /** base64url without padding over the UTF-8 bytes (RFC 4648 §5), as `_system/resources` addresses an IRI. */
     fun segment(value: String, role: String): String {
       require(value.isNotBlank()) { "A $role must not be blank." }
       return Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
-    }
-
-    val COUNTS = BodyReading<List<SempodsContextHolderCounts>> { bytes, _ ->
-      decodeObject(bytes).objects("contexts").map { entry ->
-        SempodsContextHolderCounts.of(
-          contextIri = entry.string("context_iri"),
-          people = count(entry, "people"),
-          apps = count(entry, "apps"),
-          services = count(entry, "services"),
-        )
-      }
-    }
-
-    val HOLDERS = BodyReading<SempodsContextHolders> { bytes, _ ->
-      val document = decodeObject(bytes)
-      SempodsContextHolders.of(
-        contextIri = document.string("context_iri"),
-        people = document.objects("people").map { person ->
-          SempodsGrantPerson.of(
-            webId = person.string("web_id"),
-            permissions = person.strings("permissions"),
-            grants = grants(person),
-            delegations = person.objects("delegations").map(::app),
-          )
-        },
-        apps = document.objects("apps").map(::app),
-        services = document.objects("services").map { service ->
-          SempodsGrantService.of(
-            clientId = service.string("client_id"),
-            clientName = service.stringOrNull("client_name"),
-            permissions = service.strings("permissions"),
-            grants = grants(service),
-            lastUsedAt = instant(service, "last_used_at"),
-            grantsVersion = service.longOrNull("grants_version") ?: throw service.violation("grants_version: expected an integer"),
-          )
-        },
-      )
-    }
-
-    fun app(document: ProtocolObject): SempodsGrantApp = SempodsGrantApp.of(
-      clientId = document.string("client_id"),
-      clientName = document.stringOrNull("client_name"),
-      permissions = document.strings("permissions"),
-      grants = grants(document),
-      lastUsedAt = instant(document, "last_used_at"),
-    )
-
-    fun grants(document: ProtocolObject): List<SempodsReachingGrant> = document.objects("grants").map {
-      SempodsReachingGrant.of(permission = it.string("permission"), inheritedFrom = it.stringOrNull("inherited_from"))
-    }
-
-    fun count(document: ProtocolObject, name: String): Int =
-      document.longOrNull(name)?.takeIf { it in 0..Int.MAX_VALUE }?.toInt()
-        ?: throw document.violation("$name: expected a count")
-
-    /** An RFC 3339 time, as this route writes one; absent or null where the pod records none. */
-    fun instant(document: ProtocolObject, name: String): Instant? = document.stringOrNull(name)?.let {
-      try {
-        Instant.parse(it)
-      } catch (_: DateTimeParseException) {
-        throw document.violation("$name: expected an RFC 3339 time")
-      }
     }
   }
 }

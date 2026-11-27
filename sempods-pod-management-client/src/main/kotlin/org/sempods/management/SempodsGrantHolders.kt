@@ -1,4 +1,4 @@
-package org.sempods.client
+package org.sempods.management
 
 import java.time.Instant
 import java.util.Collections
@@ -129,7 +129,7 @@ class SempodsGrantService private constructor(
   val lastUsedAt: Instant?,
   /**
    * The version its grants are at, which [SempodsPodGrants.withdrawService] names. The same number as
-   * [SempodsServiceClient.grantsVersion].
+   * [org.sempods.client.SempodsServiceClient.grantsVersion].
    */
   val grantsVersion: Long,
 ) {
