@@ -266,7 +266,7 @@ class PodGrantsFacade @Inject constructor(
    * anchored at the context. A delegation derived from a withdrawn `#manage`, such as
    * `R/child#write`, stays until the app next authorizes, where the consent's repair narrows it to
    * what is backed (`PodAuthorizeFlow`). Telling the two apart needs the withdrawal recorded before
-   * it starts.
+   * it starts: https://github.com/sempods/sempods-kotlin/issues/494.
    */
   internal fun withdrawWebIdGrantsOn(
     pod: HostedPod,
