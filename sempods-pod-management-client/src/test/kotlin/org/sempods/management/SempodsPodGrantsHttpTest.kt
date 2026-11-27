@@ -1,24 +1,16 @@
 package org.sempods.management
 
-import okhttp3.OkHttpClient
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
-import org.mockserver.configuration.Configuration
-import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.sempods.client.SempodsDecodingException
-import org.sempods.client.SempodsOkHttp
 import org.sempods.client.SempodsPermission
 import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsStatusException
-import org.slf4j.event.Level
+import org.sempods.testsupport.MockPodTest
 import java.time.Instant
 import java.util.Base64
 import kotlin.test.assertEquals
@@ -27,43 +19,20 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** What each grant-management operation puts on the wire, and what it reads back. */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SempodsPodGrantsHttpTest {
+class SempodsPodGrantsHttpTest : MockPodTest() {
 
-  private lateinit var mockServer: ClientAndServer
-  private lateinit var http: OkHttpClient
-  private lateinit var grants: SempodsPodGrants
+  private val grants by lazy {
+    SempodsPodGrants(SempodsSession(SempodsPodBase.of("$origin/alice"), SempodsRequestAuth.bearer("tok-1")), client)
+  }
 
   private val notes = "https://pods.example/alice/_system/contexts/notes"
 
   private val work = "https://pods.example/alice/_system/contexts/notes/work"
 
-  @BeforeAll
-  fun startServer() {
-    mockServer = ClientAndServer.startClientAndServer(Configuration.configuration().logLevel(Level.WARN))
-    http = SempodsOkHttp.install(OkHttpClient.Builder()).build()
-    grants = SempodsPodGrants(
-      SempodsSession(SempodsPodBase.of("http://localhost:${mockServer.port}/alice"), SempodsRequestAuth.bearer("tok-1")),
-      http,
-    )
-  }
-
-  @AfterAll
-  fun stopServer() {
-    mockServer.stop()
-    http.dispatcher.executorService.shutdown()
-    http.connectionPool.evictAll()
-  }
-
-  @BeforeEach
-  fun resetServer() {
-    mockServer.reset()
-  }
-
   private fun b64(value: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
 
   private fun answer(path: String, status: Int, body: String = "") {
-    mockServer.`when`(request().withPath(path)).respond(response().withStatusCode(status).withBody(body))
+    server.`when`(request().withPath(path)).respond(response().withStatusCode(status).withBody(body))
   }
 
   @Test
@@ -73,7 +42,7 @@ class SempodsPodGrantsHttpTest {
     val counts = checkNotNull(grants.counts().body)
 
     assertEquals(listOf(SempodsContextHolderCounts.of(notes, people = 2, apps = 1, services = 0)), counts)
-    val sent = mockServer.retrieveRecordedRequests(request()).single()
+    val sent = server.retrieveRecordedRequests(request()).single()
     assertEquals("GET", sent.method.value)
     assertEquals("Bearer tok-1", sent.getFirstHeader("Authorization"))
   }
@@ -141,7 +110,7 @@ class SempodsPodGrantsHttpTest {
     assertFalse(grants.withdrawApp(notes, "dyn:notes"), "404: nothing held there")
     assertTrue(grants.withdrawService(notes, "svc:1", grantsVersion = 3))
 
-    val sent = mockServer.retrieveRecordedRequests(request())
+    val sent = server.retrieveRecordedRequests(request())
     assertEquals(listOf("DELETE", "DELETE", "DELETE"), sent.map { it.method.value })
     assertEquals("\"3\"", sent.last().getFirstHeader("If-Match"), "the version as a strong ETag")
     assertTrue(sent.dropLast(1).all { it.getFirstHeader("If-Match").isEmpty() })
