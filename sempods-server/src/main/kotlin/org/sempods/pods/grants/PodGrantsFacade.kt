@@ -259,6 +259,14 @@ class PodGrantsFacade @Inject constructor(
    * **All the grants first, one cascade after.** WebIDs linked by consent records, A with B and B
    * with C, are one person. Withdrawn and cascaded one WebID at a time, a delegation naming A and B
    * would survive: B still backs it when A's cascade runs, and C's cascade no longer sees it.
+   *
+   * **Not repaired by sending the withdrawal again**, unlike [revokeWebIdGrants]. A run that dies
+   * after the grants are deleted and before the cascade leaves the person holding no grant, and the
+   * route then takes them for someone who never held one: it withdraws only what is delegated
+   * anchored at the context. A delegation derived from a withdrawn `#manage`, such as
+   * `R/child#write`, stays until the app next authorizes, where the consent's repair narrows it to
+   * what is backed (`PodAuthorizeFlow`). Telling the two apart needs the withdrawal recorded before
+   * it starts.
    */
   internal fun withdrawWebIdGrantsOn(
     pod: HostedPod,
