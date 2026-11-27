@@ -186,8 +186,8 @@ one the page answers `403`. A host can set it up instead when it
 The pod advertises the scopes the authority carries as `sempods_service_management_scopes` in its
 authorization-server metadata. A pod without the member does not offer it.
 
-The authority reaches no data: a token carrying it reads no context, including one the service was
-granted otherwise. `service-clients:manage` is never part of it, because that can create data access.
+The authority reaches no data: while the service holds it, none of its tokens reads a context,
+including one the service was granted otherwise and a token it obtained before the owner granted it. `service-clients:manage` is never part of it, because that can create data access.
 Every call checks the pod's current owner. After a change of owner, calls answer `403`, and the
 token endpoint refuses the service `invalid_scope`, even where it also holds context grants. The new
 owner sees the consent page as a fresh request, and confirming it grants the authority again. Calls

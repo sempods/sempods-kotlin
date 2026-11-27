@@ -126,12 +126,14 @@ class PodGrantsEndpoint @Inject constructor(
   ): Response {
     val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     val caller = bearerRoutes.requireBearerOrThrow(podDbo, requestContext)
-    ifMatch ?: return error(428, "send If-Match with the grants_version the listing answered, as a strong ETag")
-    val expectedVersion = grantsVersionOf(ifMatch)
-      ?: return error(400, "If-Match is one strong ETag holding the grants_version the listing answered")
+    // A missing or malformed If-Match is refused only once the bearer's authority stood, so a bearer
+    // without one is answered with its 403 challenge rather than a precondition it could not use.
     val result = management.withdrawService(
-      bearerRoutes.hosted(podDbo), caller, decode(context, "context"), decode(clientId, "client_id"), expectedVersion,
+      bearerRoutes.hosted(podDbo), caller, decode(context, "context"), decode(clientId, "client_id"), ifMatch?.let(::grantsVersionOf),
     )
+    if (ifMatch != null && result is PodGrantManagementResult.Refused && result.reason == PodGrantManagementRefusal.VERSION_REQUIRED) {
+      return error(400, "If-Match is one strong ETag holding the grants_version the listing answered")
+    }
     return answer(podDbo, result) { Response.noContent().build() }
   }
 
@@ -166,6 +168,7 @@ class PodGrantsEndpoint @Inject constructor(
       .type(MediaType.APPLICATION_JSON)
       .build()
     PodGrantManagementRefusal.VERSION_MISMATCH -> error(412, "the grants changed since the version If-Match names; read them again")
+    PodGrantManagementRefusal.VERSION_REQUIRED -> error(428, "send If-Match with the grants_version the listing answered, as a strong ETag")
   }
 
   private fun app(app: AppHolder): Map<String, Any?> = linkedMapOf<String, Any?>("client_id" to app.clientId).apply {

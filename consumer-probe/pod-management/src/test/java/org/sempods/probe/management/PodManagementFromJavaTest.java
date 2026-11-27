@@ -8,18 +8,17 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import okhttp3.OkHttpClient;
 
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +39,8 @@ import org.sempods.management.SempodsReachingGrant;
  * — the build checks the last two.
  *
  * <p>The server is {@code com.sun.net.httpserver} from the JDK, so the classpath under test is what
- * a consumer resolves, plus JUnit.
+ * a consumer resolves, plus JUnit. Each method has a server and a client of its own, so the methods
+ * also pass when they run concurrently.
  */
 class PodManagementFromJavaTest {
 
@@ -48,16 +48,16 @@ class PodManagementFromJavaTest {
 
   private static final String BOB = "https://id.example/bob";
 
-  private static HttpServer server;
-  private static OkHttpClient client;
-  private static SempodsPodGrants grants;
+  private HttpServer server;
+  private OkHttpClient client;
+  private SempodsPodGrants grants;
 
-  private static final List<String> paths = new ArrayList<>();
-  private static volatile int status = 200;
-  private static volatile String body = "";
+  private final List<String> paths = new CopyOnWriteArrayList<>();
+  private volatile int status = 200;
+  private volatile String body = "";
 
-  @BeforeAll
-  static void start() throws IOException {
+  @BeforeEach
+  void start() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext("/alice/_system/auth/grants", exchange -> {
       paths.add(exchange.getRequestMethod() + " " + exchange.getRequestURI());
@@ -72,7 +72,7 @@ class PodManagementFromJavaTest {
     // doc-example:end construct
   }
 
-  private static void answer(HttpExchange exchange) throws IOException {
+  private void answer(HttpExchange exchange) throws IOException {
     // A withdrawal is answered as the pod answers it: `204`, unless a test set a refusal.
     int code = exchange.getRequestMethod().equals("DELETE") && status == 200 ? 204 : status;
     byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -87,18 +87,11 @@ class PodManagementFromJavaTest {
     exchange.close();
   }
 
-  @AfterAll
-  static void stop() {
+  @AfterEach
+  void stop() {
     server.stop(0);
     client.dispatcher().executorService().shutdown();
     client.connectionPool().evictAll();
-  }
-
-  @BeforeEach
-  void forget() {
-    paths.clear();
-    status = 200;
-    body = "";
   }
 
   @Test

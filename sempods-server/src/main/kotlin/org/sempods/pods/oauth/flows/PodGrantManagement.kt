@@ -102,27 +102,31 @@ class PodGrantManagement @Inject internal constructor(
     contextUri: String,
     clientId: String,
   ): PodGrantManagementResult<Unit> = authorized(pod, caller) {
-    val context = holders.snapshot(pod).on(contextUri)
+    val snapshot = holders.snapshot(pod)
+    val context = snapshot.on(contextUri)
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.UNKNOWN_CONTEXT)
     val app = context.ownerApps.firstOrNull { it.clientId == clientId }
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.NOT_HELD)
     directOrRefused(app.grants) {
-      podGrantsFacade.withdrawDelegationsOn(pod, podGrantsFacade.ownerUris(pod), contextUri, clientId)
+      podGrantsFacade.withdrawDelegationsOn(pod, snapshot.ownerUris, contextUri, clientId)
     }
   }
 
   /**
    * Withdraws [clientId]'s direct grants on [contextUri], if its grants are still at
    * [expectedVersion]: the same conditional write as replacing them
-   * ([PodServiceClientManagement.replaceGrants]), with the rest of its grants kept.
+   * ([PodServiceClientManagement.replaceGrants]), with the rest of its grants kept. A caller that
+   * names no version is refused with [PodGrantManagementRefusal.VERSION_REQUIRED], after the
+   * authority check: a bearer without one learns that first.
    */
   internal fun withdrawService(
     pod: HostedPod,
     caller: SempodsCredentials,
     contextUri: String,
     clientId: String,
-    expectedVersion: Long,
+    expectedVersion: Long?,
   ): PodGrantManagementResult<Unit> = authorized(pod, caller) { authority ->
+    expectedVersion ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.VERSION_REQUIRED)
     val context = holders.snapshot(pod).on(contextUri)
       ?: return@authorized PodGrantManagementResult.Refused(PodGrantManagementRefusal.UNKNOWN_CONTEXT)
     val registration = serviceClients.find(pod.id, clientId)
@@ -211,4 +215,7 @@ internal enum class PodGrantManagementRefusal {
 
   /** A service's grants are no longer at the version `If-Match` names. */
   VERSION_MISMATCH,
+
+  /** A service's grants were to be withdrawn without a version to hold them to, or with one that is no version. */
+  VERSION_REQUIRED,
 }

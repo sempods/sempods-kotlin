@@ -443,6 +443,29 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a WebID a later sign-in linked to the owner is the owner, with the apps it delegated to`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val podId = checkNotNull(owned.pod.id)
+    val token = didWeb.accessToken(owned.pod, managing(owned))
+    // An OIDC WebID holding a grant and an app of its own, before a sign-in linked it to the owner.
+    val linked = person()
+    podGrantsFacade.addWebIdGrants(owned.hosted(), linked, listOf("$notes#read"), grantedBy = owned.webId)
+    podGrantsDao.replaceGrants(podId, "did:web:early.example", linked, setOf("$notes#read"), listOf(linked), linked)
+    podGrantsDao.replaceGrants(podId, "did:web:late.example", owned.webId, setOf("$notes#read"), listOf(owned.webId, linked), owned.webId)
+
+    val listed = holders(owned, notes, token)
+    assertTrue(list(listed["people"]).none { it["web_id"] == linked }, "not another person: ${listed["people"]}")
+    assertEquals(
+      listOf("did:web:early.example", "did:web:late.example"),
+      list(listed["apps"]).map { it["client_id"] },
+    )
+    assertEquals(204, delete("${grantsOf(owned, notes)}/apps/${b64("did:web:early.example")}", token).statusCode)
+    assertEquals(emptySet(), podGrantsDao.fetchGrantStrings(podId, "did:web:early.example", listOf(linked)))
+    assertEquals(setOf("$notes#read"), podGrantsDao.fetchGrantStrings(podId, "did:web:late.example", listOf(owned.webId)), "only that app")
+  }
+
+  @Test
   fun `withdrawing the owner's last grant for an app ends its refresh tokens, and a grant it keeps keeps them`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
@@ -474,6 +497,24 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a service's token from before the authority reaches nothing once the owner grants it`() {
+    val owned = ownedPod()
+    val notes = owned.context("notes")
+    val note = sempodsTestFactory.seedEvent(pod = owned.pod.name, context = URI(notes))
+    val service = didWeb.registered(owned.pod, DidWebServiceFixture.newService())
+    services.confirm(owned.pod, service.did, owned.cookie, setOf("$notes#read"))
+    val earlier = didWeb.accessToken(owned.pod, service)
+    assertEquals(200, read(note, earlier).statusCode, "reachable before")
+
+    val confirmed = delegated.submit(services.page(openManagement(owned, service.did)), owned.cookie, scopes = emptySet())
+    assertEquals(200, confirmed.statusCode, confirmed.responseBody)
+
+    assertRefused(read(note, earlier))
+    val listed = list(holders(owned, notes, didWeb.accessToken(owned.pod, service))["services"]).single()
+    assertEquals(emptyList<Any?>(), listed["permissions"], "the listing and the data agree")
+  }
+
+  @Test
   fun `an app is named by the name it registered with`() {
     val owned = ownedPod()
     val notes = owned.context("notes")
@@ -496,6 +537,9 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
       auth(http.prepareDelete("$base/people/${b64(person())}")).execute(),
       auth(http.prepareDelete("$base/apps/${b64("dyn:x")}")).execute(),
       auth(http.prepareDelete("$base/services/${b64("svc:x")}").addHeader("If-Match", "\"1\"")).execute(),
+      // The precondition is asked about only once the authority stood.
+      auth(http.prepareDelete("$base/services/${b64("svc:x")}")).execute(),
+      auth(http.prepareDelete("$base/services/${b64("svc:x")}").addHeader("If-Match", "*")).execute(),
     )
   }
 

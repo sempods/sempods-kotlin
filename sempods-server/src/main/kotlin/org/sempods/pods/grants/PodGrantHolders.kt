@@ -21,7 +21,9 @@ import java.time.Instant
  * them. One person may hold grants under several WebIDs: those a sign-in recognised together, which
  * a delegation records in [PodGrantDbo.subjectUris], and the derivable spellings of each. They are
  * one person here. The owner holds no WebID grants — their authority is implicit — so their
- * delegations are a group of their own.
+ * delegations are a group of their own: every delegation whose person shares a URI with the owner,
+ * including one given under a WebID a later sign-in linked to the owner. Grants such a WebID holds
+ * are not listed, as the owner reaches everything anyway.
  *
  * Only explicit grants are listed. A public context is readable by anyone without one, and nothing
  * here changes that.
@@ -54,11 +56,10 @@ class PodGrantHolders @Inject internal constructor(
     val lastIssued = refreshTokenStore.lastIssuedPerConnection(pod.id)
 
     val people = people(pod)
-    val ownerRows = mutableListOf<PodGrantDbo>()
-    podGrantsDao.fetchGrantsByPod(storedPodId).forEach { row ->
-      val uris = rowUris(row)
-      if (podGrantsFacade.isPodOwner(pod, uris)) ownerRows += row else people.attach(row, uris)
-    }
+    podGrantsDao.fetchGrantsByPod(storedPodId).forEach { row -> people.attach(row, rowUris(row)) }
+    // Only once every alias set is joined: a WebID's earlier delegation is the owner's as soon as a
+    // later one records it beside the owner's WebID.
+    val owner = people.separate(podGrantsFacade.ownerUris(pod))
 
     fun apps(rows: List<PodGrantDbo>): List<HeldApp> = rows.groupBy { it.appId }.map { (appId, appRows) ->
       HeldApp(
@@ -85,21 +86,22 @@ class PodGrantHolders @Inject internal constructor(
         grants = parse(pod, registration.scopes),
         lastUsedAt = registration.lastUsedAt,
         grantsVersion = registration.grantsVersion,
-        // Every token it obtains carries the authority, and a token carrying one resolves no grant
-        // (`GrantStorePodAuthorizer`); after a change of owner it obtains none.
+        // Its registration resolves no grant while it holds the authority, for a token it obtained
+        // before as well (`PodContextPermissionResolver.resolve`); after a change of owner it obtains none.
         reachesData = registration.management == null,
       )
     }
     return GrantHoldersSnapshot(
       contexts = contexts,
       people = heldPeople,
-      ownerApps = apps(ownerRows),
+      ownerApps = apps(owner.rows),
+      ownerUris = owner.uris,
       services = services,
       resolver = podContextPermissionResolver,
     )
   }
 
-  /** The people holding WebID grants on [pod], other than its owner, before their delegations are attached. */
+  /** The people holding WebID grants on [pod] under a WebID other than its owner's, before their delegations are attached. */
   private fun people(pod: HostedPod): People {
     val people = People()
     podWebIdGrantsDao.fetchByPod(pod.id.objectId())
@@ -147,6 +149,9 @@ class PodGrantHolders @Inject internal constructor(
     fun attach(row: PodGrantDbo, uris: Set<String>) {
       join(uris).rows += row
     }
+
+    /** Takes out the one person sharing a URI with [uris], joined with all of them. */
+    fun separate(uris: Set<String>): Person = join(uris).also { people.remove(it) }
   }
 
   private class Person {
@@ -180,6 +185,8 @@ internal class GrantHoldersSnapshot(
   val contexts: List<String>,
   private val people: List<HeldPerson>,
   private val ownerApps: List<HeldApp>,
+  /** Every URI the owner's delegations name: the owner's WebID, its twins, and the WebIDs linked to it. */
+  val ownerUris: Set<String>,
   private val services: List<HeldService>,
   private val resolver: PodContextPermissionResolver,
 ) {

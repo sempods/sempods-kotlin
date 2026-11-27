@@ -77,10 +77,15 @@ class PodContextPermissionResolver @Inject constructor(
       // holds nothing of this token's. A token without the claim is from a server before it, and at
       // most a service token's lifetime old — for a `svc:` or an operator's client. No such server
       // issued one for a `did:web` service, so one of those without the claim holds nothing.
+      //
+      // A registration holding the management authority resolves none either. Its tokens carry the
+      // authority and reach no data (`GrantStorePodAuthorizer`), and one it obtained before the owner
+      // granted it carries nothing: asking the registration ends that token's data access at once.
       podServiceClientDao.findByClientId(podId, token.clientId)
         ?.takeIf { row ->
           if (token.registrationId == null) !token.clientId.startsWith(DidWeb.PREFIX) else row.id?.toHexString() == token.registrationId
         }
+        ?.takeIf { row -> row.managementGrantedBy == null }
         ?.scopes ?: emptySet()
     } else {
       podGrantsDao.fetchGrantStrings(podId, token.clientId, listOf(checkNotNull(token.sub)))
