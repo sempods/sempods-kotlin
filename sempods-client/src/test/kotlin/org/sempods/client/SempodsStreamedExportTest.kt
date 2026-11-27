@@ -21,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
+import org.sempods.testsupport.sempodsClient
+import org.sempods.testsupport.shutDown
 
 /**
  * What a streamed read does while the pod is still sending.

@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
 
 /** What `install` decides for the builder it is handed, and what it leaves to the consumer. */
 class SempodsOkHttpInstallTest : MockPodTest() {

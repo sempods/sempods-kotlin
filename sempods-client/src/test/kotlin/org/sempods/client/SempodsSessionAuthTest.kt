@@ -24,12 +24,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody
 import okhttp3.Response
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.matchers.Times
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /**
  * Who sends which credential where, and when a refused one is worth sending again.
@@ -39,13 +41,6 @@ import org.mockserver.model.HttpResponse.response
  * been handed the answer.
  */
 class SempodsSessionAuthTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   /**
    * `refreshable` takes its supplier first, so a trailing lambda would bind to the header name.

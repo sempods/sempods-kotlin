@@ -7,6 +7,8 @@ import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import java.util.UUID
 import java.time.Duration
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.shutDown
 import tools.jackson.databind.json.JsonMapper
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,6 +19,7 @@ class DocumentationExamplesTest : MockPodTest() {
 
   private val json = JsonMapper()
 
+  // The guides build their own client, and so does this class.
   // doc-example:start install
   val http = SempodsOkHttp.install(OkHttpClient.Builder()).build()
   // doc-example:end install

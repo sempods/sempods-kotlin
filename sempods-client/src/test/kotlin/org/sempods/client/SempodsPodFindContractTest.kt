@@ -8,7 +8,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import okhttp3.OkHttpClient
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -18,6 +17,10 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.StringBody
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
+import org.sempods.testsupport.shutDown
 
 /**
  * What `find` puts on the wire, and which answers it takes.
@@ -34,18 +37,13 @@ class SempodsPodFindContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
+  override fun newClient() = sempodsClient {
     addNetworkInterceptor { chain ->
       val request = chain.request()
       val body = Buffer().also { request.body?.writeTo(it) }.readUtf8()
       sent += Sent(request.header("Content-Type"), body, SempodsRepeatable.isMarked(chain.call()))
       chain.proceed(request)
     }
-  }
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
   }
 
   @BeforeEach

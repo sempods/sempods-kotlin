@@ -7,13 +7,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import okhttp3.OkHttpClient
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.shutDown
 
 /**
  * What the pod-metadata operations put on the wire, and which answers they take.
@@ -22,13 +24,6 @@ import org.mockserver.model.HttpResponse.response
  * expects and to the two answers it gives.
  */
 class SempodsPodMetadataContractTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private val route = "/alice/_system/meta/date-modified"
 

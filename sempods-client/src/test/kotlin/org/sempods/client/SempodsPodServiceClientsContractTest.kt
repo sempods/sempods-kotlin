@@ -5,24 +5,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
 import tools.jackson.databind.json.JsonMapper
 
 /** What each service-client operation puts on the wire, and what it reads back. */
 class SempodsPodServiceClientsContractTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private val json = JsonMapper()
 

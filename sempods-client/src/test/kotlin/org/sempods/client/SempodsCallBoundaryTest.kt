@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /**
  * Every way a session's request can run past the session's interceptors, and what happens then.

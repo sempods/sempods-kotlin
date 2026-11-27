@@ -21,7 +21,6 @@ import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -30,16 +29,13 @@ import org.mockserver.matchers.Times
 import org.mockserver.model.HttpError
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
 
 /** What a foreign target puts on the wire, what it takes back, and what it never inherits. */
 class SempodsForeignTargetContractTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private val card get() = "$origin/people/bob/card"
 

@@ -27,7 +27,7 @@ dependencies {
   implementation(libs.jackson3Databind)
 
   testImplementation(libs.okhttp)
-  testImplementation(libs.slf4jApi)
+  testImplementation(project(":test-support:mock-pod"))
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
   testImplementation(libs.junitJupiterParams)

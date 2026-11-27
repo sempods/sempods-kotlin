@@ -20,7 +20,7 @@ dependencies {
 
   // No logging: nothing in this module logs, for the reason `:sempods-client` gives.
 
-  testImplementation(libs.slf4jApi)
+  testImplementation(project(":test-support:mock-pod"))
   testImplementation(libs.mockServer)
   testImplementation(libs.bundles.test)
 }

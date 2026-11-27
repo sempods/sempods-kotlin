@@ -5,13 +5,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
 
 /**
  * What the typed `dateModified` makes of a body, and what it refuses to make of one.
@@ -20,13 +20,6 @@ import org.mockserver.model.HttpResponse.response
  * `null` or an empty answer, and the failure says where it went wrong without quoting the body.
  */
 class SempodsPodMetadataDecodingTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun dateModified(body: String): SempodsResponse<SempodsPodDateModified> {
     server.`when`(request()).respond(response().withStatusCode(200).withHeader("X-Trace", "t-1").withBody(body))

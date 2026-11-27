@@ -12,12 +12,12 @@ import okhttp3.Challenge
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.matchers.Times
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
 
 /**
  * What a mechanism is told about an answer, and which mechanism a challenge belongs to.
@@ -27,13 +27,6 @@ import org.mockserver.model.HttpResponse.response
  * that must not cost a token which is still valid.
  */
 class SempodsResponseObservationTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun session(pod: String, auth: SempodsRequestAuth) = SempodsSession(SempodsPodBase.of("$origin/$pod"), auth)
 

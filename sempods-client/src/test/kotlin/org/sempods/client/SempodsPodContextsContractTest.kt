@@ -8,7 +8,6 @@ import kotlin.test.assertTrue
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -16,6 +15,9 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
 
 /** What the context operations put on the wire, and which answers they take. */
 class SempodsPodContextsContractTest : MockPodTest() {
@@ -26,7 +28,7 @@ class SempodsPodContextsContractTest : MockPodTest() {
   private val sent = CopyOnWriteArrayList<Sent>()
 
   // Below the sempods interceptors, where the request is written with its credential.
-  private val client = sempodsClient().newBuilder()
+  override fun newClient() = sempodsClient().newBuilder()
     .addNetworkInterceptor { chain ->
       val request = chain.request()
       val bytes = request.body?.let { Buffer().also(it::writeTo).readByteArray() }
@@ -34,11 +36,6 @@ class SempodsPodContextsContractTest : MockPodTest() {
       chain.proceed(request)
     }
     .build()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   @BeforeEach
   fun forgetRequests() {

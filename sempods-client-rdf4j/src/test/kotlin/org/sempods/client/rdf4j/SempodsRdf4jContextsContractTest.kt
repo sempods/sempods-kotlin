@@ -2,7 +2,6 @@ package org.sempods.client.rdf4j
 
 import org.eclipse.rdf4j.model.util.Values.iri
 import org.eclipse.rdf4j.model.util.Values.literal
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -17,18 +16,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import org.sempods.testsupport.MockPodTest
 
 /** What the registry group asks the pod for, and what it makes of the answers. */
 class SempodsRdf4jContextsContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = recordingClient(sent)
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
+  override fun newClient() = recordingClient(sent)
 
   @BeforeEach
   fun forgetRequests() {

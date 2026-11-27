@@ -36,6 +36,8 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /**
  * The one resend OkHttp used to make on its own, made by the session's interceptor instead.

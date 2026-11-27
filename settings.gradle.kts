@@ -154,4 +154,5 @@ include(
   "sempods-model",
   "sempods-pod-management-client",
   "sempods-server",
+  "test-support:mock-pod",
 )

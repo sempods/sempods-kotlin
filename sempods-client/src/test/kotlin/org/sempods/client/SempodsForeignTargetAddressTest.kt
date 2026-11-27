@@ -2,7 +2,6 @@ package org.sempods.client
 
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -10,18 +9,12 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
 
 /** The URIs and options a foreign target refuses before it builds a request. */
 class SempodsForeignTargetAddressTest : MockPodTest() {
 
-  private val client = sempodsClient()
-
   private val foreign get() = SempodsForeignTarget(client)
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   @AfterEach
   fun nothingWasSent() {

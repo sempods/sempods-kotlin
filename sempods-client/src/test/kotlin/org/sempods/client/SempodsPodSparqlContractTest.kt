@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -19,6 +18,10 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
+import org.sempods.testsupport.shutDown
 
 /**
  * What the SPARQL operations put on the wire, and which answers they take.
@@ -33,18 +36,13 @@ class SempodsPodSparqlContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
+  override fun newClient() = sempodsClient {
     addNetworkInterceptor { chain ->
       val request = chain.request()
       val body = Buffer().also { request.body?.writeTo(it) }.readByteArray()
       sent += Sent(request.url, request.header("Content-Type"), body)
       chain.proceed(request)
     }
-  }
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
   }
 
   @BeforeEach

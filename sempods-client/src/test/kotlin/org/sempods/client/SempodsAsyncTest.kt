@@ -20,21 +20,16 @@ import kotlin.test.assertTrue
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.mockserver.model.HttpError
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /** Work run away from the caller's thread: what it completes with, and what its cancel reaches. */
 class SempodsAsyncTest : MockPodTest() {
-
-  private val client = sempodsClient()
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun session(auth: SempodsRequestAuth = SempodsRequestAuth.anonymous()) =
     SempodsSession(SempodsPodBase.of("$origin/alice"), auth)

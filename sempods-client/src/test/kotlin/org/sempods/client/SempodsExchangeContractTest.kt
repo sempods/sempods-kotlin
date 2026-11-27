@@ -1,6 +1,5 @@
 package org.sempods.client
 
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.mockserver.model.HttpRequest.request
@@ -8,20 +7,14 @@ import org.mockserver.model.HttpResponse.response
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.sempods.testsupport.MockPodTest
 
 /** What a protocol module gets when it runs a route of its own through the seam. */
 class SempodsExchangeContractTest : MockPodTest() {
 
-  private val client = sempodsClient()
-
   private val exchange get() = SempodsExchange(client)
 
   private val session get() = SempodsSession(SempodsPodBase.of("$origin/alice"), SempodsRequestAuth.bearer("t"))
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
 
   private fun own(method: String = "GET") = session.newRequest(method, "_system/own/route").build()
 

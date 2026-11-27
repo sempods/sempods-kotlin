@@ -8,7 +8,6 @@ import org.eclipse.rdf4j.model.util.Values.literal
 import org.eclipse.rdf4j.model.util.Values.tripleTerm
 import org.eclipse.rdf4j.model.impl.SimpleValueFactory
 import org.eclipse.rdf4j.model.vocabulary.XSD
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -25,6 +24,7 @@ import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsReadOptions
 import org.sempods.client.SempodsSession
 import org.sempods.client.SempodsWriteOptions
+import org.sempods.testsupport.MockPodTest
 import tools.jackson.databind.json.JsonMapper
 import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
@@ -38,12 +38,7 @@ class SempodsRdf4jSlotsContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = recordingClient(sent)
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
-  }
+  override fun newClient() = recordingClient(sent)
 
   @BeforeEach
   fun forgetRequests() {

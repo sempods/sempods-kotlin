@@ -14,7 +14,6 @@ import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -22,6 +21,10 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
+import org.sempods.testsupport.shutDown
 
 /**
  * What the resource and subject operations put on the wire, and which answers they take.
@@ -35,7 +38,7 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
+  override fun newClient() = sempodsClient {
     addNetworkInterceptor { chain ->
       val request = chain.request()
       val body = request.body
@@ -44,11 +47,6 @@ class SempodsResourceGroupsContractTest : MockPodTest() {
       // A one-shot body is spent once read here, so the attempt goes on with what was read.
       chain.proceed(if (body == null) request else request.newBuilder().method(request.method, bytes!!.toRequestBody(body.contentType())).build())
     }
-  }
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
   }
 
   @BeforeEach

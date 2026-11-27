@@ -10,7 +10,6 @@ import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.Buffer
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -18,6 +17,9 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.headersBeyondTransport
+import org.sempods.testsupport.sempodsClient
 
 /** What the slot operations put on the wire, and which answers they take. */
 class SempodsPodSlotsContractTest : MockPodTest() {
@@ -27,7 +29,7 @@ class SempodsPodSlotsContractTest : MockPodTest() {
 
   private val sent = CopyOnWriteArrayList<Sent>()
 
-  private val client = sempodsClient {
+  override fun newClient() = sempodsClient {
     addNetworkInterceptor { chain ->
       val request = chain.request()
       val body = request.body
@@ -35,11 +37,6 @@ class SempodsPodSlotsContractTest : MockPodTest() {
       sent += Sent(request.method, request.url, request.headers, bytes)
       chain.proceed(if (body == null) request else request.newBuilder().method(request.method, bytes!!.toRequestBody(body.contentType())).build())
     }
-  }
-
-  @AfterAll
-  fun stopClient() {
-    client.shutDown()
   }
 
   @BeforeEach

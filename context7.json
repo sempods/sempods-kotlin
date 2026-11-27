@@ -16,7 +16,8 @@
     "**/build",
     "**/src/test",
     "**/src/testFixtures",
-    "**/src/load"
+    "**/src/load",
+    "test-support"
   ],
   "excludeFiles": [
     "AGENTS.md",

@@ -19,6 +19,9 @@ import org.sempods.client.net.SempodsOutboundGuard
 import org.sempods.client.net.SempodsRateLimitedException
 import org.sempods.client.net.SempodsUrlPolicy
 import org.sempods.client.net.SsrfBlockedException
+import org.sempods.testsupport.MockPodTest
+import org.sempods.testsupport.closing
+import org.sempods.testsupport.sempodsClient
 
 /**
  * The outbound guard, end to end, under a foreign target: what a client installed with one refuses,
