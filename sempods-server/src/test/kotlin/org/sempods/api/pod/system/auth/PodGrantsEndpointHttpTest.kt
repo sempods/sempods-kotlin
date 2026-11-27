@@ -9,6 +9,7 @@ import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Updates
 import org.sempods.SempodsCollections
 import org.sempods.SempodsModule
+import org.sempods.client.SempodsPermission
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsStatusException
 import org.sempods.commons.identity.WebIdUriDeriver
@@ -373,7 +374,7 @@ class PodGrantsEndpointHttpTest : SempodsIntegrationTest() {
 
     assertEquals(1, checkNotNull(grants.counts().body).single { it.contextIri == notes }.people, "Bob, and nobody else on notes")
     val person = checkNotNull(grants.holders(work).body).people.single { it.webId == bob }
-    assertEquals(listOf("read", "write", "manage"), person.permissions)
+    assertEquals(SempodsPermission.entries.toSet(), person.permissions)
     assertEquals(listOf(notes), person.grants.mapNotNull { it.inheritedFrom })
     assertEquals(MINTED_CLIENT_ID, person.delegations.single().clientId)
 

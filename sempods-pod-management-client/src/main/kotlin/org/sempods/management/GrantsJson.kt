@@ -1,5 +1,6 @@
 package org.sempods.management
 
+import org.sempods.client.SempodsPermission
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
@@ -36,7 +37,7 @@ internal object GrantsJson {
       people = objects(root, "people").map { person ->
         SempodsGrantPerson.of(
           webId = text(person, "web_id"),
-          permissions = strings(person, "permissions"),
+          permissions = permissions(person),
           grants = grants(person),
           delegations = objects(person, "delegations").map(::app),
         )
@@ -46,7 +47,7 @@ internal object GrantsJson {
         SempodsGrantService.of(
           clientId = text(service, "client_id"),
           clientName = optionalText(service, "client_name"),
-          permissions = strings(service, "permissions"),
+          permissions = permissions(service),
           grants = grants(service),
           lastUsedAt = instant(service, "last_used_at"),
           grantsVersion = service["grants_version"]?.takeIf { it.isIntegralNumber && it.canConvertToLong() }?.longValue()
@@ -59,14 +60,25 @@ internal object GrantsJson {
   private fun app(document: ObjectNode): SempodsGrantApp = SempodsGrantApp.of(
     clientId = text(document, "client_id"),
     clientName = optionalText(document, "client_name"),
-    permissions = strings(document, "permissions"),
+    permissions = permissions(document),
     grants = grants(document),
     lastUsedAt = instant(document, "last_used_at"),
   )
 
   private fun grants(document: ObjectNode): List<SempodsReachingGrant> = objects(document, "grants").map {
-    SempodsReachingGrant.of(permission = text(it, "permission"), inheritedFrom = optionalText(it, "inherited_from"))
+    SempodsReachingGrant.of(permission = permission(text(it, "permission")), inheritedFrom = optionalText(it, "inherited_from"))
   }
+
+  private fun permissions(document: ObjectNode): Set<SempodsPermission> =
+    strings(document, "permissions").mapTo(mutableSetOf(), ::permission)
+
+  /**
+   * A permission this client knows. An unknown one fails the whole answer rather than being dropped:
+   * a holder shown with less than it can do would mislead the owner, and the routes are the
+   * reference implementation's, which ships in step with this module.
+   */
+  private fun permission(value: String): SempodsPermission =
+    SempodsPermission.of(value) ?: throw IllegalArgumentException("the answer names a permission this client does not know")
 
   private fun count(document: ObjectNode, member: String): Int =
     document[member]?.takeIf { it.isIntegralNumber && it.canConvertToInt() }?.intValue()?.takeIf { it >= 0 }

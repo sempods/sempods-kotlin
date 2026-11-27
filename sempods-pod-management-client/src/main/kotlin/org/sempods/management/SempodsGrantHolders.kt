@@ -1,7 +1,9 @@
 package org.sempods.management
 
+import org.sempods.client.SempodsPermission
 import java.time.Instant
 import java.util.Collections
+import java.util.EnumSet
 
 /**
  * Who holds grants reaching one context of a pod, as [SempodsPodGrants.holders] reads it. Grouped by
@@ -51,13 +53,16 @@ class SempodsContextHolders private constructor(
  */
 class SempodsGrantPerson private constructor(
   val webId: String,
-  permissions: List<String>,
+  permissions: Set<SempodsPermission>,
   grants: List<SempodsReachingGrant>,
   delegations: List<SempodsGrantApp>,
 ) {
 
-  /** What the person can do on the context — `read`, `write`, `manage` — as the context catalogue reports it. */
-  val permissions: List<String> = Collections.unmodifiableList(permissions.toList())
+  /**
+   * What the person can do on the context, as the context catalogue reports it: every permission
+   * their grants imply (`SPS-GRANT-009`), in declaration order.
+   */
+  val permissions: Set<SempodsPermission> = permissionSet(permissions)
 
   /** The person's grants that reach the context, each with where it is anchored. */
   val grants: List<SempodsReachingGrant> = Collections.unmodifiableList(grants.toList())
@@ -76,7 +81,7 @@ class SempodsGrantPerson private constructor(
   internal companion object {
 
     @JvmSynthetic
-    internal fun of(webId: String, permissions: List<String>, grants: List<SempodsReachingGrant>, delegations: List<SempodsGrantApp>) =
+    internal fun of(webId: String, permissions: Set<SempodsPermission>, grants: List<SempodsReachingGrant>, delegations: List<SempodsGrantApp>) =
       SempodsGrantPerson(webId, permissions, grants, delegations)
   }
 }
@@ -86,7 +91,7 @@ class SempodsGrantApp private constructor(
   val clientId: String,
   /** The name it registered with, and null where the pod holds no registration naming it. */
   val clientName: String?,
-  permissions: List<String>,
+  permissions: Set<SempodsPermission>,
   grants: List<SempodsReachingGrant>,
   /**
    * When it last received a refresh token for this person, and null where the pod records none: an
@@ -96,7 +101,7 @@ class SempodsGrantApp private constructor(
 ) {
 
   /** What the app can do on the context, as the context catalogue reports it. */
-  val permissions: List<String> = Collections.unmodifiableList(permissions.toList())
+  val permissions: Set<SempodsPermission> = permissionSet(permissions)
 
   /** Its grants that reach the context, each with where it is anchored. */
   val grants: List<SempodsReachingGrant> = Collections.unmodifiableList(grants.toList())
@@ -113,7 +118,7 @@ class SempodsGrantApp private constructor(
   internal companion object {
 
     @JvmSynthetic
-    internal fun of(clientId: String, clientName: String?, permissions: List<String>, grants: List<SempodsReachingGrant>, lastUsedAt: Instant?) =
+    internal fun of(clientId: String, clientName: String?, permissions: Set<SempodsPermission>, grants: List<SempodsReachingGrant>, lastUsedAt: Instant?) =
       SempodsGrantApp(clientId, clientName, permissions, grants, lastUsedAt)
   }
 }
@@ -123,7 +128,7 @@ class SempodsGrantService private constructor(
   val clientId: String,
   /** The name its registration carries, and null when it has none. */
   val clientName: String?,
-  permissions: List<String>,
+  permissions: Set<SempodsPermission>,
   grants: List<SempodsReachingGrant>,
   /** When it last obtained a token, and null when it never has. */
   val lastUsedAt: Instant?,
@@ -138,7 +143,7 @@ class SempodsGrantService private constructor(
    * What the service can do on the context, as the context catalogue reports it. Empty for a service
    * holding the management authority, whose tokens reach no data; its [grants] are still withdrawn.
    */
-  val permissions: List<String> = Collections.unmodifiableList(permissions.toList())
+  val permissions: Set<SempodsPermission> = permissionSet(permissions)
 
   /** Its grants that reach the context, each with where it is anchored. */
   val grants: List<SempodsReachingGrant> = Collections.unmodifiableList(grants.toList())
@@ -159,7 +164,7 @@ class SempodsGrantService private constructor(
     internal fun of(
       clientId: String,
       clientName: String?,
-      permissions: List<String>,
+      permissions: Set<SempodsPermission>,
       grants: List<SempodsReachingGrant>,
       lastUsedAt: Instant?,
       grantsVersion: Long,
@@ -172,8 +177,8 @@ class SempodsGrantService private constructor(
  * is withdrawn on [inheritedFrom], and with it on every context it covers.
  */
 class SempodsReachingGrant private constructor(
-  /** `read`, `write` or `manage`, as the grant names it. */
-  val permission: String,
+  /** The permission the grant names, without what it implies. */
+  val permission: SempodsPermission,
   /** The ancestor whose `#manage` grant this is, and null for a grant anchored at the context itself. */
   val inheritedFrom: String?,
 ) {
@@ -191,7 +196,7 @@ class SempodsReachingGrant private constructor(
   internal companion object {
 
     @JvmSynthetic
-    internal fun of(permission: String, inheritedFrom: String?) = SempodsReachingGrant(permission, inheritedFrom)
+    internal fun of(permission: SempodsPermission, inheritedFrom: String?) = SempodsReachingGrant(permission, inheritedFrom)
   }
 }
 
@@ -220,3 +225,7 @@ class SempodsContextHolderCounts private constructor(
     internal fun of(contextIri: String, people: Int, apps: Int, services: Int) = SempodsContextHolderCounts(contextIri, people, apps, services)
   }
 }
+
+/** An unmodifiable copy of [permissions] in [SempodsPermission]'s order; `EnumSet.copyOf` refuses an empty collection. */
+private fun permissionSet(permissions: Collection<SempodsPermission>): Set<SempodsPermission> =
+  Collections.unmodifiableSet(EnumSet.noneOf(SempodsPermission::class.java).apply { addAll(permissions) })

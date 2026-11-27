@@ -13,6 +13,7 @@ import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.sempods.client.SempodsDecodingException
 import org.sempods.client.SempodsOkHttp
+import org.sempods.client.SempodsPermission
 import org.sempods.client.SempodsPodBase
 import org.sempods.client.SempodsRequestAuth
 import org.sempods.client.SempodsSession
@@ -95,8 +96,9 @@ class SempodsPodGrantsHttpTest {
 
     assertEquals(work, holders.contextIri)
     val bob = holders.people.single()
-    assertEquals(listOf("read", "write", "manage"), bob.permissions)
+    assertEquals(setOf(SempodsPermission.READ, SempodsPermission.WRITE, SempodsPermission.MANAGE), bob.permissions)
     assertTrue(bob.grants[0].isDirect)
+    assertEquals(SempodsPermission.MANAGE, bob.grants[1].permission)
     assertEquals(notes, bob.grants[1].inheritedFrom)
     val notesApp = bob.delegations.single()
     assertEquals("Notes", notesApp.clientName)
@@ -117,6 +119,16 @@ class SempodsPodGrantsHttpTest {
 
     assertThrows<SempodsDecodingException> { grants.holders(notes) }
     assertThrows<SempodsDecodingException> { grants.counts() }
+  }
+
+  @Test
+  fun `a permission this client does not know is a decoding failure`() {
+    answer(
+      "/alice/_system/auth/grants/${b64(notes)}", 200,
+      """{"context_iri":"$notes","people":[],"apps":[{"client_id":"a","permissions":["append"],"grants":[]}],"services":[]}""",
+    )
+
+    assertThrows<SempodsDecodingException> { grants.holders(notes) }
   }
 
   @Test

@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.sempods.client.SempodsOkHttp;
+import org.sempods.client.SempodsPermission;
 import org.sempods.client.SempodsPodBase;
 import org.sempods.client.SempodsRequestAuth;
 import org.sempods.client.SempodsSession;
@@ -114,6 +116,7 @@ class PodManagementFromJavaTest {
     }
     // doc-example:end withdraw-direct
 
+    assertEquals(Set.of(SempodsPermission.READ), holders.getPeople().get(0).getPermissions());
     assertEquals("GET /alice/_system/auth/grants/" + b64(CONTEXT), paths.get(0));
     assertEquals("DELETE /alice/_system/auth/grants/" + b64(CONTEXT) + "/people/" + b64(BOB), paths.get(1));
   }
