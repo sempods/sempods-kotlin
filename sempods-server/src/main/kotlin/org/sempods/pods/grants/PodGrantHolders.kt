@@ -168,8 +168,10 @@ class PodGrantHolders @Inject internal constructor(
     }
 
     /**
-     * The WebID the answer names: one holding grants, the dereferenceable spelling first; for
-     * someone holding none, the WebID of their earliest delegation.
+     * The WebID the answer names: among the WebIDs holding grants, or for someone holding none,
+     * among those their delegations are stored under, the first `http` one in string order, else
+     * the first in string order. Of `https://id.example/z` and `https://id.example/a` it is the
+     * second, whichever was delegated first.
      */
     fun displayed(): String =
       (grantWebIds.ifEmpty { rows.map { it.webId } }).sortedWith(compareBy({ !it.startsWith("http") }, { it })).first()
