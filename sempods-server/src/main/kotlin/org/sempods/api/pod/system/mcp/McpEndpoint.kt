@@ -48,6 +48,7 @@ import org.sempods.pods.grants.SempodsCredentials
 import org.sempods.pods.oauth.PodConsentDecisionStore
 import org.sempods.pods.oauth.PodRefreshTokenStore
 import org.sempods.api.pod.system.auth.buildProtectedResourceMetadata
+import org.sempods.pods.contexts.ContextManagementSupport
 import org.sempods.pods.PodFacade
 import org.sempods.pods.mongo.persist.toPodId
 import jakarta.ws.rs.*
@@ -87,7 +88,7 @@ import tools.jackson.module.kotlin.readValue
  * reach itself under its public URL — are named in `docs/mcp/endpoint.md`.
  */
 @Path("{pod}/_system/mcp")
-class McpEndpoint @Inject constructor(
+class McpEndpoint @Inject internal constructor(
   private val podToolExecutor: PodToolExecutor,
   private val mcpPodCalls: McpPodCalls,
   private val reauthorizeChallengeStore: ReauthorizeChallengeStore,
@@ -96,6 +97,7 @@ class McpEndpoint @Inject constructor(
   private val webIdUriDeriver: WebIdUriDeriver,
   private val podFacade: PodFacade,
   private val bearerRoutes: PodBearerRoutes,
+  private val contextManagement: ContextManagementSupport,
   private val config: SempodsConfig,
 ) : PodBaseEndpoint() {
 
@@ -361,6 +363,7 @@ class McpEndpoint @Inject constructor(
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
+      offered = contextManagement,
     )
   }
 

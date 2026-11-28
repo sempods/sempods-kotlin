@@ -1,5 +1,6 @@
 package org.sempods.deployment
 
+import org.sempods.contexts.ContextManagementModule
 import com.google.inject.Guice
 import org.sempods.commons.config.Env
 import org.sempods.commons.logging.LoggingCtx
@@ -32,10 +33,15 @@ object SempodsServerStarter {
 
       logger.info { "Initialize Guice..." }
       val injector = try {
-        // Two modules, and the second one has to be here rather than inside the first: the media
-        // store a deployment selects may live in a sibling module that `:sempods` cannot name, so
-        // the composition is the only place that can choose one. See `SempodsMediaModule`.
-        Guice.createInjector(SempodsModule(), SempodsMediaModule)
+        // The optional modules are installed here, because `SempodsModule` cannot name them:
+        // the media store a deployment selects may live in a sibling module (`SempodsMediaModule`),
+        // and context creation and deletion is one (`ContextManagementModule`). The composition is
+        // the only place that holds them all, so it is the only place that can choose.
+        Guice.createInjector(
+          SempodsModule(),
+          SempodsMediaModule,
+          ContextManagementModule,
+        )
       } catch (e: Throwable) {
         // Exit rather than let the exception escape `main` — see `BackendStarter` for the failure
         // this prevents: a non-daemon thread keeping the JVM alive after a failed start, so the

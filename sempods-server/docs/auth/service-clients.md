@@ -176,7 +176,7 @@ the owner grants once. For Alice's pod and the console `did:web:console.example`
 |---|---|---|
 | 1. Register | [As a `did:web` service](#didweb-services) | A provisional registration with no grants |
 | 2. Ask Alice | `GET /_system/auth/service-consent?client_id=did%3Aweb%3Aconsole.example&state=…&authority=manage` | The page names the authority and has no contexts to tick. Confirming grants it and activates the registration. |
-| 3. Get a token | `POST /_system/auth/token` with Client Credentials, no `scope` | The token carries `contexts:manage grants:manage` |
+| 3. Get a token | `POST /_system/auth/token` with Client Credentials, no `scope` | The token carries `contexts:manage grants:manage`; `grants:manage` alone on a pod that serves no [context management](oauth.md#managing-contexts) |
 | 4. Manage contexts | `GET`, `PUT` and `DELETE /_system/contexts…` | As with [`contexts:manage`](oauth.md#managing-contexts): every context shows as `manage` alone |
 | 5. Manage grants | `GET` and `DELETE /_system/auth/grants…` | [The grants on each context](#managing-grants), and withdrawing a direct one |
 

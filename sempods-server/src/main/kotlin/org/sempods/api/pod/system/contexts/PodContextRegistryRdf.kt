@@ -52,7 +52,10 @@ internal object PodContextRegistryRdf {
     return model
   }
 
-  /** The caller's catalogue: every registered context they may see, with what they may do (`SPS-CTX-033`). */
+  /**
+   * The caller's catalogue: every registered context they may see, with what they may do (`SPS-CTX-033`).
+   * Without the lifecycle module [effective] holds no `manage` (`ContextManagementSupport.shown`).
+   */
   fun catalogue(podBaseUrl: String, rows: List<PodContextDbo>, effective: EffectiveContextPermissions): Model {
     val catalogue = catalogueIri(podBaseUrl)
     val model = LinkedHashModel()

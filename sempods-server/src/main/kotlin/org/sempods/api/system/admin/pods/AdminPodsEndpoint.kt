@@ -111,7 +111,7 @@ class AdminPodsEndpoint @Inject constructor(
    * is a 400 whether or not the pod exists.
    *
    * Idempotent, like every `PUT` in this codebase (cf.
-   * [org.sempods.api.pod.system.contexts.PodContextsEndpoint.put]): an existing pod yields
+   * [org.sempods.api.pod.system.contexts.PodContextLifecycleRoutes.create]): an existing pod yields
    * 200 `alreadyExists` and its stored owner is **not** overwritten — this route creates pods, it
    * does not transfer ownership. A fresh pod yields 201 `created`.
    *
@@ -578,8 +578,8 @@ data class ProvisionServiceClientResponse(
    * one names it without looking, so it may since have been deleted or made public by the owner.
    * Separate from [scopes], which states what the client holds now. It is the one context
    * host-level authority creates, because it cannot create contexts any other way
-   * (`PodContextsEndpoint` authorizes on pod-owner principal or a covering `#manage` scope, and an
-   * admin bearer is neither).
+   * (the lifecycle route authorizes on the owner's `contexts:manage` authority or a covering
+   * `#manage` scope, and an admin bearer is neither — see `PodContextLifecycleRoutes.authorize`).
    *
    * Returned on **both** results, because the caller needs it either way. Sent rather than left to
    * be derived so the naming convention lives in one place: a caller that rebuilds this string is

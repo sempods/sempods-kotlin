@@ -190,6 +190,8 @@ sempods-model/      the contract as code — service interfaces, URI builder, on
 sempods-media/      the media contract a pod and its clients share
 sempods-server/     the pod server: RDF4J store, contexts, OAuth, SPARQL, AI layer, MCP
 sempods-media-s3/   the S3 binding of the media seam
+sempods-context-management/
+                    context creation and deletion, the spec's optional context-management module
 sempods-auth/       identity service (Ktor)
 sempods-auth-core/  the OAuth machinery all three services share — framework-free
 sempods-mcp/        hosted MCP service (Ktor)

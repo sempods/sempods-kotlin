@@ -5,6 +5,7 @@ import org.bson.types.ObjectId
 import org.sempods.commons.jaxrs.errors.ApiErrors
 import org.sempods.SempodsFacade
 import org.sempods.SempodsUriBuilder
+import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.contexts.persist.PodContextsDao
 import org.sempods.pods.grants.PodGrantsFacade
 import org.sempods.pods.media.persist.PodMediaDao
@@ -185,11 +186,9 @@ class PodFacade @Inject constructor(
   }
 
   /**
-   * Backs the pod's context-registration route (`SempodsPodContexts.create` from outside): registers [contextUri]
-   * as a context row for [podName]. Idempotent — returns `false` if the row
-   * already exists. `createdBy` is left null to denote a system-driven creation
-   * (account provisioning, programmatic seeds); the HTTP endpoint variant
-   * populates it with the owner's WebID instead.
+   * Registers [contextUri] as a context row for [podName], for a system-driven creation: `createdBy`
+   * stays null (account provisioning, programmatic seeds). Idempotent — returns `false` if the row
+   * already exists. The lifecycle route takes [registerContext] instead, which records its caller.
    */
   internal fun createContext(
     podName: String,
@@ -216,6 +215,30 @@ class PodFacade @Inject constructor(
   ): Boolean =
     register(pod.id.objectId(), pod.name, contextUri, createdBy, public = false, label = null, description = null)
 
+  /**
+   * The lifecycle route's creation (`SPS-CTX-015`): the row it wrote, or `null` where one already
+   * existed — by the time this ran, or by a concurrent insert. Through [requireInPodNamespace] like
+   * every other producer, which the route used to skip by writing the row itself.
+   */
+  internal fun registerContext(
+    podName: String,
+    contextUri: URI,
+    label: String?,
+    description: String?,
+    public: Boolean,
+    createdBy: String,
+  ): PodContextDbo? {
+    val podId = sempodsFacade.getPodId(podName)
+      ?: throw ApiErrors.throwNotFoundError("pod", podName)
+    return insert(podId, podName, contextUri, createdBy, public = public, label = label, description = description)
+  }
+
+  /** The registry row for [contextUri], or `null` where [podName] registers none. */
+  internal fun findContext(podName: String, contextUri: URI): PodContextDbo? {
+    val podId = sempodsFacade.getPodId(podName) ?: return null
+    return podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
+  }
+
   private fun register(
     podId: ObjectId,
     podName: String,
@@ -224,9 +247,20 @@ class PodFacade @Inject constructor(
     public: Boolean,
     label: String?,
     description: String?,
-  ): Boolean {
-    // Throws for a URI outside the pod's namespace. `ConsentSelection` reaches here only with a URI
-    // `ContextPathRules.resolve` built from the pod's own base, so the check cannot fire for it.
+  ): Boolean = insert(podId, podName, contextUri, createdBy, public, label, description) != null
+
+  private fun insert(
+    podId: ObjectId,
+    podName: String,
+    contextUri: URI,
+    createdBy: String?,
+    public: Boolean,
+    label: String?,
+    description: String?,
+  ): PodContextDbo? {
+    // Throws for a URI outside the pod's namespace. `ConsentSelection` and the lifecycle route reach
+    // here only with a URI `ContextPathRules.resolve` built from the pod's own base, so the check
+    // cannot fire for them; it guards every other caller.
     requireInPodNamespace(podName = podName, contextUri = contextUri)
     return podContextsDao.create(
       podId = podId,
@@ -235,7 +269,7 @@ class PodFacade @Inject constructor(
       description = description,
       createdBy = createdBy,
       isPublic = public,
-    ) != null
+    )
   }
 
   /**

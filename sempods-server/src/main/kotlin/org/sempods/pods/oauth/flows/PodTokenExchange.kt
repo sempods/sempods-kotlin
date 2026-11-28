@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.contexts.ContextManagementSupport
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.pods.oauth.DynamicClientStore
@@ -59,6 +60,7 @@ class PodTokenExchange @Inject internal constructor(
   private val managementAuthorities: PodManagementAuthorityStore,
   private val webIdUriDeriver: WebIdUriDeriver,
   private val didWebAuthentication: DidWebClientAuthentication,
+  private val contextManagement: ContextManagementSupport,
 ) {
 
   internal fun redeemCode(
@@ -452,7 +454,7 @@ class PodTokenExchange @Inject internal constructor(
           "the authority to manage this pod ended when its owner changed; the owner grants it again in the service consent",
         )
       }
-      PodScopeValidator.serviceManagementScopes
+      contextManagement.serviceManagementScopes
     }.orEmpty()
 
     if (client.scopes.isEmpty() && management.isEmpty()) {

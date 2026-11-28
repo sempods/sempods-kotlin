@@ -108,6 +108,9 @@ dependencies {
   testImplementation(testFixtures(project(":sempods-commons-okhttp")))
   // `SempodsPodBaseVectors`, the pod base table the client is tested against.
   testImplementation(testFixtures(project(":sempods-client")))
+  // The suite runs the sempods composition, which serves context creation and deletion: the
+  // lifecycle tests are HTTP tests against this server's harness, which lives in this source set.
+  testImplementation(project(":sempods-context-management"))
   // The client's RDF4J adapter, run against the routes it reads and writes.
   testImplementation(project(":sempods-client-rdf4j"))
   // The media client, run against the media routes.
@@ -163,6 +166,12 @@ val versionResource = tasks.register("versionResource") {
   }
 }
 sourceSets.main { resources.srcDir(versionResource) }
+
+// The server declares `ExperimentalSempodsServerApi` and uses what it marks throughout. The opt-in is
+// asked of the modules beside it.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  compilerOptions.optIn.add("org.sempods.ExperimentalSempodsServerApi")
+}
 
 // What the `serverInfo` test compares against — the build's own value, not the resource it reads.
 tasks.test { systemProperty("sempods.version", project.version.toString()) }

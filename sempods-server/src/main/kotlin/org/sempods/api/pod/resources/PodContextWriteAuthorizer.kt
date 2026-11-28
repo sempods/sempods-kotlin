@@ -201,7 +201,7 @@ class PodContextWriteAuthorizer @Inject constructor(
    * [PodContextPermissionResolver.isCoveredByManageScope], the single source of truth for the
    * slash-delimited rule, shared with [org.sempods.pods.grants.GrantStorePodAuthorizer]'s
    * read-path manage-cascade and
-   * [org.sempods.api.pod.system.contexts.PodContextsEndpoint] (context PUT/DELETE), so the
+   * [org.sempods.api.pod.system.contexts.PodContextLifecycleRoutes] (context PUT/DELETE), so the
    * paths cannot drift.
    */
   fun isCoveredByManageScope(credentials: SempodsCredentials, contextUri: URI): Boolean {
