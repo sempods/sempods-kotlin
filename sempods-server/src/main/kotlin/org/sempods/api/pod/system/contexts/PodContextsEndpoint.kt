@@ -99,13 +99,13 @@ class PodContextsEndpoint @Inject internal constructor(
     val dbo = podContextsDao.fetchByContextUri(podId = podId, contextUri = contextUri.toString())
       ?: throw ContextRegistryResponses.unknownContext()
 
-    val effective = contextPermissionResolver.describeEffectivePermissions(
+    val effective = contextManagement.shown(contextPermissionResolver.describeEffectivePermissions(
       effectiveScopes = credentials.oauthScopes,
       rawScopes = credentials.oauthRawScopes,
       visibleContexts = credentials.restrictedContexts.orEmpty(),
       podBaseUrl = podBaseUrl,
       registryContexts = if (registryAuthority) listOf(dbo.contextUri) else emptyList(),
-    )
+    ))
     val entry = effective.byContext[dbo.contextUri]
       ?: throw ContextRegistryResponses.unknownContext()
 
@@ -132,21 +132,16 @@ class PodContextsEndpoint @Inject internal constructor(
     // Effective context permissions are resolved server-side per request from durable grants
     // through the shared resolver — the same logic MCP `list_contexts` uses — so REST and MCP
     // cannot drift.
-    val effective = contextPermissionResolver.describeEffectivePermissions(
+    val effective = contextManagement.shown(contextPermissionResolver.describeEffectivePermissions(
       effectiveScopes = credentials.oauthScopes,
       rawScopes = credentials.oauthRawScopes,
       visibleContexts = credentials.restrictedContexts.orEmpty(),
       podBaseUrl = podBaseUrl,
       registryContexts = if (holdsRegistryAuthority(pod, credentials)) rows.map { it.contextUri } else emptyList(),
-    )
+    ))
 
     val format = ContextRegistryNegotiation.select(httpHeaders.getHeaderString(HttpHeaders.ACCEPT)) ?: return ContextRegistryResponses.notAcceptable()
-    val model = PodContextRegistryRdf.catalogue(
-      podBaseUrl = podBaseUrl,
-      rows = rows,
-      effective = effective,
-      manageable = contextManagement.offered,
-    )
+    val model = PodContextRegistryRdf.catalogue(podBaseUrl = podBaseUrl, rows = rows, effective = effective)
     return registryRead(requestContext, format, model, PodContextRegistryRdf.catalogueIri(podBaseUrl)) {
       PodContextsListResponse(
         podBaseUrl = "${config.apiBaseUrl}$pod",

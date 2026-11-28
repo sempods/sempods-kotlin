@@ -3,6 +3,7 @@ package org.sempods.pods.contexts
 import com.google.inject.Inject
 import org.sempods.ExperimentalSempodsServerApi
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.grants.EffectiveContextPermissions
 import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
 import org.sempods.pods.grants.PodScopeValidator
 import java.util.Optional
@@ -21,8 +22,8 @@ interface ContextManagementInstalled
  *
  * Without the module, nothing may promise a lifecycle no route serves: [CONTEXTS_MANAGE_SCOPE] is
  * not requestable, not in `scopes_supported` and not part of a service's management authority, and
- * the catalogue reports no `manageableContext` (sempods-spec `docs/proposals/context-contract.md`
- * §"Caller access summary"). A `#manage` grant keeps covering writes and sub-contexts: that is the
+ * the registry reports no `manage` in any representation ([shown]; sempods-spec
+ * `docs/proposals/context-contract.md` §"Caller access summary"). A `#manage` grant keeps covering writes and sub-contexts: that is the
  * grant model's, not the module's.
  *
  * The scope stays known to the validator either way, so a token carrying it is still read as a
@@ -49,6 +50,18 @@ internal class ContextManagementSupport @Inject constructor(
   val scopesSupported: List<String> = PodScopeValidator.featureScopes.filter {
     it !in PodScopeValidator.privilegedFeatureScopes || it in requestablePrivilegedScopes
   } + OFFLINE_ACCESS_SCOPE
+
+  /**
+   * What the registry tells a caller it may do, in every representation: [effective] as resolved,
+   * without `manage` where no lifecycle is served. Read, write and the grant's source stay, so a
+   * `#manage` grant still shows the contexts it writes.
+   */
+  fun shown(effective: EffectiveContextPermissions): EffectiveContextPermissions =
+    if (offered) {
+      effective
+    } else {
+      effective.copy(byContext = effective.byContext.mapValues { (_, entry) -> entry.copy(permissions = entry.permissions - "manage") })
+    }
 
   /** [scopes] without the ones only the module gives a meaning. */
   private fun offeredOf(scopes: Set<String>): Set<String> = if (offered) scopes else scopes - CONTEXTS_MANAGE_SCOPE

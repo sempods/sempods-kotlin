@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Test
 import org.sempods.api.pod.system.auth.buildAuthorizationServerMetadata
 import org.sempods.api.pod.system.auth.buildProtectedResourceMetadata
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
+import org.sempods.pods.grants.ContextPermissionEntry
+import org.sempods.pods.grants.ContextPermissionSource
+import org.sempods.pods.grants.EffectiveContextPermissions
 import org.sempods.pods.grants.GRANTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SERVICE_CLIENTS_MANAGE_SCOPE
 import org.sempods.pods.mongo.persist.PodDbo
@@ -17,8 +20,8 @@ import kotlin.test.assertTrue
  *
  * The suite's HTTP server runs the sempods composition, which installs the module, so the pod
  * without it is pinned here, below the HTTP surface: the scopes a request may name, what a service's
- * management authority carries, and the two metadata documents. The catalogue's half is
- * `PodContextRegistryRdfTest`.
+ * management authority carries, the two metadata documents, and the permissions every registry
+ * representation reports.
  */
 class ContextManagementSupportTest {
 
@@ -60,5 +63,19 @@ class ContextManagementSupportTest {
     for (document in listOf(authorizationServer(with), protectedResource(with))) {
       assertTrue(CONTEXTS_MANAGE_SCOPE in (document["scopes_supported"] as List<*>), document.toString())
     }
+  }
+
+  @Test
+  fun `without the module no representation reports manage, and a manage grant still reads and writes`() {
+    val notes = "https://pods.example/alice/_system/contexts/notes"
+    val resolved = EffectiveContextPermissions(
+      byContext = mapOf(notes to ContextPermissionEntry(notes, listOf("read", "write", "manage"), ContextPermissionSource.MANAGE)),
+      writableContexts = listOf(notes),
+    )
+
+    assertEquals(resolved, with.shown(resolved))
+    val shown = without.shown(resolved)
+    assertEquals(ContextPermissionEntry(notes, listOf("read", "write"), ContextPermissionSource.MANAGE), shown.byContext[notes])
+    assertEquals(listOf(notes), shown.writableContexts)
   }
 }

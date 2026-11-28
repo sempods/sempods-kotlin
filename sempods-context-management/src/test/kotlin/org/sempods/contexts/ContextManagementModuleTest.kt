@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  */
 class ContextManagementModuleTest {
 
-  private val bindings = Elements.getElements(ContextManagementModule(httpPort = 8090)).filterIsInstance<Binding<*>>()
+  private val bindings = Elements.getElements(ContextManagementModule).filterIsInstance<Binding<*>>()
 
   @Test
   fun `it binds the lifecycle route and tells the server it serves it`() {

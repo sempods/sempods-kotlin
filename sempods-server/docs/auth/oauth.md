@@ -283,8 +283,9 @@ Creating and deleting contexts is the specification's optional `context-manageme
 by the `:sempods-context-management` module beside the server. The sempods deployment installs it.
 A pod without it serves the catalogue and the descriptions alone: `PUT` and `DELETE` on a context
 answer `405`, `/authorize` refuses `contexts:manage` with `invalid_scope`, the scope is in neither
-`scopes_supported` nor `sempods_service_management_scopes`, and the catalogue reports no
-`manageableContext`, also not for a `#manage` grant, which keeps covering writes and sub-contexts.
+`scopes_supported` nor `sempods_service_management_scopes`, and the registry reports no
+`manage`, in the catalogue's `manageableContext` and in the `application/json` envelopes alike, also
+not for a `#manage` grant, which keeps covering writes and sub-contexts.
 The rest of this section describes a pod that serves it.
 
 Request `contexts:manage` through owner consent to create or delete any context using

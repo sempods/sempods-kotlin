@@ -357,7 +357,10 @@ internal data class PodServiceConsentScreen(
   val webId: String,
   val management: Boolean = false,
   val managementHeld: Boolean = false,
-  /** Whether the management authority covers creating and deleting contexts: only where this pod serves them. */
+  /**
+   * Whether the management authority covers creating and deleting contexts: only where this pod
+   * serves them. Seeing every context's name it covers either way, through the grant counts.
+   */
   val contextLifecycle: Boolean = true,
 )
 

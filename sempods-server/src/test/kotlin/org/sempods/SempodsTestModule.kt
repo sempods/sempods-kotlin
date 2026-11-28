@@ -86,7 +86,7 @@ data class SempodsTestModule(
 
     // As the sempods deployment installs it (`SempodsServerStarter`): the suite's lifecycle tests run
     // against the module, and what a pod without it answers is pinned below the HTTP surface.
-    install(ContextManagementModule(httpPort = config.httpPort))
+    install(ContextManagementModule)
 
     // DID documents from memory, under portless identifiers a path segment can carry — see
     // `DidWebServiceFixture`. The HTTP fetch and its guard are tested on their own.

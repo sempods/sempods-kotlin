@@ -11,7 +11,7 @@ A composition installs it beside `SempodsModule`:
 ```kotlin
 Guice.createInjector(
   SempodsModule(),
-  ContextManagementModule(httpPort = SempodsModule.config.httpPort),
+  ContextManagementModule,
 )
 ```
 

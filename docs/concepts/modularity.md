@@ -228,14 +228,16 @@ optional `context-management` module, ships as `:sempods-context-management`. Th
 registry's reads, and the module adds `PUT` and `DELETE` on the same path. Its
 `ContextManagementModule` sets a Guice `OptionalBinder` the server declares
 (`ContextManagementInstalled`), and the server reads that one signal to decide what it advertises:
-without the module there is no `contexts:manage` to request and no `manageableContext` in the
-catalogue ([Managing contexts](../../sempods-server/docs/auth/oauth.md#managing-contexts)). Who
-may manage a context and what deleting one removes stay in the server, because they are its grant
-model and its cascade, and the consent dialog creates contexts too. So the module adds the wire
-surface and the naming rules on creation; having contexts at all stays with the server. What it calls is public
-but marked `ExperimentalSempodsServerApi`, an opt-in annotation: these modules are being cut one at
-a time under [#139](https://github.com/sempods/sempods-kotlin/issues/139), and their surface on the
-server changes with each cut.
+without the module there is no `contexts:manage` to request and no `manage` in any registry
+representation ([Managing contexts](../../sempods-server/docs/auth/oauth.md#managing-contexts)).
+Who may manage a context, the naming rules and what deleting one removes stay in the server,
+because they are its grant model and its cascade, and the consent dialog creates contexts too. The
+server offers them as two checked operations, `PodContextLifecycleRoutes.create` and `remove`,
+which run every check themselves, so the module adds the wire surface and cannot mutate around
+them. What it calls is public but marked `ExperimentalSempodsServerApi`, an opt-in annotation:
+these modules are being cut one at a time under
+[#139](https://github.com/sempods/sempods-kotlin/issues/139), and their surface on the server
+changes with each cut.
 
 ## Open-source readiness
 

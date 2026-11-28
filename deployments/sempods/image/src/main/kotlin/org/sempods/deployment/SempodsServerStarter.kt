@@ -40,7 +40,7 @@ object SempodsServerStarter {
         Guice.createInjector(
           SempodsModule(),
           SempodsMediaModule,
-          ContextManagementModule(httpPort = SempodsModule.config.httpPort),
+          ContextManagementModule,
         )
       } catch (e: Throwable) {
         // Exit rather than let the exception escape `main` — see `BackendStarter` for the failure

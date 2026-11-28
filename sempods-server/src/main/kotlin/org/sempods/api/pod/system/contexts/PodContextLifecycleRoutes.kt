@@ -11,6 +11,7 @@ import org.sempods.SempodsConfig
 import org.sempods.api.PodBearerRoutes
 import org.sempods.api.pod.resources.PodContextWriteAuthorizer
 import org.sempods.pods.PodFacade
+import org.sempods.pods.contexts.ContextPathRules
 import org.sempods.pods.contexts.persist.PodContextDbo
 import org.sempods.pods.grants.CONTEXTS_MANAGE_SCOPE
 import org.sempods.pods.grants.SempodsCredentials
@@ -19,15 +20,15 @@ import org.sempods.pods.oauth.flows.PodOwnerAuthorityCheck
 import java.net.URI
 
 /**
- * What the context lifecycle routes need from this server: who may create or delete a context, the
- * creation and the cascade, and the registry answers. The routes themselves are the spec's optional
- * `context-management` module and live in `:sempods-context-management`.
+ * The context lifecycle as two checked operations, [create] and [remove], for the routes of the
+ * spec's optional `context-management` module in `:sempods-context-management`.
  *
  * **Why the decisions stay here.** Who may manage a context is this implementation's grant model —
  * the owner's [CONTEXTS_MANAGE_SCOPE] authority or a covering `#manage` grant — and deleting one
  * cascades into grants, refresh tokens, media assignments and the store ([PodFacade.removeContext]).
- * Both hold whether a route asks or not; the consent dialog creates contexts too. What the module
- * owns is the wire surface and the naming rules on creation.
+ * Both hold whether a route asks or not; the consent dialog creates contexts too, under the same
+ * naming rules ([ContextPathRules]). So each operation runs every check itself, in the order the
+ * routes answer them, and a caller cannot mutate without them. The module owns the wire surface.
  *
  * Every refusal is thrown as a [WebApplicationException] carrying its answer, as the server's other
  * route helpers do ([PodBearerRoutes]).
@@ -42,17 +43,63 @@ class PodContextLifecycleRoutes @Inject internal constructor(
 ) {
 
   /**
-   * `406` where the caller accepts no registry representation, else `null`. Asked first, so no
-   * context comes into existence for an answer nobody can read (`SPS-CTX-037`).
+   * Creates the context [contextPath] names on [pod], or finds it existing: `201` or `200` with its
+   * registry description in the representation [accept] selects (`SPS-CTX-015`, `SPS-CTX-016`,
+   * `SPS-CTX-037`). An existing context is a no-op: field-level updates are out of scope here.
+   *
+   * The checks, in order: `406` for an [accept] nothing here satisfies, so no context comes into
+   * existence for an answer nobody can read; `404` for an unknown pod; `400` for a path that cannot
+   * be a context; then [caller], authenticated by the route; `403` without the authority, whether
+   * the context exists or not (`SPS-CORE-018`); and `400` for a name the rules refuse, on creation
+   * only (`SPS-CTX-009`, `SPS-CTX-012`, `SPS-CTX-014`).
    */
-  fun refuseUnacceptable(accept: String?): Response? =
-    if (ContextRegistryNegotiation.select(accept) == null) ContextRegistryResponses.notAcceptable() else null
+  fun create(
+    pod: String,
+    contextPath: String,
+    label: String?,
+    description: String?,
+    public: Boolean,
+    accept: String?,
+    caller: () -> SempodsCredentials,
+  ): Response {
+    val format = ContextRegistryNegotiation.select(accept) ?: return ContextRegistryResponses.notAcceptable()
+    val contextUri = contextUri(pod, contextPath)
+    val createdBy = authorize(pod, contextUri, caller())
+    ContextPathRules.rejectionReason(ContextPathRules.normalize(contextPath))?.let { throw ContextRegistryResponses.badContextPath(it) }
+    podFacade.findContext(pod, contextUri)?.let { return description(status = 200, row = it, format = format, pod = pod) }
+
+    val created = podFacade.registerContext(
+      podName = pod,
+      contextUri = contextUri,
+      label = label?.trim()?.ifBlank { null },
+      description = description?.trim()?.ifBlank { null },
+      public = public,
+      createdBy = createdBy,
+    )
+    if (created != null) return description(status = 201, row = created, format = format, pod = pod)
+    // Another caller created the same row between the lookup and the insert. PUT is idempotent and
+    // the caller's post-condition holds, so this is the same 200 an existing row answers.
+    val won = podFacade.findContext(pod, contextUri)
+      ?: throw WebApplicationException(Response.status(500).entity("unexpected create failure for $contextUri").type("text/plain").build())
+    return description(status = 200, row = won, format = format, pod = pod)
+  }
 
   /**
-   * The context IRI [contextPath] names on [pod]: `404` for an unknown pod, then `400` for a path
-   * that cannot be one — both before the caller is authenticated, as the routes always answered.
+   * Deletes the context [contextPath] names on [pod], with everything that hangs on it
+   * ([PodFacade.removeContext]): `204`. The checks, in order: `404` for an unknown pod, `400` for a
+   * path that cannot be a context, then [caller], `403` without the authority, and `404` where no
+   * such context is registered.
    */
-  fun contextUri(pod: String, contextPath: String): URI {
+  fun remove(pod: String, contextPath: String, caller: () -> SempodsCredentials): Response {
+    val contextUri = contextUri(pod, contextPath)
+    authorize(pod, contextUri, caller())
+    podFacade.findContext(pod, contextUri) ?: throw ContextRegistryResponses.unknownContext()
+    podFacade.removeContext(podName = pod, context = contextUri)
+    return Response.noContent().build()
+  }
+
+  /** The context IRI [contextPath] names on [pod]: `404` for an unknown pod, then `400`. */
+  private fun contextUri(pod: String, contextPath: String): URI {
     bearerRoutes.fetchPodOrThrow(pod)
     return ContextRegistryResponses.contextUri(podBaseUrl(pod), contextPath)
   }
@@ -76,7 +123,7 @@ class PodContextLifecycleRoutes @Inject internal constructor(
    * [credentials] are authenticated already. A withdrawn [CONTEXTS_MANAGE_SCOPE] authority is
    * `401`; a caller holding neither path `403`, whether the context exists or not (`SPS-CORE-018`).
    */
-  fun authorize(pod: String, contextUri: URI, credentials: SempodsCredentials): String {
+  private fun authorize(pod: String, contextUri: URI, credentials: SempodsCredentials): String {
     val podDbo = bearerRoutes.fetchPodOrThrow(pod)
     if (CONTEXTS_MANAGE_SCOPE in credentials.oauthScopes) {
       when (val check = ownerAuthority.check(bearerRoutes.hosted(podDbo), credentials, CONTEXTS_MANAGE_SCOPE)) {
@@ -95,49 +142,6 @@ class PodContextLifecycleRoutes @Inject internal constructor(
     throw WebApplicationException(
       Response.status(403).entity("missing manage permission for context '$contextUri'").type("text/plain").build()
     )
-  }
-
-  /**
-   * Creates [contextUri] on [pod], or finds it existing: `201` or `200` with its registry
-   * description in the representation [accept] selects (`SPS-CTX-015`, `SPS-CTX-016`, `SPS-CTX-037`).
-   * An existing context is a no-op: field-level updates are out of scope here.
-   */
-  fun create(
-    pod: String,
-    contextUri: URI,
-    label: String?,
-    description: String?,
-    public: Boolean,
-    createdBy: String,
-    accept: String?,
-  ): Response {
-    val format = ContextRegistryNegotiation.select(accept) ?: return ContextRegistryResponses.notAcceptable()
-    podFacade.findContext(pod, contextUri)?.let { return description(status = 200, row = it, format = format, pod = pod) }
-
-    val created = podFacade.registerContext(
-      podName = pod,
-      contextUri = contextUri,
-      label = label?.trim()?.ifBlank { null },
-      description = description?.trim()?.ifBlank { null },
-      public = public,
-      createdBy = createdBy,
-    )
-    if (created != null) return description(status = 201, row = created, format = format, pod = pod)
-    // Another caller created the same row between the lookup and the insert. PUT is idempotent and
-    // the caller's post-condition holds, so this is the same 200 an existing row answers.
-    val won = podFacade.findContext(pod, contextUri)
-      ?: throw WebApplicationException(Response.status(500).entity("unexpected create failure for $contextUri").type("text/plain").build())
-    return description(status = 200, row = won, format = format, pod = pod)
-  }
-
-  /**
-   * Deletes [contextUri] with everything that hangs on it ([PodFacade.removeContext]): `204`, or `404`
-   * where no such context is registered.
-   */
-  fun remove(pod: String, contextUri: URI): Response {
-    podFacade.findContext(pod, contextUri) ?: throw ContextRegistryResponses.unknownContext()
-    podFacade.removeContext(podName = pod, context = contextUri)
-    return Response.noContent().build()
   }
 
   private fun podBaseUrl(pod: String): String = "${config.apiBaseUrl}${pod}/"
