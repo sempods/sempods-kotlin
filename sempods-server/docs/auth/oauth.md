@@ -306,6 +306,7 @@ reports management-only permission, unlike a normal `#manage` grant; see
 |---|---|---|
 | [`contexts:manage`](#managing-contexts) reports management-only permission in the catalogue | `SPS-CTX-034`, `SPS-GRANT-009` | [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114) |
 | A pod without [context management](#managing-contexts) reports no `manageableContext` for a `#manage` grant, as the Context proposal recommends | `SPS-CTX-034` | [#499](https://github.com/sempods/sempods-kotlin/issues/499), sempods-spec#68 |
+| A pod without [context management](#managing-contexts) can hold no registered context: host provisioning creates none, as the Context proposal's empty registry allows | `SPS-CTX-028` | [#499](https://github.com/sempods/sempods-kotlin/issues/499), sempods-spec#68 |
 | Pod access tokens carry no `aud` claim ([sharp edge](operations.md#sharp-edges)) | `SPS-MCP-038` | — |
 | A [`did:web` service](service-clients.md#didweb-services) registers, and the pod reads its DID document for its keys | `SPS-AUTH-003`, `SPS-AUTH-007` | [sempods-spec#154](https://github.com/sempods/sempods-spec/issues/154) |
 
