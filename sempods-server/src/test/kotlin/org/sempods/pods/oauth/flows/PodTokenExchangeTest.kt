@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.contexts.ContextManagementSupport
 import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import com.google.inject.Inject
 import com.mongodb.client.MongoDatabase
@@ -158,6 +159,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
     managementAuthorities = managementAuthorities,
     webIdUriDeriver = injector.getInstance(WebIdUriDeriver::class.java),
     didWebAuthentication = injector.getInstance(DidWebClientAuthentication::class.java),
+    contextManagement = injector.getInstance(ContextManagementSupport::class.java),
   )
 
   private inner class GraceScenario(seconds: Int = 60) : AutoCloseable {
@@ -210,6 +212,7 @@ class PodTokenExchangeTest : SempodsStoreTest() {
       injector.getInstance(DynamicClientStore::class.java), injector.getInstance(PodTokenIssuer::class.java),
       serviceClients, managementAuthorities, injector.getInstance(WebIdUriDeriver::class.java),
       injector.getInstance(DidWebClientAuthentication::class.java),
+      injector.getInstance(ContextManagementSupport::class.java),
     )
     lateinit var result: PodTokenResult
     val lines = CapturedLog.linesFrom(PodTokenExchange::class.java) {

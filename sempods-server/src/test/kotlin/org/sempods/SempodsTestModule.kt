@@ -1,5 +1,6 @@
 package org.sempods
 
+import org.sempods.contexts.ContextManagementModule
 import org.sempods.api.pod.system.auth.DidWebAccessFlow
 import org.sempods.api.pod.system.auth.DidWebServiceFixture
 import org.sempods.pods.oauth.didweb.DidWebKeys
@@ -82,6 +83,10 @@ data class SempodsTestModule(
     install(PodAiSemWebModule(httpPort = config.httpPort))
 
     bindMediaForTests()
+
+    // As the sempods deployment installs it (`SempodsServerStarter`): the suite's lifecycle tests run
+    // against the module, and what a pod without it answers is pinned below the HTTP surface.
+    install(ContextManagementModule(httpPort = config.httpPort))
 
     // DID documents from memory, under portless identifiers a path segment can carry — see
     // `DidWebServiceFixture`. The HTTP fetch and its guard are tested on their own.

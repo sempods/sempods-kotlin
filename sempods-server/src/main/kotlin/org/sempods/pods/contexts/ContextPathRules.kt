@@ -9,8 +9,8 @@ import java.net.URI
 /**
  * What a caller may name a context, applied wherever one comes into existence.
  *
- * Two producers create contexts: the management route (`PodContextsEndpoint`, used by apps holding
- * a `#manage` scope) and the consent dialog (`PodAuthEndpoint`, used by the pod owner during an app
+ * Two producers create contexts: the lifecycle route (`PodContextLifecycleEndpoint` in
+ * `:sempods-context-management`, used by apps holding a `#manage` scope) and the consent dialog (`PodAuthEndpoint`, used by the pod owner during an app
  * authorization). They used to disagree about far more than naming — the dialog built IRIs straight
  * under the pod root from free user input while the route prefixed them — which is how a live pod
  * ended up carrying three different shapes. Both now mint

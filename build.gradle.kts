@@ -37,6 +37,7 @@ val publishedModules = listOf(
   "sempods-client",
   "sempods-client-media",
   "sempods-client-rdf4j",
+  "sempods-context-management",
   "sempods-control-plane-client",
   "sempods-mcp",
   "sempods-mcp-core",

@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.contexts.ContextManagementSupport
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.ConsentBinding
@@ -56,6 +57,7 @@ class PodAuthorizeFlow @Inject internal constructor(
   private val podScopeValidator: PodScopeValidator,
   private val appHoldings: PodAppHoldings,
   private val consentSelection: ConsentSelection,
+  private val contextManagement: ContextManagementSupport,
 ) {
 
   internal fun authorize(
@@ -207,6 +209,15 @@ class PodAuthorizeFlow @Inject internal constructor(
         return failed(
           redirectTarget, OAuthErrorCode.INVALID_SCOPE,
           "'${unrequestable.sorted().joinToString(" ")}' is granted only as a service's authority to manage this pod",
+          clientState,
+        )
+      }
+      // Known, but not served here: this pod has no context lifecycle for the scope to authorize.
+      val unserved = privilegedRequested - contextManagement.requestablePrivilegedScopes
+      if (unserved.isNotEmpty()) {
+        return failed(
+          redirectTarget, OAuthErrorCode.INVALID_SCOPE,
+          "'${unserved.sorted().joinToString(" ")}' is not served by this pod: it creates and deletes no contexts",
           clientState,
         )
       }

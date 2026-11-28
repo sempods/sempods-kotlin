@@ -5,8 +5,7 @@ import org.sempods.api.PodBaseEndpoint
 import org.sempods.SempodsConfig
 import com.google.inject.Inject
 import org.sempods.pods.PodFacade
-import org.sempods.pods.grants.OFFLINE_ACCESS_SCOPE
-import org.sempods.pods.grants.PodScopeValidator
+import org.sempods.pods.contexts.ContextManagementSupport
 import org.sempods.pods.mongo.persist.PodDbo
 import org.sempods.pods.oauth.didweb.DidWebClientAuthentication
 import jakarta.ws.rs.GET
@@ -52,9 +51,10 @@ import jakarta.ws.rs.core.Response
  * because this pod issues no `id_token`.
  */
 @Path("{pod}")
-class PodOAuthMetadataEndpoint @Inject constructor(
+class PodOAuthMetadataEndpoint @Inject internal constructor(
   private val podFacade: PodFacade,
   private val bearerRoutes: PodBearerRoutes,
+  private val contextManagement: ContextManagementSupport,
   private val config: SempodsConfig,
 ) : PodBaseEndpoint() {
 
@@ -66,6 +66,7 @@ class PodOAuthMetadataEndpoint @Inject constructor(
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
+      offered = contextManagement,
     )
   }
 
@@ -73,7 +74,7 @@ class PodOAuthMetadataEndpoint @Inject constructor(
   @Path(".well-known/oauth-authorization-server")
   @Produces(MediaType.APPLICATION_JSON)
   fun authorizationServerMetadata(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl)
+    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl, contextManagement)
 }
 
 /**
@@ -82,9 +83,10 @@ class PodOAuthMetadataEndpoint @Inject constructor(
  * pod-local ones on [PodOAuthMetadataEndpoint], each answering the same pod's metadata.
  */
 @Path(".well-known")
-class RootOAuthMetadataEndpoint @Inject constructor(
+class RootOAuthMetadataEndpoint @Inject internal constructor(
   private val podFacade: PodFacade,
   private val bearerRoutes: PodBearerRoutes,
+  private val contextManagement: ContextManagementSupport,
   private val config: SempodsConfig,
 ) : PodBaseEndpoint() {
 
@@ -92,7 +94,7 @@ class RootOAuthMetadataEndpoint @Inject constructor(
   @Path("oauth-authorization-server/{pod}")
   @Produces(MediaType.APPLICATION_JSON)
   fun authorizationServerMetadataForPod(@PathParam("pod") pod: String): Response =
-    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl)
+    buildAuthorizationServerMetadata(bearerRoutes.fetchPodOrThrow(pod), config.apiBaseUrl, contextManagement)
 
   @GET
   @Path("oauth-protected-resource/{pod}")
@@ -102,6 +104,7 @@ class RootOAuthMetadataEndpoint @Inject constructor(
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
+      offered = contextManagement,
     )
   }
 
@@ -118,23 +121,16 @@ class RootOAuthMetadataEndpoint @Inject constructor(
     return buildProtectedResourceMetadata(
       podDbo, config.apiBaseUrl,
       publicContextsCount = podFacade.getPublicContexts(podName = podDbo.name).size,
+      offered = contextManagement,
     )
   }
 }
-
-/**
- * RFC 9728 §2 and RFC 8414 §2 both call the field `scopes_supported`, and both mean this list. A
- * privileged scope no request may name is absent: it reaches a service only inside its management
- * authority, which `sempods_service_management_scopes` advertises.
- */
-private val SCOPES_SUPPORTED = PodScopeValidator.featureScopes.filter {
-  it !in PodScopeValidator.privilegedFeatureScopes || it in PodScopeValidator.requestablePrivilegedScopes
-} + OFFLINE_ACCESS_SCOPE
 
 internal fun buildProtectedResourceMetadata(
   pod: PodDbo,
   apiBaseUrl: String,
   publicContextsCount: Int,
+  offered: ContextManagementSupport,
 ): Response {
   val podBaseUrl = "$apiBaseUrl${pod.name}"
   // sempods extensions on top of RFC 9728 §3: optional `name` and always-present
@@ -145,7 +141,7 @@ internal fun buildProtectedResourceMetadata(
     "resource" to podBaseUrl,
     "authorization_servers" to listOf(podBaseUrl),
     "bearer_methods_supported" to listOf("header"),
-    "scopes_supported" to SCOPES_SUPPORTED,
+    "scopes_supported" to offered.scopesSupported,
     "public_contexts" to publicContextsCount,
   )
   pod.displayName?.takeIf { it.isNotBlank() }?.let { body["name"] = it }
@@ -155,6 +151,7 @@ internal fun buildProtectedResourceMetadata(
 internal fun buildAuthorizationServerMetadata(
   pod: PodDbo,
   apiBaseUrl: String,
+  offered: ContextManagementSupport,
 ): Response {
   val issuer = "$apiBaseUrl${pod.name}"
   val endpoints = "$issuer/_system/auth"
@@ -172,7 +169,7 @@ internal fun buildAuthorizationServerMetadata(
     // honestly. A service authenticates with `client_secret_basic`, or with `private_key_jwt` where
     // it registered under a `did:web` identifier.
     "grant_types_supported" to listOf("authorization_code", "refresh_token", "client_credentials"),
-    "scopes_supported" to SCOPES_SUPPORTED,
+    "scopes_supported" to offered.scopesSupported,
     "code_challenge_methods_supported" to listOf("S256"),
     "token_endpoint_auth_methods_supported" to listOf("none", "client_secret_basic", "private_key_jwt"),
     // RFC 8414 §2: the algorithms a `private_key_jwt` assertion may be signed with.
@@ -185,7 +182,7 @@ internal fun buildAuthorizationServerMetadata(
     "sempods_service_consent_endpoint" to "$endpoints/service-consent",
     // Another: the scopes a service client's lasting management authority puts in its tokens,
     // granted at that endpoint with `authority=manage`. A pod without it offers no such authority.
-    "sempods_service_management_scopes" to PodScopeValidator.serviceManagementScopes.sorted(),
+    "sempods_service_management_scopes" to offered.serviceManagementScopes.sorted(),
   )
   return Response.ok(body).build()
 }

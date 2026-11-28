@@ -176,6 +176,22 @@ class PodContextsEndpointHttpTest : SempodsIntegrationTest() {
   }
 
   @Test
+  fun `a method the registry path does not serve is 405, as PUT and DELETE are on a pod without context management`() {
+    val pod = sempodsTestFactory.newPod(ownerUser = sempodsTestFactory.newOwner())
+    val token = mintContextsManagerToken(pod.name, pod.owner)
+
+    // The core serves the reads, `:sempods-context-management` the lifecycle, on one path. A pod that
+    // leaves the module out answers its two methods as Jersey answers any method a path lacks.
+    val response = http.prepare("PATCH", contextManageUrl(pod.name, "apps/example/tasks"))
+      .addHeader("Authorization", "Bearer $token")
+      .addHeader("Content-Type", "application/json")
+      .setBody("{}")
+      .execute()
+
+    assertEquals(405, response.statusCode, "body=${response.responseBody}")
+  }
+
+  @Test
   fun `get returns 404 for an unknown context`() {
     val ownerUser = sempodsTestFactory.newOwner()
     val pod = sempodsTestFactory.newPod(ownerUser = ownerUser)

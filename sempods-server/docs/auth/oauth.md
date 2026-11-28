@@ -121,7 +121,7 @@ grant no access. Feature scopes select these other capabilities:
 | `public-read` | [Public-context access](#public-read-flow) |
 | `offline_access` | Preselect the [durable connection option](connections.md#offline_access) |
 | `service-clients:manage` | Register services and decide their context access |
-| `contexts:manage` | Create and delete contexts as the owner, with no data-read permission |
+| `contexts:manage` | Create and delete contexts as the owner, with no data-read permission. Only where the pod [serves that](#managing-contexts) |
 
 `grants:manage` is refused here with `invalid_scope`: only a service's
 [management authority](service-clients.md#managing-a-pod-as-a-service) carries it.
@@ -279,6 +279,14 @@ describe operations and version checks.
 
 ## Managing contexts
 
+Creating and deleting contexts is the specification's optional `context-management` module, served
+by the `:sempods-context-management` module beside the server. The sempods deployment installs it.
+A pod without it serves the catalogue and the descriptions alone: `PUT` and `DELETE` on a context
+answer `405`, `/authorize` refuses `contexts:manage` with `invalid_scope`, the scope is in neither
+`scopes_supported` nor `sempods_service_management_scopes`, and the catalogue reports no
+`manageableContext`, also not for a `#manage` grant, which keeps covering writes and sub-contexts.
+The rest of this section describes a pod that serves it.
+
 Request `contexts:manage` through owner consent to create or delete any context using
 `PUT` or `DELETE /_system/contexts/{path}`. It follows the same authority rules as service management.
 An ordinary app, including the owner's app, can only manage contexts covered by its `#manage` grants.
@@ -296,6 +304,7 @@ reports management-only permission, unlike a normal `#manage` grant; see
 | Behavior | Deviates from | Tracked in |
 |---|---|---|
 | [`contexts:manage`](#managing-contexts) reports management-only permission in the catalogue | `SPS-CTX-034`, `SPS-GRANT-009` | [sempods-spec#114](https://github.com/sempods/sempods-spec/issues/114) |
+| A pod without [context management](#managing-contexts) reports no `manageableContext` for a `#manage` grant, as the Context proposal recommends | `SPS-CTX-034` | [#499](https://github.com/sempods/sempods-kotlin/issues/499), sempods-spec#68 |
 | Pod access tokens carry no `aud` claim ([sharp edge](operations.md#sharp-edges)) | `SPS-MCP-038` | — |
 | A [`did:web` service](service-clients.md#didweb-services) registers, and the pod reads its DID document for its keys | `SPS-AUTH-003`, `SPS-AUTH-007` | [sempods-spec#154](https://github.com/sempods/sempods-spec/issues/154) |
 

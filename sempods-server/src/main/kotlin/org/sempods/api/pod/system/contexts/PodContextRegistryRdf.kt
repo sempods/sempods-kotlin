@@ -52,8 +52,16 @@ internal object PodContextRegistryRdf {
     return model
   }
 
-  /** The caller's catalogue: every registered context they may see, with what they may do (`SPS-CTX-033`). */
-  fun catalogue(podBaseUrl: String, rows: List<PodContextDbo>, effective: EffectiveContextPermissions): Model {
+  /**
+   * The caller's catalogue: every registered context they may see, with what they may do (`SPS-CTX-033`).
+   *
+   * [manageable] is whether this pod serves context creation and deletion. Without that module no
+   * context is `manageableContext`, whatever the caller's grants: the relation promises a lifecycle,
+   * as the Context proposal recommends (sempods-spec `docs/proposals/context-contract.md` §"Caller
+   * access summary"). This deviates from the current `SPS-CTX-034`, which reports a `#manage` grant
+   * as manageable on every pod.
+   */
+  fun catalogue(podBaseUrl: String, rows: List<PodContextDbo>, effective: EffectiveContextPermissions, manageable: Boolean): Model {
     val catalogue = catalogueIri(podBaseUrl)
     val model = LinkedHashModel()
     model.add(catalogue, RDF.TYPE, SD.GRAPH_COLLECTION)
@@ -65,7 +73,7 @@ internal object PodContextRegistryRdf {
       val context = Values.iri(row.contextUri)
       if ("read" in permissions) model.add(catalogue, READABLE_CONTEXT, context)
       if ("write" in permissions) model.add(catalogue, WRITABLE_CONTEXT, context)
-      if ("manage" in permissions) model.add(catalogue, MANAGEABLE_CONTEXT, context)
+      if (manageable && "manage" in permissions) model.add(catalogue, MANAGEABLE_CONTEXT, context)
     }
     return model
   }

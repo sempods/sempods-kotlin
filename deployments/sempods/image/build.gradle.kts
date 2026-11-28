@@ -23,6 +23,10 @@ dependencies {
   // dependency runs sibling→seam, so the choice can only be made by whoever holds both.
   implementation(project(":sempods-media-s3"))
 
+  // Context creation and deletion, the spec's optional `context-management` module. This deployment
+  // serves it; one that leaves it out serves the registry's reads alone.
+  implementation(project(":sempods-context-management"))
+
   // implementation libs
   // `SempodsServerStarter` builds and starts the Jetty `Server` itself; Jersey rides on that
   // connector without this composition naming a Jersey type. `:sempods-commons-jaxrs` is absent because

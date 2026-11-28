@@ -1,5 +1,6 @@
 package org.sempods.pods.oauth.flows
 
+import org.sempods.pods.contexts.ContextManagementSupport
 import com.google.inject.Inject
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.sempods.auth.ConsentBinding
@@ -51,6 +52,7 @@ class PodServiceConsentFlow @Inject internal constructor(
   private val consentSelection: ConsentSelection,
   private val signIn: PodSignIn,
   private val podSignOut: PodSignOut,
+  private val contextManagement: ContextManagementSupport,
 ) {
 
   /** Renders the dialog, parks the request behind a sign-in, or answers with a page. */
@@ -133,6 +135,7 @@ class PodServiceConsentFlow @Inject internal constructor(
         management = management,
         // An authority a former owner granted has ended: the person here now is asked afresh.
         managementHeld = registration.management?.let { podGrantsFacade.isPodOwner(pod, it.subjectUris) } == true,
+        contextLifecycle = contextManagement.offered,
       ),
     )
   }
@@ -354,6 +357,8 @@ internal data class PodServiceConsentScreen(
   val webId: String,
   val management: Boolean = false,
   val managementHeld: Boolean = false,
+  /** Whether the management authority covers creating and deleting contexts: only where this pod serves them. */
+  val contextLifecycle: Boolean = true,
 )
 
 /** What the service consent answers. */

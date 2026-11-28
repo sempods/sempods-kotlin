@@ -223,6 +223,20 @@ could. Only `SempodsMediaModule` in `:deployments:sempods:image` holds both, so 
 A third party embedding `:sempods-server` writes the same handful of lines in its own composition, which is
 the sibling-module principle behaving as intended rather than a gap.
 
+**An optional spec module is a sibling too.** Creating and deleting contexts, the specification's
+optional `context-management` module, ships as `:sempods-context-management`. The server keeps the
+registry's reads, and the module adds `PUT` and `DELETE` on the same path. Its
+`ContextManagementModule` sets a Guice `OptionalBinder` the server declares
+(`ContextManagementInstalled`), and the server reads that one signal to decide what it advertises:
+without the module there is no `contexts:manage` to request and no `manageableContext` in the
+catalogue ([Managing contexts](../../sempods-server/docs/auth/oauth.md#managing-contexts)). Who
+may manage a context and what deleting one removes stay in the server, because they are its grant
+model and its cascade, and the consent dialog creates contexts too. So the module adds the wire
+surface and the naming rules on creation; having contexts at all stays with the server. What it calls is public
+but marked `ExperimentalSempodsServerApi`, an opt-in annotation: these modules are being cut one at
+a time under [#139](https://github.com/sempods/sempods-kotlin/issues/139), and their surface on the
+server changes with each cut.
+
 ## Open-source readiness
 
 The publication boundary is checked through dependency analysis and consumer probes.

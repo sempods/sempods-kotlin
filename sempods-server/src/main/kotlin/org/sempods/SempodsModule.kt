@@ -9,6 +9,10 @@ import com.google.inject.Provider
 import com.google.inject.Provides
 import com.google.inject.Singleton
 import com.google.inject.multibindings.Multibinder
+import com.google.inject.multibindings.OptionalBinder
+import org.sempods.api.pod.system.contexts.PodContextLifecycleRoutes
+import org.sempods.pods.contexts.ContextManagementInstalled
+import org.sempods.pods.contexts.ContextManagementSupport
 import com.google.inject.name.Named
 import com.google.inject.name.Names
 import com.mongodb.client.MongoDatabase
@@ -215,6 +219,12 @@ class SempodsModule : BaseModule() {
     bind<BearerPodRequestAuthenticator>().asSingleton()
     bind<PodRequestAuthenticator>().to(BearerPodRequestAuthenticator::class.java)
     bind<PodBearerRoutes>().asSingleton()
+    // Whether context creation and deletion are served: `:sempods-context-management` sets the
+    // marker, and without it nothing here advertises a lifecycle (`ContextManagementSupport`). The
+    // helper its routes call is bound either way, like the dialog's creation, which is the core's.
+    OptionalBinder.newOptionalBinder(binder(), ContextManagementInstalled::class.java)
+    bind<ContextManagementSupport>().asSingleton()
+    bind<PodContextLifecycleRoutes>().asSingleton()
     // In-memory per process, so its budget is per replica — see the class for the key.
     bind<PodTokenRateLimiter>().asSingleton()
     bind<PodRegistrationRateLimiter>().asSingleton()

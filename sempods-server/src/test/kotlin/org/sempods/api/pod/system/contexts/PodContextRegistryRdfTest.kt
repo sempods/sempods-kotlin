@@ -99,6 +99,7 @@ class PodContextRegistryRdfTest {
       podBaseUrl = podBaseUrl,
       rows = listOf(row(tasks), row(notes)),
       effective = visible(tasks to listOf("read", "write"), notes to listOf("read")),
+      manageable = true,
     )
     val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
 
@@ -125,6 +126,7 @@ class PodContextRegistryRdfTest {
       podBaseUrl = podBaseUrl,
       rows = listOf(row(tasks)),
       effective = visible(tasks to listOf("read", "write", "manage")),
+      manageable = true,
     )
     val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
 
@@ -138,6 +140,21 @@ class PodContextRegistryRdfTest {
   }
 
   @Test
+  fun `without the lifecycle module a manage grant is no manageable context, and still reads and writes`() {
+    val model = PodContextRegistryRdf.catalogue(
+      podBaseUrl = podBaseUrl,
+      rows = listOf(row(tasks)),
+      effective = visible(tasks to listOf("read", "write", "manage")),
+      manageable = false,
+    )
+    val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
+
+    assertTrue(model.filter(catalogue, Values.iri(SempodsVocabulary.MANAGEABLE_CONTEXT), null).isEmpty())
+    assertEquals(setOf(Values.iri(tasks)), model.filter(catalogue, Values.iri(SempodsVocabulary.READABLE_CONTEXT), null).objects().toSet())
+    assertEquals(setOf(Values.iri(tasks)), model.filter(catalogue, Values.iri(SempodsVocabulary.WRITABLE_CONTEXT), null).objects().toSet())
+  }
+
+  @Test
   fun `the owner's registry authority is stated as manage alone`() {
     val model = PodContextRegistryRdf.catalogue(
       podBaseUrl = podBaseUrl,
@@ -146,6 +163,7 @@ class PodContextRegistryRdfTest {
         byContext = listOf(tasks, notes).associateWith { ContextPermissionEntry(it, listOf("manage"), ContextPermissionSource.OWNER) },
         writableContexts = emptyList(),
       ),
+      manageable = true,
     )
     val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
 
@@ -164,6 +182,7 @@ class PodContextRegistryRdfTest {
       // but invisible to this caller.
       rows = listOf(row(tasks)),
       effective = visible(notes to listOf("read", "write")),
+      manageable = true,
     )
     val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
 
@@ -174,7 +193,7 @@ class PodContextRegistryRdfTest {
 
   @Test
   fun `an empty catalogue is still the collection it is`() {
-    val model = PodContextRegistryRdf.catalogue(podBaseUrl, rows = emptyList(), effective = visible())
+    val model = PodContextRegistryRdf.catalogue(podBaseUrl, rows = emptyList(), effective = visible(), manageable = true)
     val catalogue = PodContextRegistryRdf.catalogueIri(podBaseUrl)
 
     assertEquals(1, model.size)

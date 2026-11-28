@@ -69,9 +69,11 @@
     <div class="authority" id="authority">
       <p>It acts without you, until you remove it. It can:</p>
       <ul>
-        <li>see the name of every context on your pod,</li>
-        <li>create contexts,</li>
-        <li>delete contexts, with everything in them,</li>
+        <th:block th:if="${contextLifecycle}">
+          <li>see the name of every context on your pod,</li>
+          <li>create contexts,</li>
+          <li>delete contexts, with everything in them,</li>
+        </th:block>
         <li>see the grants people, apps and services hold on each context, and withdraw them.</li>
       </ul>
       <p class="note">

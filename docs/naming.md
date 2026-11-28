@@ -186,7 +186,7 @@ one; only a module that ships under these coordinates has to.
 Under `org.sempods`, `sempods-commons` keeps its own segment (`org.sempods.commons.*`); the pod server and
 its siblings sit directly under `org.sempods.*` (`org.sempods.pods`, `org.sempods.auth`,
 `org.sempods.mcp`, `org.sempods.client`, `org.sempods.client.media`,
-`org.sempods.client.rdf4j`, `org.sempods.controlplane`, `org.sempods.management`).
+`org.sempods.client.rdf4j`, `org.sempods.controlplane`, `org.sempods.management`, `org.sempods.contexts`).
 
 **A module name is not a package name here.** `sempods-server` holds `org.sempods.pods`,
 `sempods-model` holds `org.sempods.spec`, `org.sempods.ontologies` and `org.sempods.rdf`, and where
